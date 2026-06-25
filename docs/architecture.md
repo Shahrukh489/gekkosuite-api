@@ -14,188 +14,211 @@ We serve small and mid-size businesses running a multi-store POS. A typical orga
 
 # FAQ
 
-### How will each store keep its own product without conflicts in other stores?
+### How does each store keep its own products without clashing with other stores?
 
-Every product row carries a `store_id`. That column is the isolation — a product belongs to exactly one store, and every query filters by `store_id`.
+**Short answer:** every product belongs to exactly one store. The same item in two stores is simply two separate rows.
+
+Each product row carries a `store_id`. That single column keeps stores apart — when Store A loads its products, it only ever asks for rows where `store_id = StoreA`, so it can never see or touch Store B's products.
+
+Even if two stores sell the *same* item with the same SKU, they each get their own row:
 
 ```
 Store_Product
- store_product_id  store_id  sku       name
- ----------------  --------  --------  ------
- 101               StoreA    SKU-123   Coke
- 102               StoreB    SKU-123   Coke
+ store_product_id  store_id  sku       name   price
+ ----------------  --------  --------  -----  -----
+ 101               StoreA    SKU-123   Coke   1.50
+ 102               StoreB    SKU-123   Coke   1.75   <- same SKU, own row, own price
 ```
 
-The same SKU in two stores is just two separate rows — no conflict. Store A only ever sees `store_id = StoreA`. They never collide because the unique key is `store_product_id` (per row), not the SKU.
+Within a single store a SKU can't be listed twice (enforced by a unique rule on `store_id` + `sku`), but other stores are free to use that same SKU. So stores stay fully independent and can price the same product differently.
 
-SKU is unique **within** a store via a unique index on `(store_id, sku)`: a store can't list the same SKU twice, but other stores still can.
+### How does an organization owner see everything across all stores?
 
-### How will an organization owner see products, users, roles, orders, returns across all stores?
+**Short answer:** we don't keep a separate org-wide copy. The owner's data is gathered live by listing the org's stores and reading from each.
 
-There is no org-level copy of this data, so the owner sees it by **federated read**: org → its stores → their rows. Every store has `organization_id`, and every store-owned row has `store_id`, so:
+Every store knows its org (`Store.organization_id`), and every store-owned row knows its store (`store_id`). So "show me everything in the org" is two steps: find the org's stores, then read the rows for those stores.
 
 ```sql
--- Stores in org
-Store         WHERE organization_id = org_1   -- -> [StoreA, StoreB, StoreC]
--- All products
-Store_Product WHERE store_id IN (StoreA, StoreB, StoreC)
--- All orders
-Store_Order   WHERE store_id IN (...)
--- All returns
-Store_Return  WHERE store_id IN (...)
+-- Step 1: which stores belong to this org?
+SELECT store_id FROM Store WHERE organization_id = 'org_1';
+-- -> ['StoreA', 'StoreB', 'StoreC']
+
+-- Step 2: read whatever you need for those stores
+SELECT * FROM Store_Product WHERE store_id IN ('StoreA', 'StoreB', 'StoreC');
+SELECT * FROM Store_Order   WHERE store_id IN ('StoreA', 'StoreB', 'StoreC');
 ```
 
-Same pattern for every entity. If this gets slow later, add a read-optimized layer (materialized view / search index); the source of truth stays per-store.
+The same two steps work for orders, returns, customers, and staff. We chose this over copying data up to the org so there's only ever **one source of truth** (the store) and nothing to keep in sync. At our scale (~100 stores) this is fast. If it ever slows down, we can add a pre-built read copy (a search index or summary table) without changing where the real data lives.
 
-### How does one user belong to multiple stores?
+### How do we know *what* and *where* a user has access to?
 
-One user, one account. Belonging is expressed through `Membership` — **one row per place the user is granted a role**: `user_id` is the principal (who), `role_id` is the set of permissions (what they can do), and `resource_id` is the resource the grant is scoped to (the store or org). The role's `resource_type` says whether `resource_id` points at a STORE or the ORG.
+**Short answer:** one endpoint (called right after login) returns every place the user belongs to — their org and their stores — with the exact permissions they have at each place.
 
-```
-Membership
- user_id  role_id    resource_id   (role.resource_type)
- -------  ---------  -----------   --------------------
- John     Cashier    StoreA         STORE
- John     Manager    StoreB         STORE
-```
+A user's access is two things together: the **place** (a store, or the org) and **what they can do there**. We never look at these separately, because the same permission can mean different things at different places. For example, John can refund at Store B but not at Store A — so "can John refund?" only makes sense when you also say *where*.
 
-To put John in a third store, insert one more row. To remove him from StoreB, delete that one row — his account is untouched. So a user belongs to as many stores as they have store memberships, each with its own role.
-
-### How do we know which store or org a user belongs to?
-
-Read the user's `Membership` rows. Each row's `resource_id` is the store or org they belong to, and the joined `Role.resource_type` says which kind:
+**Where the data comes from.** Two membership tables tell us the places: `Store_Membership` (their stores) and `Organization_Membership` (their org). From each membership we follow its role to that role's permissions. We read both tables and keep the place attached to every permission:
 
 ```sql
-SELECT m.resource_id, r.resource_type
-FROM Membership m JOIN Role r ON r.role_id = m.role_id
-WHERE m.user_id = John
--- StoreA / STORE,  StoreB / STORE   -> John belongs to StoreA and StoreB
+-- store-level access
+SELECT sm.store_id AS place, p.name AS permission
+FROM Store_Membership sm
+JOIN Role_Permission rp ON rp.role_id = sm.role_id
+JOIN Permission p       ON p.permission_id = rp.permission_id
+WHERE sm.user_id = 'John'
+
+UNION ALL
+
+-- org-level access
+SELECT om.organization_id AS place, p.name AS permission
+FROM Organization_Membership om
+JOIN Role_Permission rp ON rp.role_id = om.role_id
+JOIN Permission p       ON p.permission_id = rp.permission_id
+WHERE om.user_id = 'John';
 ```
 
-`resource_id` is **never null** — an org-level grant points at the org itself (org *is* the resource), so there's no ambiguous "null means no access" reading.
+(The UNION here is honest — it combines two genuinely different lists, org access and store access — not a workaround for an ambiguous column.)
 
-### How do we know if a user has organization level permissions?
+**What the endpoint returns.** A single response listing the org and each store, with names, roles, and the permissions at each place — everything the UI needs to draw the app:
 
-Org-level access is just a membership whose role has `resource_type = ORG`. One condition, no scanning every store:
-
-```sql
-SELECT 1
-FROM Membership m JOIN Role r ON r.role_id = m.role_id
-WHERE m.user_id = Owner AND r.resource_type = 'ORG'
+```http
+GET /me/access
 ```
 
+```json
+{
+  "user": { "user_id": "John", "name": "John" },
+  "organization": {
+    "id": "org_1",
+    "name": "Acme Inc",
+    "role": "RootAdmin",
+    "permissions": ["organization:read"]
+  },
+  "stores": [
+    {
+      "id": "StoreA",
+      "name": "Acme Seattle",
+      "role": "Cashier",
+      "permissions": ["store:read", "store:sell"]
+    },
+    {
+      "id": "StoreB",
+      "name": "Acme Portland",
+      "role": "Manager",
+      "permissions": ["store:read", "store:sell", "store:refund"]
+    }
+  ]
+}
 ```
-Membership
- user_id  role_id     resource_id   (role.resource_type)
- -------  ----------  -----------   --------------------
- Owner    RootAdmin   org_1          ORG     <- org-level: authority over the whole org
- John     Cashier     StoreA         STORE   <- store-level only
+
+From this one payload the UI knows the user's org and stores (for the workspace switcher) and exactly which buttons to show at each (from the per-place permissions).
+
+**Checking a single action.** With that data loaded, the app offers one helper, `can(action, place)`, where `place` is the org id or a store id:
+
+```
+can("store:refund",      "StoreB")  -> true    (Manager there)
+can("store:refund",      "StoreA")  -> false   (only Cashier there)
+can("organization:read", "org_1")   -> true    (granted at the org)
 ```
 
-If the user has any `resource_type = ORG` membership, they operate at the organization level (e.g. RootAdmin over `org_1`); otherwise they're store staff.
+Because the place is always part of the check, a permission earned at one store (or at the org) can never leak somewhere it wasn't granted.
 
-### How do we allow a store admin or organization admin to create custom roles?
+### How can an admin create their own custom roles?
 
-The `Role` table holds both the global roles we ship and custom roles companies create. They're told apart by `organization_id`: **null = global (we own it)**, otherwise the role belongs to that organization. Managed and custom roles are the same entity distinguished by one owner field — not separate tables.
+**Short answer:** custom roles live in the same `Role` table as our built-in ones; two columns mark who owns each role.
+
+- `is_managed` — `true` means **we** built and maintain it; `false` means a customer made it.
+- `organization_id` — empty for our global roles; set to the owning org for custom ones.
 
 ```
 Role
- role_id  name           organization_id   -- null = global
- -------  -------------  ----------------
- 1        RootAdmin      null               <- global, shipped by us
- 4        Cashier        null               <- global
- 50       NightManager   org_1              <- custom, made by org_1's admin
+ role_id  name          is_managed  organization_id   notes
+ -------  -----------   ----------  ----------------  --------------------------
+ 1        RootAdmin     true        (none)            global, ships with the app
+ 4        Cashier       true        (none)            global
+ 50       NightManager  false       org_1             custom, created by org_1
 ```
 
-Creating a custom role = inserting a `Role` row with `organization_id` set to that admin's organization, then attaching permissions via `Role_Permission`. Custom roles are invisible to other orgs (filtered by `organization_id`). Role names are unique per owner via `(name, organization_id)`; store and org roles never overlap, so no separate scope column is needed.
+To create a custom role, an admin inserts a `Role` row (`is_managed = false`, their `organization_id`) and picks its permissions in `Role_Permission`. That role is visible only to their org. Role names only need to be unique per owner, so two different orgs can each have a "Manager" role without clashing.
 
-**Example — org_1 wants its own version of the global Root Admin.** It does *not* edit the global role. It creates its own role with `organization_id` populated and assigns its members to that instead:
+### What happens to existing users when we change a global role's permissions?
+
+**Short answer:** the change applies to everyone with that role immediately — because permissions are looked up through the role, not copied onto each user.
+
+A user doesn't store a snapshot of permissions; they point at a role, and the role points at its permissions. So if we edit a global (`is_managed = true`) role, the next permission check for **every** user with that role — in every org — sees the new rules. Nothing to re-sync.
+
+That's powerful, so two product rules soften it:
+
+1. **Warn on assignment.** When an admin picks a global role, the UI notes that we manage it and its permissions may change over time.
+2. **Offer "Clone."** An admin can copy a global role's permissions into a new custom role (`is_managed = false`, their org). They assign the copy instead, which freezes it from our future changes and lets them edit it freely.
+
+**Example — org_1 wants a Root Admin it controls.** It clones, rather than editing the global one:
 
 ```
 Role
- role_id  name         organization_id   -- null = global
- -------  -----------  ----------------
- 1        RootAdmin    null               <- global, untouched, still shared by everyone else
- 60       RoleAdmin    org_1              <- org_1's custom role with its own permissions
-
-Role_Permission
- role_id  permission_id
- -------  -------------
- 1        ...           <- global Root Admin's permissions (unchanged)
- 60       manage_stores <- org_1's chosen permissions for RoleAdmin
- 60       view_reports
+ role_id  name        is_managed  organization_id
+ -------  ---------   ----------  ----------------
+ 1        RootAdmin   true        (none)            <- global, still shared, untouched
+ 60       RoleAdmin   false       org_1             <- org_1's own copy, edits freely
 ```
 
-Now org_1's members point at role 60 (`RoleAdmin`). Their permissions are fully their own, and the global `RootAdmin` (role 1) is unaffected for every other organization.
+org_1 assigns its members to role 60. The global Root Admin keeps working unchanged for every other org.
 
-### If a user has a Global role, what happens when we update the permissions of that role?
+### How do we tell apart tables we own vs. tables customers fill?
 
-Permissions link to the role through `Role_Permission` (not copied onto users), so updating a **managed** role (`is_managed = true`) instantly applies to every existing user who has that role, across all orgs — there's nothing to propagate. The next permission check sees the new rules.
+**Short answer:** by the table's job. Some tables only we write to, some only customers, and one (`Role`) is shared and marked by `is_managed`.
 
-```
-Managed Role "RootAdmin" --< Role_Permission >-- Permissions
-        ^                                            ^
-   existing users               we edit here = everyone updates at once
-   point at this role
-```
+| Kind | Who creates rows | Tables |
+|------|------------------|--------|
+| **Ours only** | Only us | `Plan`, `Feature`, `Permission` — customers just reference these |
+| **Shared** | Both | `Role` — `is_managed = true` is ours, otherwise it's a customer's custom role |
+| **Customer-owned** | Customers | `Organization`, `Store`, and every `Store_*` table |
 
-Two product decisions follow from this:
+So for any row, "who owns this?" is answered by which table it's in — and for the one shared table, by its `is_managed` flag.
 
-1. **Warn at assignment time.** When an admin assigns a managed role, the UI tells them this role is managed by us and its permissions may change in the future (and those changes will apply to their users automatically).
+### How does an organization get the features included in its plan?
 
-2. **Offer "Clone".** Give a UI action to clone a managed role's permissions into a new custom role (`is_managed = false`, their `organization_id`). The org assigns the clone instead, so it's frozen from our updates and they can edit it freely. The clone shadows the managed role of the same name (resolved via `(name, organization_id)`), leaving the managed role untouched for every other org.
-
-### How do we distinguish global tables (we own them) vs custom company tables?
-
-Three tiers, decided by the table category (and for the one shared table, by `is_managed` / `organization_id`):
-
-1. **Global-only tables** — only *we* ever insert; customers only reference them. No owner column: `Plan`, `Feature`, `Permission`.
-2. **Shared table** — both we *and* customers insert: `Role`. Told apart by `is_managed` (true = we manage it, `organization_id` null) vs custom (`is_managed` false, `organization_id` set).
-3. **Company-owned tables** — always belong to a tenant and always carry an org/store id: `Organization`, `Store`, and all `Store_*`.
+**Short answer:** features come through the plan, not the org. The org picks one plan; the plan lists its features.
 
 ```
-Global-only  (no owner col):   Plan, Feature, Permission
-Shared       (is_managed):     Role        -- managed = ours, else org's custom
-Company-owned (org/store id):  Organization, Store, Store_Product, Store_Order, ...
+Organization ──(plan_id)──> Plan ──< Plan_Feature >── Feature
 ```
 
-### How does an organization get features for their plan?
-
-The chain is **Organization → Plan → Features**. The org points at a plan (`Organization.plan_id`), and the plan is linked to its features via `Plan_Feature`. Features aren't attached to the org directly — you always go through the plan.
+To find an org's features, follow its plan:
 
 ```
-Organization.plan_id ──> Plan ──< Plan_Feature >── Feature
-
-org_1 (plan_id = Pro)
-   Pro --< Plan_Feature >-- [multi_store, reports, returns]
-   => org_1 has: multi_store, reports, returns
+org_1 is on the "Pro" plan
+Pro includes -> [multi_store, reports, returns]
+=> org_1 has: multi_store, reports, returns
 ```
 
-A feature check ("can org_1 use reports?") = does the org's plan include that feature in `Plan_Feature`.
+A feature check ("can org_1 use reports?") just asks whether its plan includes that feature.
 
-**One plan per org.** `plan_id` lives on the `Organization` row, so each org has exactly one plan at a time. (If we ever need plan history or multiple plans, we'd reintroduce a separate `Organization_Plan` table.)
+**One plan per org** — `plan_id` sits on the `Organization` row, so an org has exactly one plan at a time. (If we later need plan history, we'd add a separate table for it.)
 
-**Adding features is easy and propagates automatically.** Because features are resolved through the plan at read time (not copied onto each org), adding a feature to a plan is a single `Plan_Feature` insert, and **every org on that plan instantly gains it** — no per-org updates. Removing a feature from a plan removes it for all those orgs the same way.
-
-```
-Add "AI Analytics" to the Pro plan:
-   INSERT Plan_Feature(Pro, AI Analytics)
-   => every org with plan_id = Pro now has "AI Analytics", automatically
-```
-
-### (Optional) Can we add products, users and orders to store at root org level or must be logged into store to do?
-(**pending**)
-
-### (Optional) How can one store search other store products in read-only?
-
-Same federated-read mechanism as Q2, scoped to products and **gated by permission**. A store still owns its own rows; "search other stores" is just a read across sibling stores in the same org, allowed only if the user's role grants it.
+**New features spread automatically.** Because features are read through the plan (never copied onto each org), adding one is a single insert into `Plan_Feature`, and **every org on that plan gains it at once**:
 
 ```sql
--- Sibling stores in the same org
-Store WHERE organization_id = (the user's store's org)   -- -> [StoreA, StoreB, StoreC]
-
--- Cross-store product search (read-only)
-Store_Product WHERE store_id IN (those stores) AND name ILIKE '%coke%'
+INSERT INTO Plan_Feature (plan_id, feature_id) VALUES ('Pro', 'ai_analytics');
+-- Every organization on the Pro plan now has AI Analytics, instantly.
 ```
 
-Read-only is enforced two ways: a **permission** such as `product:read_cross_store` on the role, and the query only ever `SELECT`s from other stores — never writes. Later, the same read-optimized layer from Q2 (materialized view / search index) speeds it up.
+### (Optional) Can products, users and orders be created at the org level, or must you be in a specific store?
+
+*(pending — product decision)*
+
+### (Optional) Can one store search another store's products, read-only?
+
+**Short answer:** yes, if the user has permission. It's the same "list the org's stores, then read" approach, limited to reading.
+
+```sql
+-- Stores in the same org as the current user
+SELECT store_id FROM Store WHERE organization_id = 'org_1';
+
+-- Search products across those stores (read-only)
+SELECT store_id, name, price
+FROM Store_Product
+WHERE store_id IN ('StoreA', 'StoreB', 'StoreC')
+  AND name ILIKE '%coke%';
+```
+
+Two things keep it safe: the user must hold a permission like `product:read_cross_store`, and the query only ever **reads** other stores — it never writes to them. Each store still fully owns its own products.
