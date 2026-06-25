@@ -2,10 +2,9 @@
 
 ## Auth / RBAC
 - User(user_id, email, name, phone, password_hash)
-- Organization_Membership(org_membership_id, user_id, role_id, organization_id)   -- grants a user a role at the org level
-- Store_Membership(store_membership_id, user_id, role_id, store_id)   -- grants a user a role at one store
-- Role(role_id, name, organization_id, is_managed, description)   -- is_managed=true: global, we manage it (organization_id null); is_managed=false: custom, owned by organization_id; unique (name, organization_id)
-- Permission(permission_id, name, subject, action)   -- subject:action, e.g. store:refund, organization:edit (subject implies the level)
+- Membership(membership_id, user_id, role_id, resource_id)   -- resource_id = the org_id or store_id this grant applies to (the "where"); never null
+- Role(role_id, name, organization_id, is_managed, description)   -- is_managed=true: global, we manage it (organization_id null); is_managed=false: custom, owned by an organization (custom roles are org-level only); unique (name, organization_id)
+- Permission(permission_id, name, subject, action)
 - Role_Permission(role_id, permission_id)
 
 ## Plans / Features
