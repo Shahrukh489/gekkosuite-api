@@ -3,12 +3,12 @@
 PostgreSQL `CREATE TABLE` statements. Only keys and structurally-important fields are
 included; descriptive columns (name, description, address, etc.) are added later.
 
-Note: `app_user` is used instead of `user` because `user` is a reserved word in Postgres.
+Note: `user` is a reserved word in Postgres, so the table name is quoted as `"user"` in DDL.
 
-### Auth / RBAC
+## Auth / RBAC
 
 ```sql
-CREATE TABLE app_user (
+CREATE TABLE "user" (
     user_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
 );
 
@@ -33,7 +33,7 @@ CREATE TABLE permission (
 
 CREATE TABLE user_role (
     user_role_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id         BIGINT NOT NULL REFERENCES app_user (user_id),
+    user_id         BIGINT NOT NULL REFERENCES "user" (user_id),
     role_id         BIGINT NOT NULL REFERENCES role (role_id),
     organization_id BIGINT REFERENCES organization (organization_id),
     store_id        BIGINT REFERENCES store (store_id),
@@ -48,7 +48,7 @@ CREATE TABLE role_permission (
 );
 ```
 
-### Plans / Features
+## Plans / Features
 
 ```sql
 CREATE TABLE plan (
@@ -66,17 +66,17 @@ CREATE TABLE plan_feature (
 );
 ```
 
-### Organization
+## Organization
 
 ```sql
 CREATE TABLE organization (
     organization_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     plan_id         BIGINT REFERENCES plan (plan_id),
-    owner_user_id   BIGINT REFERENCES app_user (user_id)
+    owner_user_id   BIGINT REFERENCES "user" (user_id)
 );
 ```
 
-### Store
+## Store
 
 ```sql
 CREATE TABLE store (
@@ -128,36 +128,30 @@ CREATE TABLE product_return_product (
 
 # ER Diagrams
 
-### Organization
+One diagram per entity, showing that entity's own relationships. Legend: `}o--||` means **many-to-one** — the crow's-foot (`}o`) side is the "many," the `||` side is the "one."
+
+
+## Organization
 
 ```mermaid
 erDiagram
-    organization }o--|| plan : "is on one"
-    organization }o--|| app_user : "owned by"
-    organization ||--o{ store : "has many"
+    organization }o--|| plan : "is on"
+    organization }o--|| user : "owned by"
+    organization ||--o{ store : "has"
 ```
 
-- An organization is on exactly one plan.
-- An organization is owned by one user.
-- An organization has many stores.
 
-
-### Store
+## Store
 
 ```mermaid
 erDiagram
     store }o--|| organization : "belongs to"
-    store ||--o{ product : "has many"
-    store ||--o{ customer : "has many"
-    store ||--o{ sales_order : "has many"
-    store ||--o{ product_return : "has many"
+    store ||--o{ product : "has"
+    store ||--o{ customer : "has"
 ```
 
-- A store belongs to one organization.
-- A store has its own products, customers, orders, and returns (all scoped by `store_id`).
 
-
-### Plans & Features
+## Plan
 
 ```mermaid
 erDiagram
@@ -165,52 +159,61 @@ erDiagram
     feature ||--o{ plan_feature : "in"
 ```
 
-- `plan_feature` links plans and features (many-to-many).
-- An organization's features come from its plan (see the Organization diagram for `organization → plan`).
 
-
-### Access — who can do what, and where
+## User Role
 
 ```mermaid
 erDiagram
-    user_role }o--|| app_user : "for one user"
-    user_role }o--|| role : "grants one role"
-    user_role }o--|| organization : "at an org (or)"
-    user_role }o--|| store : "at a store"
-    role      ||--o{ role_permission : "has"
+    user_role }o--|| user : "for"
+    user_role }o--|| role : "grants"
+    user_role }o--|| organization : "at (or)"
+    user_role }o--|| store : "at"
+```
+
+
+## Role
+
+```mermaid
+erDiagram
+    role       }o--|| organization : "owned by (or)"
+    role       }o--|| store : "owned by"
+    role       ||--o{ role_permission : "has"
     permission ||--o{ role_permission : "in"
 ```
 
-- A `user_role` grants one user one role at one **place** — that place is an organization **or** a store (exactly one is set).
-- `role_permission` links roles and permissions (many-to-many).
 
-
-### Custom Roles — owned by an org or a store
+## Order
 
 ```mermaid
 erDiagram
-    role }o--|| organization : "owned by (or)"
-    role }o--|| store : "owned by"
+    sales_order }o--|| store : "belongs to"
+    sales_order }o--|| customer : "placed by"
+    sales_order ||--o{ sales_order_product : "contains"
+    product     ||--o{ sales_order_product : "appears in"
 ```
 
-- A custom role is owned by an organization **or** a store (exactly one).
-- A built-in/managed role has no owner (both empty).
 
-
-### Orders & Returns — the line items
+## Return
 
 ```mermaid
 erDiagram
-    sales_order    }o--|| customer : "placed by"
-    sales_order    ||--o{ sales_order_product : "contains"
-    sales_order_product }o--|| product : "of"
+    product_return }o--|| store : "belongs to"
     product_return }o--|| sales_order : "refunds"
     product_return ||--o{ product_return_product : "contains"
-    product_return_product }o--|| product : "of"
+    product        ||--o{ product_return_product : "appears in"
 ```
-
-- An order is placed by a customer and contains many line items (`sales_order_product`), each for one product with a quantity and unit_price.
-- A return refunds one order and contains many returned line items (`product_return_product`).
 
 
 # Queries
+
+## Get all the products for every store in an organization
+
+## Get all the permissions for a user
+
+## Get all the users in a store
+
+## Get all the users in an organization 
+
+## Get all the roles for a store (custom and managed)
+
+## Get all the roles for an organization (custom and managed)
