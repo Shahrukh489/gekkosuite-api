@@ -14,7 +14,7 @@ We serve small and mid-size businesses running a multi-store POS. A typical orga
 
 # FAQ
 
-### How does each store keep its own products separate from other stores?
+## How does each store keep its own products separate from other stores?
 
 Every product belongs to exactly one store. We record this with a `store_id` on every product row, and a store only ever loads products with its own `store_id`. So one store can never see or change another store's products.
 
@@ -31,7 +31,7 @@ Store_Product
 Within a single store, the same SKU can't be listed twice. Across stores it's fine — they're independent.
 
 
-### How does an organization owner see everything across all stores?
+## How does an organization owner see everything across all stores?
 
 We don't keep a separate org-wide copy of the data. Instead, the owner's view is built on demand in two steps:
 
@@ -43,7 +43,7 @@ This works because every store knows which org it belongs to, and every record (
 At ~100 stores this is fast. If it ever gets slow, we can keep a pre-built copy of the data for quick reading (a search index or summary table), while the real records still live in each store.
 
 
-### How do we know what a user can do, and where?
+## How do we know what a user can do, and where?
 
 A user's access always has two parts: a **place** (a store, or the organization) and **what they can do there**.
 
@@ -66,7 +66,7 @@ John's access
 
 Because each record points at a real store or a real organization (a proper database link), a record can never refer to a place that doesn't exist, and deleting a place automatically removes its access records.
 
-### How does an organization or store create its own custom roles?
+## How does an organization or store create its own custom roles?
 
 Besides the built-in roles we ship (like Root Admin and Cashier), customers can create their own roles. A custom role can belong to a whole **organization** (every store in the org can use it) or to a single **store** (only that store uses it). It is visible only to its owner — no other org or store sees it.
 
@@ -91,7 +91,7 @@ Role
 To make a custom role, the owner creates a `Role` row (`is_managed = false`) with their `organization_id` *or* their `store_id` filled in, then chooses its permissions. Names only need to be unique within the owner, so two different orgs (or stores) can each have a "Manager" role without clashing.
 
 
-### What happens to existing users when a built-in role's permissions change?
+## What happens to existing users when a built-in role's permissions change?
 
 Users don't keep their own copy of permissions — they point at a role, and the role points at its permissions. So if we change a built-in (managed) role, **everyone who has that role gets the change immediately**, in every organization. There's nothing to re-apply.
 
@@ -114,7 +114,7 @@ Role
 Org_1 assigns its members to `RoleAdmin`. The built-in Root Admin keeps working unchanged for every other org.
 
 
-### How does an organization get the features in its plan?
+## How does an organization get the features in its plan?
 
 An organization is on one **plan** (like "Pro"), and each plan includes a set of **features** (like reports or multi-store). The org gets its features *through its plan* — features aren't attached to the org directly.
 
@@ -133,12 +133,14 @@ To check a feature ("can org_1 use reports?"), we look at whether its plan inclu
 **New features spread automatically.** Because features are read through the plan, adding a feature to a plan instantly gives it to **every org on that plan** — no per-org updates. For example, adding "AI Analytics" to the Pro plan means every organization on Pro now has it, automatically. Removing a feature works the same way in reverse.
 
 
-### (Optional) Can products, users, and orders be created at the org level, or only inside a store?
+## (Optional) Can products, users, and orders be created at the org level, or only inside a store?
 
-*(pending — product decision)*
+Yes — but only as a **UI convenience**, not a change to where the data lives. The data still always belongs to a store. When an org-level user creates a product (or a user, etc.) from an org-wide screen, the UI asks them to pick **which store or stores** to save it into, and then writes a copy into each chosen store.
+
+So an org user can bulk-update many stores at once without logging into each one. Under the hood there's no org-level copy of the data — every record is still owned by a store, exactly as before. The org screen is just an easy way to fan one action out across several stores.
 
 
-### (Optional) Can one store search another store's products, read-only?
+## (Optional) Can one store search another store's products, read-only?
 
 Yes, if the user is allowed to. It uses the same two-step approach as the org-wide owner view: find the sibling stores in the same org, then read their products. It only ever **reads** other stores — it never changes them, and each store still fully owns its own products.
 
