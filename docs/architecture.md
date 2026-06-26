@@ -165,6 +165,21 @@ So the *identity* is shared (one SKU across the org), but the *stock and price* 
 This fits the niche (a tightly-coupled single company, not independent franchises): stores naturally work with the same customers and suppliers, so there's no per-store wall or visibility toggle — it's deliberately simple for non-technical users. Per-store customer/supplier data (e.g. different reward tiers, store-specific vendor terms) is intentionally **not** modeled now; if it's ever needed it's an additive change, not a rework.
 
 
+## How do store funds work, and how does a store buy inventory?
+
+**The organization is the single source of funds.** There's no per-store bank account or balance — these are small businesses with one business account, and a store is just a selling front that operates against the org's money. The real money lives in the company's own bank (outside this system); we record what happens, we don't hold funds.
+
+**Stores still operate on their own — that's permissions, not money.** A store manager can sell and buy inventory without the owner approving each action, because they hold store-level roles with the right permissions (`store:sell`, `store:purchase`, etc.). The owner delegates once by granting the role; they don't micromanage.
+
+**Bounding a store's spending — `purchase_balance`.** To control how much a store can buy without becoming a free-for-all, each store has an optional `purchase_balance` the org admin sets:
+
+- It's a **delegated, depleting allowance.** When a store makes a purchase (a `purchase_order` against an org supplier), the system records the order **and** subtracts its total from `purchase_balance`, in one transaction.
+- A purchase is **rejected if its total exceeds the remaining balance**. At zero, the store can't buy until the owner raises the number ("tops up").
+- **`NULL` = unlimited** — a store the owner fully trusts has no cap.
+
+So the owner sets each store's purchasing power, the store spends it autonomously, every purchase is recorded (so the balance always reconciles to real orders), and the money itself is always the org's. Actually paying suppliers and settling card sales (real money movement) is a separate concern, deferred to a future payments/accounting integration — see `post-mvp.md`.
+
+
 ## How does an organization owner see everything across all stores?
 
 We don't keep a separate org-wide copy of the data. Instead, the owner's view is built on demand in two steps:

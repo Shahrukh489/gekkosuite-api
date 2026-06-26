@@ -160,11 +160,17 @@ CREATE TABLE organization (
 
 ```sql
 CREATE TABLE store (
-    store_id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
-    plan_id         BIGINT REFERENCES plan (plan_id),   -- each store is billed on its own plan
-    region          TEXT,                               -- grouping label, e.g. 'NorthWest'
-    sub_region      TEXT                                -- finer grouping, e.g. 'Seattle-Metro'
+    store_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id  BIGINT NOT NULL REFERENCES organization (organization_id),
+    plan_id          BIGINT REFERENCES plan (plan_id),   -- each store is billed on its own plan
+    region           TEXT,                               -- grouping label, e.g. 'NorthWest'
+    sub_region       TEXT,                               -- finer grouping, e.g. 'Seattle-Metro'
+    purchase_balance NUMERIC(12, 2)                      -- delegated purchasing allowance; NULL = unlimited
+    -- The org is the single source of funds; a store has no account of its own. purchase_balance
+    -- is how much purchasing power the org admin delegates to this store. It DEPLETES: each
+    -- purchase_order both inserts a row AND decrements this, in one transaction. A purchase is
+    -- rejected if its total exceeds the balance (when not NULL). The owner "tops up" by raising
+    -- this number. NULL = no limit.
     -- region/sub_region are descriptive tags for filtering and reports, NOT places you can
     -- grant roles at. If a region ever needs to OWN access (a real district manager role)
     -- it graduates to its own entity; until then it's just a label on the store.
@@ -237,6 +243,27 @@ CREATE TABLE sales_order_return_product (
     quantity   INTEGER NOT NULL,
     PRIMARY KEY (return_id, product_id)
 );
+
+-- A store buying inventory from an org supplier (inventory-IN, the counterpart to sales_order).
+-- Spends the org's funds against the store's delegated purchase_balance: on creation we insert
+-- this + its lines AND decrement store.purchase_balance in one transaction, rejecting the
+-- purchase if its total exceeds the balance (when the balance isn't NULL = unlimited).
+CREATE TABLE purchase_order (
+    purchase_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    store_id          BIGINT NOT NULL REFERENCES store (store_id),       -- the store that ordered
+    supplier_id       BIGINT NOT NULL REFERENCES supplier (supplier_id), -- the org supplier bought from
+    total             NUMERIC(12, 2) NOT NULL,   -- order total (what's deducted from purchase_balance)
+    status            TEXT NOT NULL,             -- e.g. ordered / received / cancelled
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE purchase_order_product (
+    purchase_order_id BIGINT NOT NULL REFERENCES purchase_order (purchase_order_id),
+    product_id        BIGINT NOT NULL REFERENCES product (product_id),
+    quantity          INTEGER NOT NULL,
+    unit_cost         NUMERIC(12, 2) NOT NULL,   -- cost per unit at purchase time
+    PRIMARY KEY (purchase_order_id, product_id)
+);
 ```
 
 ## Indexes
@@ -286,10 +313,14 @@ CREATE INDEX ON sales_order_product    (product_id);   -- order_id covered by PK
 CREATE INDEX ON sales_order_return         (store_id);
 CREATE INDEX ON sales_order_return         (order_id);
 CREATE INDEX ON sales_order_return_product (product_id);   -- return_id covered by PK
+CREATE INDEX ON purchase_order             (store_id);
+CREATE INDEX ON purchase_order             (supplier_id);
+CREATE INDEX ON purchase_order_product     (product_id);   -- purchase_order_id covered by PK
 
 -- Composite indexes for the common sorted lists (list newest-first / alphabetical)
-CREATE INDEX ON product     (organization_id, name);    -- the org catalog, alphabetical
-CREATE INDEX ON sales_order  (store_id, order_id DESC);
+CREATE INDEX ON product        (organization_id, name);    -- the org catalog, alphabetical
+CREATE INDEX ON sales_order     (store_id, order_id DESC);
+CREATE INDEX ON purchase_order  (store_id, purchase_order_id DESC);   -- a store's purchases, newest first
 ```
 
 
@@ -406,6 +437,17 @@ erDiagram
     sales_order_return }o--|| sales_order : "refunds"
     sales_order_return ||--o{ sales_order_return_product : "contains"
     product            ||--o{ sales_order_return_product : "appears in"
+```
+
+
+## Purchase Order
+
+```mermaid
+erDiagram
+    purchase_order }o--|| store : "placed by"
+    purchase_order }o--|| supplier : "bought from"
+    purchase_order ||--o{ purchase_order_product : "contains"
+    product        ||--o{ purchase_order_product : "appears in"
 ```
 
 
