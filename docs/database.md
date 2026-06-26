@@ -60,6 +60,38 @@ CREATE TABLE role_permission (
     PRIMARY KEY (role_id, permission_id)
 );
 
+-- Optional ABAC conditions on a role's permission (e.g. "Cashier may refund, but only up to
+-- $500"). These are CUSTOMER data — empty by default (we ship no conditions); a customer adds
+-- them to tune limits. Zero or more per role-permission; no rows = unconditional (pure RBAC).
+-- Because the condition hangs off (role, permission) — not the permission alone — the SAME
+-- permission can carry DIFFERENT limits per role (Cashier refund <= 500, Manager refund <= 5000).
+--
+-- TENANT-SCOPED (required, because roles are global/managed — a condition with no tenant would
+-- change a shared role for every org):
+--   organization_id  NOT NULL  -- the org this override belongs to
+--   store_id         NULL      -- NULL = applies to all the org's stores;
+--                                 set = applies to that one store only (an override)
+-- Resolution is MOST-SPECIFIC-WINS for a user acting at store S in org O:
+--   1. row (role, perm, org=O, store=S)   -- store-specific override
+--   2. else row (role, perm, org=O, store=NULL)  -- org-wide setting
+--   3. else unconditional
+--
+-- type/value are a CLOSED, typed menu (each `type` maps to a named evaluator in code) — never
+-- free-form expressions: 'max_amount' -> target.amount <= value, 'max_age_days' -> target age
+-- <= value, etc. Enforced ONLY in the can() function, server-side, at decision time: a grant
+-- is allowed only if the user holds the permission (RBAC) AND every applicable condition passes
+-- against the target (ABAC). Any condition fails -> deny.
+CREATE TABLE role_permission_condition (
+    role_permission_condition_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),  -- the owning tenant
+    store_id        BIGINT REFERENCES store (store_id),   -- NULL = whole org; set = this store only
+    role_id         BIGINT NOT NULL,
+    permission_id   BIGINT NOT NULL,
+    type            TEXT NOT NULL,   -- closed menu: 'max_amount', 'max_age_days', 'own_records_only', ...
+    value           TEXT,            -- the parameter for the type (e.g. '500'); NULL for valueless types
+    FOREIGN KEY (role_id, permission_id) REFERENCES role_permission (role_id, permission_id)
+);
+
 -- A user belongs to a place (a store OR the org), independent of any role.
 -- Like an IAM user: the membership exists on its own; roles are layered on top.
 -- Removing all of a user's roles at a place leaves this row intact, so the user
@@ -330,6 +362,8 @@ CREATE INDEX ON role            (organization_id);  -- an org's custom roles (NU
 -- store_membership_detail / organization_membership_detail: membership_id is the PK,
 -- already indexed; no extra index needed
 CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
+CREATE INDEX ON role_permission_condition (organization_id, role_id, permission_id);   -- a tenant's conditions for a role-permission
+CREATE INDEX ON role_permission_condition (store_id);   -- store-specific overrides
 
 -- Organization
 CREATE INDEX ON store        (organization_id, region);   -- group an org's stores by region

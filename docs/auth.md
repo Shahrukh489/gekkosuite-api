@@ -87,6 +87,27 @@ Permissions are **explicit, never wildcards** — a role lists exactly the permi
 Because users point at a role and the role points at its permissions (nobody keeps their own copy), changing a role's permissions takes effect immediately for everyone who has that role.
 
 
+## Conditions on a permission (limits like "refund up to $500")
+
+A role's permission can carry **conditions** — limits checked at the moment the action happens. The classic case: a Cashier *may* refund, but only up to $500; a Manager may refund up to $5000. Same permission (`order:refund`), different limit per role.
+
+Conditions live in `role_permission_condition`, attached to a **(role, permission)** pair — so the limit can differ by role. Each condition is a typed `{type, value}` from a **fixed menu** the system understands (e.g. `max_amount = 500`, `max_age_days = 30`, `own_records_only`), never a free-form expression.
+
+How it's checked — conditions are an **extra gate after** the permission check, evaluated only in the central access check:
+
+```
+allowed to do `order:refund` on this order?
+  1. RBAC:  does the user hold order:refund here?      → no  → DENY
+  2. ABAC:  do ALL conditions on that role-permission   → fail → DENY
+            pass against this order? (e.g. amount <= 500)
+  3. ALLOW
+```
+
+A role-permission with **no conditions is unconditional** — the ABAC gate is a no-op, so plain RBAC is unchanged. Conditions are purely additive.
+
+**Who can change a condition.** Editing a limit is itself gated by a permission — **`role_condition:edit`**. Only roles that hold it (e.g. Store Admin) can change limits; a Cashier never holds it, so a cashier can **never raise its own refund cap**. This is what makes customer-tunable limits safe: the power to set limits is itself a permission you grant deliberately, not something every role has. (Editing a condition only ever changes a *limit* on a permission the role already holds — it can never add a permission or cross scope — so it can't be used to escalate.)
+
+
 ## How do users get roles at a store or the organization?
 
 Roles attach to a **membership** — "give role R to this user at this place" — by adding a `membership_assignment` on the user's membership. A user can hold several roles at a place, or none, and an assignment can optionally **expire** (`expires_at`) for temp/seasonal staff. **Only an org admin assigns roles** (store users don't assign).
@@ -171,9 +192,10 @@ is a real requirement, not an optional nicety.
       user) with more power than the actor holds; restrict who can create org owners/admins.
 
 ## Access-resolution invariants (load-bearing, easy to forget)
-- [ ] Every access query filters `membership.deleted_at IS NULL` **and** `is_active = true`.
-      Enforce this in **one** access-resolution function or DB view, not copy-pasted WHERE
-      clauses — one forgotten filter re-grants a removed/suspended user.
+- [ ] Every access query filters `membership.deleted_at IS NULL` **and** `membership.is_active
+      = true` **and** the assignment is unexpired (`membership_assignment.expires_at IS NULL OR
+      expires_at > now()`). Enforce this in **one** access-resolution function or DB view, not
+      copy-pasted WHERE clauses — one forgotten filter re-grants a removed/suspended/expired user.
 
 ## Audit (security-critical events)
 - [ ] Role grants/revokes, user creation, permission changes, and balance top-ups must be
@@ -191,9 +213,14 @@ The model is sound; these are the remaining gaps. Split into "do before building
 
 ## Deliberately out of scope (recognize, don't build)
 
-- **Record-level / attribute access** (e.g. "refund only orders under $500", "only your own
-  shift's orders"). That's ABAC, beyond pure RBAC and beyond the niche. This is the ceiling of
-  the current model — if a customer asks for it, it's a different model, not a tweak.
-- **Deeper hierarchy / nesting**, **scope-on-assignment (Azure-style)**, **wildcards**,
-  **time-based access** — all considered and deliberately rejected as wrong for this domain.
+- **Per-user condition overrides** (e.g. "*this one* cashier gets a $1000 refund cap while
+  other cashiers get $500"). Conditions live per-role (`role_permission_condition`); if a user
+  needs a different limit, give them a different role. A per-user override would go on
+  `membership_assignment`, but we deliberately don't.
+- **A free-form policy engine** (customer-authored boolean expressions like "amount < 500 AND
+  weekday AND own_store"). Our conditions are a **closed, typed menu** of `{type, value}` rules,
+  each with a named evaluator — safe and testable. Arbitrary expression languages need a parser
+  + sandboxing and are enterprise territory we don't need.
+- **Deeper hierarchy / nesting**, **scope-on-assignment (Azure-style)**, **wildcards** — all
+  considered and deliberately rejected as wrong for this domain.
 
