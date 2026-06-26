@@ -17,7 +17,10 @@ CREATE TABLE role (
     organization_id BIGINT REFERENCES organization (organization_id),
     store_id        BIGINT REFERENCES store (store_id),
     is_managed      BOOLEAN NOT NULL DEFAULT FALSE,
-    -- owner is organization_id OR store_id, or neither when is_managed = true
+    -- Owner rule, enforced by the DB:
+    --   managed role (is_managed=true): BOTH owner columns NULL
+    --   custom role  (is_managed=false): EXACTLY ONE owner column set, never both
+    -- The `<>` (XOR) means exactly one of the two is NOT NULL.
     CHECK (
         (is_managed = TRUE  AND organization_id IS NULL AND store_id IS NULL)
         OR (is_managed = FALSE AND (organization_id IS NOT NULL) <> (store_id IS NOT NULL))
@@ -37,7 +40,8 @@ CREATE TABLE user_role (
     role_id         BIGINT NOT NULL REFERENCES role (role_id),
     organization_id BIGINT REFERENCES organization (organization_id),
     store_id        BIGINT REFERENCES store (store_id),
-    -- the place is organization_id OR store_id (exactly one set)
+    -- the place is organization_id OR store_id: EXACTLY ONE set, never both, never neither.
+    -- The `<>` (XOR) means exactly one of the two is NOT NULL.
     CHECK ((organization_id IS NOT NULL) <> (store_id IS NOT NULL))
 );
 
@@ -377,4 +381,174 @@ LEFT JOIN customer c         ON c.customer_id = so.customer_id
 JOIN sales_order_product sop ON sop.order_id = so.order_id
 JOIN product p               ON p.product_id = sop.product_id
 WHERE so.order_id = :order_id;
+```
+
+
+## Products in a store (catalog / inventory list)
+
+The main product list for a single store's catalog or inventory screen.
+
+```sql
+SELECT product_id,
+       name,
+       sku,
+       price,
+       quantity
+FROM product
+WHERE store_id = :store_id
+ORDER BY name;
+```
+
+
+## Search products in a store
+
+Type-ahead / search box on the product list. Matches name or SKU.
+
+```sql
+SELECT product_id,
+       name,
+       sku,
+       price,
+       quantity
+FROM product
+WHERE store_id = :store_id
+  AND (name ILIKE '%' || :search || '%' OR sku ILIKE '%' || :search || '%')
+ORDER BY name
+LIMIT 50;
+```
+
+
+## Customers in a store
+
+The customer list for a store.
+
+```sql
+SELECT customer_id,
+       name,
+       email,
+       phone
+FROM customer
+WHERE store_id = :store_id
+ORDER BY name;
+```
+
+
+## Orders for a store (order list)
+
+The orders screen for a store, newest first, with the customer's name.
+
+```sql
+SELECT so.order_id,
+       so.status,
+       c.name AS customer_name
+FROM sales_order so
+LEFT JOIN customer c ON c.customer_id = so.customer_id
+WHERE so.store_id = :store_id
+ORDER BY so.order_id DESC;
+```
+
+
+## Orders for a customer (customer history)
+
+Every order a single customer has placed.
+
+```sql
+SELECT order_id,
+       status
+FROM sales_order
+WHERE customer_id = :customer_id
+ORDER BY order_id DESC;
+```
+
+
+## Returns for a store (returns list)
+
+The returns screen for a store, with the order each return refunds.
+
+```sql
+SELECT pr.return_id,
+       pr.order_id
+FROM product_return pr
+WHERE pr.store_id = :store_id
+ORDER BY pr.return_id DESC;
+```
+
+
+## A return with its line items (return detail)
+
+The return, the order it refunds, and one row per returned item. The API groups the lines
+under the return.
+
+```sql
+SELECT pr.return_id,
+       pr.order_id,
+       p.product_id,
+       p.name AS product_name,
+       prp.quantity
+FROM product_return pr
+JOIN product_return_product prp ON prp.return_id = pr.return_id
+JOIN product p                  ON p.product_id = prp.product_id
+WHERE pr.return_id = :return_id;
+```
+
+
+## Stores in an organization (store switcher / store list)
+
+The list of stores for an org — used by the org dashboard and the place switcher.
+
+```sql
+SELECT store_id,
+       name
+FROM store
+WHERE organization_id = :organization_id
+ORDER BY name;
+```
+
+
+## A role with its permissions (role detail / edit)
+
+For viewing or editing a single role. One row per permission; the API groups them under
+the role.
+
+```sql
+SELECT r.role_id,
+       r.name,
+       r.is_managed,
+       p.subject,
+       p.action
+FROM role r
+LEFT JOIN role_permission rp ON rp.role_id = r.role_id
+LEFT JOIN permission p       ON p.permission_id = rp.permission_id
+WHERE r.role_id = :role_id;
+```
+
+
+## All available permissions (role builder)
+
+The full list of permissions the UI offers when building or editing a role.
+
+```sql
+SELECT permission_id,
+       subject,
+       action
+FROM permission
+ORDER BY subject, action;
+```
+
+
+## An organization's plan and its features
+
+For a billing / plan screen: the org's plan and the features it includes.
+
+```sql
+SELECT pl.plan_id,
+       pl.name AS plan_name,
+       f.feature_id,
+       f.name AS feature_name
+FROM organization o
+JOIN plan pl         ON pl.plan_id = o.plan_id
+LEFT JOIN plan_feature pf ON pf.plan_id = pl.plan_id
+LEFT JOIN feature f       ON f.feature_id = pf.feature_id
+WHERE o.organization_id = :organization_id
+ORDER BY f.name;
 ```
