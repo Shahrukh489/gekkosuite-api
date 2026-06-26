@@ -31,33 +31,19 @@ A user signs in with their credentials against the single global `user` record (
 Authentication only proves *who* they are — it grants no access by itself. Everything they can actually do is decided afterward by **authorization** (memberships, roles, permissions), covered below. A freshly authenticated user with no memberships is logged in but can't do anything until they're given access.
 
 
-## What is a user, and how do they get access?
+## How is a user created and given access?
 
-A user's **identity** and their **access** are separate things:
+A user's **identity** and their **access** are separate: the `user` row is just the login (one per person, global to the system); what they can do comes entirely from memberships and roles. So a brand-new user exists but can do nothing until access is granted.
 
-- The `user` table is the **global identity** for the whole system — one login per person. It is not owned by an org or a store; a user is a single row in this one table.
-- **Access** is expressed only through `membership` rows. Belonging to a store is a store membership; belonging to the organization is an org membership.
+An **org admin** creates and sets up users — they need the `organization:user:create` permission. The flow is three steps:
 
-A **membership** says a user *belongs to one place* — for example, "John is at Store B." It names the place with one of two fields: `store_id` for a store, or `organization_id` for the organization. Exactly one is filled in — that tells us both the place and whether it's a store or the org. A membership carries no role on its own.
+1. **Create the user** — insert the `user` row (the login). It records `organization_id` (their home org), `created_by_user_id`, and `created_at`. Store-level users can't create accounts.
+2. **Add a membership** — give the user a place: a **store membership** (`store_id`) or an **organization membership** (`organization_id`). This says *where* they belong. A membership has no role on its own.
+3. **Attach a role** — add a `membership_role` on that membership. This says *what* they can do there.
 
-A **membership-role** record grants a *role on a membership* — "John, at Store B, is a Manager." A membership can have several roles, or none. Keeping these separate means a user can belong to a place with **no roles** (still listed there, just no access).
+A user can have several memberships (one per place they work) and several roles per membership, so they can be a Cashier at one store and a Manager at another.
 
-A person can have several memberships — one per place they work — so they can have one role at one store and another at a different store.
-
-
-## Who can create a user?
-
-**Only an organization admin can create users.** A new user is created at the org level by someone with the org-admin role, who then grants the new user access to the stores (or the org) they should work at. Store-level users cannot create accounts.
-
-When a user is created, the `user` row records provenance, set once and immutable:
-
-- `organization_id` — their **home org**. Permanently answers "where did this user belong," regardless of later membership changes.
-- `origin_store_id` — the store they were created at, if any.
-- `created_by_user_id` / `created_at` — who made the account and when.
-
-Because access lives in memberships (which can be removed) and identity lives on the `user` row, a user can have all memberships removed and still have a known origin — they never become an unexplainable orphan.
-
-**Removing access keeps history.** Memberships are **soft-deleted** (`deleted_at` set, row retained), so you keep an audit trail of where a user used to have access. Every access query filters `deleted_at IS NULL`, so a removed membership grants nothing — but the record (and the user) remain for history.
+The `user.organization_id` is the **home org**, set once and never changed — so even if every membership is later removed, you still know which org the account belongs to.
 
 
 ## How do I revoke or suspend a user's access?
@@ -84,22 +70,6 @@ A **permission** is a single allowed action, named **`subject:resource:action`**
 The `subject` tells you whether a permission is a store-level or org-level power — `store:*:*` permissions act on a store, `organization:*:*` permissions act on the org.
 
 Because users point at a role and the role points at its permissions (nobody keeps their own copy), changing a role's permissions takes effect immediately for everyone who has that role.
-
-
-## What roles do we ship?
-
-We ship a fixed set of managed roles — customers pick from these, they don't make their own. The exact list will grow, but the shape is:
-
-```
-role         level         what it's for
-----------   ------------  ----------------------------------------
-Org Owner    organization  full control of the org and all its stores
-Org Admin    organization  manage the org's users, stores, settings
-Store Manager store         run a store: products, pricing, staff, purchasing
-Cashier      store          sell and process returns at a store
-```
-
-Org-level roles are granted on an org membership; store-level roles on a store membership. ("Org admin" throughout this doc means a user holding an org-level role like Org Owner / Org Admin.)
 
 
 ## How do users get roles at a store or the organization?
@@ -145,26 +115,3 @@ John's access
 
 Because each record points at a real store or a real organization (a proper database link), a record can never refer to a place that doesn't exist, and deleting a place automatically removes its access records.
 
-
-## How do we verify which stores a user can act on, given his org role?
-
-A user can act on a store two ways, and we never copy memberships into each store — we resolve access at check time:
-
-1. **Direct** — the user has a **store membership** at that store, with a role granting the permission.
-2. **Inherited** — the user has an **organization membership** whose role contains the `store:*:*` permission. An org role reaches **every store under that org**, so the permission applies to each of them without a per-store membership.
-
-To check *"can this user do `store:product:edit` on Store 47?"* the server asks two things:
-
-```
-ALLOW if:
-  (A) a store membership at Store 47 has a role containing store:product:edit
-   OR
-  (B) an org membership at Store 47's org has a role containing store:product:edit
-      (the org role reaches down to every store in that org)
-```
-
-Branch **(B)** is the inheritance: we take the user's org memberships, expand each to all stores in that org (`store.organization_id = the org`), and apply the org role's `store:*:*` permissions to them. So an OrgAdmin with `store:product:edit` can edit any of the org's stores' products — including stores created *after* the role was granted — with no extra setup.
-
-To list **every store a user can act on**: take the stores from his direct store memberships, plus all stores under any org he has an org membership in (filtered to org roles that actually carry a `store:*:*` permission). The direct set and the inherited set are combined; a store can appear in both — access is the union.
-
-This is the same federated pattern as the org-owner view: the org's reach is computed by joining the org grant to the org's stores on demand, not by storing a copy per store.

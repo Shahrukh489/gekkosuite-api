@@ -13,9 +13,8 @@ Note: `user` is a reserved word in Postgres, so the table name is quoted as `"us
 -- every membership is removed we still know the user's home org and who created them.
 CREATE TABLE "user" (
     user_id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id    BIGINT NOT NULL REFERENCES organization (organization_id),  -- origin/home org (set once, immutable)
-    origin_store_id    BIGINT REFERENCES store (store_id),     -- the store they were created at, if any (NULL for org-created)
-    created_by_user_id BIGINT REFERENCES "user" (user_id),     -- who created this account (NULL for self-signup / first owner)
+    organization_id    BIGINT NOT NULL REFERENCES organization (organization_id),  -- home org (set once, immutable)
+    created_by_user_id BIGINT REFERENCES "user" (user_id),     -- the org admin who created this account
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -281,7 +280,6 @@ the other column.
 -- RBAC
 CREATE INDEX ON store           (organization_id);
 CREATE INDEX ON "user"          (organization_id);   -- users in their home org
-CREATE INDEX ON "user"          (origin_store_id);
 CREATE INDEX ON "user"          (created_by_user_id);
 CREATE INDEX ON membership      (user_id);
 CREATE INDEX ON membership_role (role_id);          -- membership_id covered by PK
@@ -333,8 +331,7 @@ One diagram per entity, showing that entity's own relationships. Legend: `}o--||
 
 ```mermaid
 erDiagram
-    user }o--|| organization : "home org (origin)"
-    user }o--o| store : "created at (origin)"
+    user }o--|| organization : "home org"
     user }o--o| user : "created by"
 ```
 
