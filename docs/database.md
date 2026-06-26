@@ -86,14 +86,20 @@ CREATE TABLE membership_role (
 );
 
 -- Level-specific membership fields live in side tables, so the shared `membership`
--- table stays free of nulls. A store membership has exactly one row here; an org
--- membership has none (its place is org, not store). One row per membership, so
--- membership_id is both the PK and the FK. When org memberships grow their own fields,
--- add `organization_membership_detail` the same way.
+-- table stays free of nulls. A membership has a detail row in exactly ONE of these,
+-- matching its place: store memberships get a store_membership_detail row, org
+-- memberships get an organization_membership_detail row. One row per membership, so
+-- membership_id is both the PK and the FK. Screens join the one that matches the place
+-- they're already querying — the two detail tables never overlap, so no UNION.
 CREATE TABLE store_membership_detail (
     membership_id BIGINT PRIMARY KEY REFERENCES membership (membership_id),
     store_pin     TEXT
     -- ...other store-only member fields go here
+);
+
+CREATE TABLE organization_membership_detail (
+    membership_id BIGINT PRIMARY KEY REFERENCES membership (membership_id)
+    -- ...org-only member fields go here
 );
 
 ```
@@ -191,7 +197,8 @@ the other column.
 CREATE INDEX ON store           (organization_id);
 CREATE INDEX ON membership      (user_id);
 CREATE INDEX ON membership_role (role_id);          -- membership_id covered by PK
--- store_membership_detail: membership_id is the PK, already indexed; no extra index needed
+-- store_membership_detail / organization_membership_detail: membership_id is the PK,
+-- already indexed; no extra index needed
 CREATE INDEX ON role            (organization_id);
 CREATE INDEX ON role            (store_id);
 CREATE INDEX ON role            (created_user_id);
@@ -262,6 +269,7 @@ erDiagram
     membership ||--o{ membership_role : "has"
     role       ||--o{ membership_role : "granted by"
     membership ||--o| store_membership_detail : "store-only fields"
+    membership ||--o| organization_membership_detail : "org-only fields"
 ```
 
 
