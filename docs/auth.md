@@ -71,7 +71,9 @@ Permissions are **scope-free** — `product:edit` says nothing about org vs. sto
 - A **store role** (`scope = STORE`) — its permissions reach the one store it's granted at.
 - An **org role** (`scope = ORGANIZATION`) — its permissions reach the **whole org and all its stores**.
 
-So the *same* permission has different reach depending on the role that holds it. `product:edit` in a Cashier (store) role edits that one store's products; the same `product:edit` in an Org Admin (org) role edits any store's products in the org. This is the standard "role + scope" model (the same shape as Kubernetes `Role` vs `ClusterRole`, or Azure's role-at-a-scope).
+So the *same* permission has different reach depending on the role that holds it. `product:edit` in a Cashier (store) role edits that one store's products; the same `product:edit` in an Org Admin (org) role edits any store's products in the org.
+
+This is the same family as Kubernetes (`ClusterRole` vs namespaced `Role`) and Azure (a role applied at a scope) — generic permissions, with the *level* set separately. We differ in one way, on purpose: those systems set the scope at **assignment** time (the same role can be attached at any level), whereas we fix the scope **on the role** itself — a role is born `STORE` or `ORG` and can only be granted at that kind of place. We don't need their flexibility: we have just two fixed levels (store and org) and no deeper nesting, so baking the level into the role is simpler and matches how the roles are actually used ("Cashier" is inherently a store role).
 
 **Org-only powers are just permissions we put only in org roles.** Things like `store:create` or `user:create` only make sense org-wide, so they appear only in org-scoped roles and never in store roles. There's no special marking on the permission — it's controlled by which role we ship it in.
 
