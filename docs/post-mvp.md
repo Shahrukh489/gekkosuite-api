@@ -4,7 +4,32 @@ Things intentionally deferred. Captured so we don't hard-code them as one-off be
 have to claw them back later.
 
 # Custom Roles
+ [ ] **Escalation on role *assignment*** (when admins delegate / custom roles arrive) — no
+      rule prevents an admin granting a role more powerful than their own, or handing out
+      `role:assign` to bootstrap full power.
 
+      **Solution (the bullet-proof, all-cases rule):** a person can only grant a role whose
+      permissions are a **subset of their own effective permissions**. This single rule closes
+      every escalation path (grant-stronger-role, self-assign, custom-role-stuffing, same-level
+      grabs) with no special-cased roles and no maintained "dangerous roles" list — anything
+      owner-equivalent automatically fails because it contains powers the assigner lacks.
+
+      ```
+      grant_role(assigner, target_user, role R, place P):
+        require assigner has `role:assign` effective at P            # may assign here at all
+        require permissions(R) ⊆ effective_permissions(assigner @ P)  # can't grant beyond self
+        # self is NOT exempt — assigner == target uses the same check
+        then write membership_assignment
+      ```
+
+      Two things make it actually bulletproof:
+      1. Compare **effective** permission *sets* (resolved, incl. org→store inheritance) — not
+         role names or a "role rank". Set ⊇ set, computed via the same `can()` resolution.
+      2. Check **at grant time, server-side, in the same transaction** that writes
+         `membership_assignment` — never trust a precomputed "assignable roles" snapshot.
+
+      This subsumes the simpler "only an owner may grant owner/admin" idea, so we don't need a
+      separate elevated-role flag. Build this when delegation / custom roles ship.
 
 
 ## Workflow / event engine

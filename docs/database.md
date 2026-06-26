@@ -36,18 +36,21 @@ CREATE TABLE role (
     )
 );
 
--- A permission is resource:action (e.g. product:read, order:refund, role:assign).
--- Permissions are scope-free and explicit (no wildcards). The LEVEL (org vs store) is NOT on
--- the permission — it comes from the ROLE that holds it (role.scope) and the membership the
--- role is granted at. So `product:edit` reaches one store in a STORE role, or every store in
--- the org in an ORGANIZATION role. What's "org-only" (e.g. store:create, user:create) is just
--- a permission we put only in org roles.
+-- A permission is resource:action (e.g. product:read, order:refund, role:assign), explicit
+-- and never a wildcard. The REACH (one store vs all the org's stores) comes from the ROLE
+-- that holds it (role.scope) and the membership it's granted at, NOT from the permission.
 --   resource = what's acted on: product, order, role, store, user, ...
 --   action   = the verb: read, create, refund, assign, ...
+--   scope    = which role scopes may HOLD this permission (an eligibility guard, NOT the level
+--              it operates at):
+--                STORE        -> can go in store roles AND org roles
+--                ORGANIZATION -> can go in org roles ONLY (e.g. store:create, user:create)
+--              This stops a (future custom) store-scoped role from holding an org-only power.
 CREATE TABLE permission (
     permission_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     resource      TEXT NOT NULL,   -- e.g. product, order, role
     action        TEXT NOT NULL,   -- e.g. read, create, refund, assign
+    scope         TEXT NOT NULL CHECK (scope IN ('ORGANIZATION', 'STORE')),
     UNIQUE (resource, action)
 );
 
@@ -88,11 +91,16 @@ CREATE UNIQUE INDEX membership_org_uq
     ON membership (user_id, organization_id)
     WHERE organization_id IS NOT NULL AND deleted_at IS NULL;
 
--- A role granted on a membership. Zero or more per membership.
+-- A role assigned to a membership. Zero or more per membership.
 -- Losing a role = deleting its row here; the membership above is untouched.
-CREATE TABLE membership_role (
+-- expires_at: optional time limit on the assignment (temp/seasonal staff, contractors).
+--   NULL = never expires. Once expires_at has passed the assignment grants nothing — access
+--   resolution filters expires_at IS NULL OR expires_at > now() (same family as the
+--   membership.deleted_at / is_active filters).
+CREATE TABLE membership_assignment (
     membership_id BIGINT NOT NULL REFERENCES membership (membership_id),
     role_id       BIGINT NOT NULL REFERENCES role (role_id),
+    expires_at    TIMESTAMPTZ,   -- NULL = never expires
     PRIMARY KEY (membership_id, role_id)   -- same role can't be granted twice here
 );
 
@@ -317,7 +325,7 @@ CREATE INDEX ON store           (organization_id);
 CREATE INDEX ON "user"          (organization_id);   -- users in their home org
 CREATE INDEX ON "user"          (created_by_user_id);
 CREATE INDEX ON membership      (user_id);
-CREATE INDEX ON membership_role (role_id);          -- membership_id covered by PK
+CREATE INDEX ON membership_assignment (role_id);    -- membership_id covered by PK
 CREATE INDEX ON role            (organization_id);  -- an org's custom roles (NULL for managed)
 -- store_membership_detail / organization_membership_detail: membership_id is the PK,
 -- already indexed; no extra index needed

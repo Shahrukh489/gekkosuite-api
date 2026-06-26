@@ -8,20 +8,20 @@ How people sign in, how they get access to stores and the organization, and how 
 Access is a chain of small pieces. Read it left to right:
 
 ```
-user  ──<  membership  ──<  membership_role  >──  role  ──<  role_permission  >──  permission
-(login)    (belongs at        (a role granted     (bundle of    (the role's          (resource:
-           one place:          on that             perms +       permissions)         action,
-           a store or          membership)         a scope:                           scope-free)
-           the org)                                STORE/ORG)
+user  ──<  membership  ──<  membership_assignment  >──  role  ──<  role_permission  >──  permission
+(login)    (belongs at        (a role assigned          (bundle of   (the role's          (resource:
+           one place:          on that membership,       perms +      permissions)         action,
+           a store or          optionally expiring)      a scope:                          scope-free)
+           the org)                                      STORE/ORG)
 ```
 
 - **user** — one login per person (global identity).
 - **membership** — the user belongs at a place (a store, or the org).
-- **membership_role** — a role given to that membership.
+- **membership_assignment** — a role given to that membership (optionally with an expiry).
 - **role** — a named bundle of permissions we ship.
 - **permission** — one allowed action, like `product:read` (scope-free; the role's `scope` sets the level).
 
-So: a user belongs *somewhere* (membership), is given *roles* there (membership_role → role), and each role is a set of *permissions*. The rest of this doc explains each link.
+So: a user belongs *somewhere* (membership), is given *roles* there (membership_assignment → role), and each role is a set of *permissions*. The rest of this doc explains each link.
 
 
 ## How does a user sign in? (authentication)
@@ -39,7 +39,7 @@ An **org admin** creates and sets up users — they need the `user:create` permi
 
 1. **Create the user** — insert the `user` row (the login). It records `organization_id` (their home org), `created_by_user_id`, and `created_at`. Store-level users can't create accounts.
 2. **Add a membership** — give the user a place: a **store membership** (`store_id`) or an **organization membership** (`organization_id`). This says *where* they belong. A membership has no role on its own.
-3. **Attach a role** — add a `membership_role` on that membership. This says *what* they can do there.
+3. **Attach a role** — add a `membership_assignment` on that membership. This says *what* they can do there (and, optionally, until when via `expires_at`).
 
 A user can have several memberships (one per place they work) and several roles per membership, so they can be a Cashier at one store and a Manager at another.
 
@@ -50,7 +50,7 @@ The `user.organization_id` is the **home org**, set once and never changed — s
 
 There are three levels, depending on how permanent you want it:
 
-- **Take away one role** — remove the `membership_role`. The user still belongs at the place, just with less (or no) access there.
+- **Take away one role** — remove the `membership_assignment`. The user still belongs at the place, just with less (or no) access there. (Or set `expires_at` to auto-end it at a chosen time.)
 - **Suspend at a place (temporary)** — set the membership's `is_active = false`. Access is switched off but the row stays, so you can flip it back on. Use this for "on leave" / "temporarily blocked."
 - **Remove from a place (permanent)** — soft-delete the membership (`deleted_at`). Access is gone; the row is kept for history.
 
@@ -75,7 +75,12 @@ So the *same* permission has different reach depending on the role that holds it
 
 This is the same family as Kubernetes (`ClusterRole` vs namespaced `Role`) and Azure (a role applied at a scope) — generic permissions, with the *level* set separately. We differ in one way, on purpose: those systems set the scope at **assignment** time (the same role can be attached at any level), whereas we fix the scope **on the role** itself — a role is born `STORE` or `ORG` and can only be granted at that kind of place. We don't need their flexibility: we have just two fixed levels (store and org) and no deeper nesting, so baking the level into the role is simpler and matches how the roles are actually used ("Cashier" is inherently a store role).
 
-**Org-only powers are just permissions we put only in org roles.** Things like `store:create` or `user:create` only make sense org-wide, so they appear only in org-scoped roles and never in store roles. There's no special marking on the permission — it's controlled by which role we ship it in.
+**Some permissions are org-only.** Things like `store:create` or `user:create` only make sense org-wide. Each permission carries a **`scope`** that says which role scopes may hold it:
+
+- `scope = STORE` — may go in **store roles and org roles** (e.g. `order:sell`, `customer:add`).
+- `scope = ORGANIZATION` — may go in **org roles only** (e.g. `store:create`, `user:create`).
+
+This is an **eligibility guard**, not the level the permission operates at: a store role can never be given an `ORGANIZATION`-scoped permission. For our managed (shipped) roles we already honor this; it becomes load-bearing once **custom** roles let an org admin pick permissions — the picker only offers `STORE`-scoped permissions for a store-scoped role, and the write path rejects an `ORGANIZATION` permission in a store role.
 
 Permissions are **explicit, never wildcards** — a role lists exactly the permissions it has. We don't grant `*` / "everything," so a new permission added later reaches nobody until it's deliberately added to a role.
 
@@ -84,7 +89,7 @@ Because users point at a role and the role points at its permissions (nobody kee
 
 ## How do users get roles at a store or the organization?
 
-Roles attach to a **membership** — "give role R to this user at this place" — by adding a `membership_role` on the user's membership. A user can hold several roles at a place, or none. **Only an org admin assigns roles** (store users don't assign).
+Roles attach to a **membership** — "give role R to this user at this place" — by adding a `membership_assignment` on the user's membership. A user can hold several roles at a place, or none, and an assignment can optionally **expire** (`expires_at`) for temp/seasonal staff. **Only an org admin assigns roles** (store users don't assign).
 
 
 ## How do we ensure a store user can never get organization access?
@@ -173,4 +178,22 @@ is a real requirement, not an optional nicety.
 ## Audit (security-critical events)
 - [ ] Role grants/revokes, user creation, permission changes, and balance top-ups must be
       audited (non-optional). Ties into the audit log TODO in `database.md`.
+
+
+# RBAC gaps & future work
+
+The model is sound; these are the remaining gaps. Split into "do before building" and
+"appears when a specific feature ships."
+
+## Do before any code
+
+
+
+## Deliberately out of scope (recognize, don't build)
+
+- **Record-level / attribute access** (e.g. "refund only orders under $500", "only your own
+  shift's orders"). That's ABAC, beyond pure RBAC and beyond the niche. This is the ceiling of
+  the current model — if a customer asks for it, it's a different model, not a tweak.
+- **Deeper hierarchy / nesting**, **scope-on-assignment (Azure-style)**, **wildcards**,
+  **time-based access** — all considered and deliberately rejected as wrong for this domain.
 
