@@ -41,6 +41,16 @@ CREATE TABLE user_role (
     CHECK ((organization_id IS NOT NULL) <> (store_id IS NOT NULL))
 );
 
+-- prevent the same role being granted twice to a user at the same place
+-- (two partial indexes because the place lives in one of two nullable columns)
+CREATE UNIQUE INDEX user_role_store_uq
+    ON user_role (user_id, role_id, store_id)
+    WHERE store_id IS NOT NULL;
+
+CREATE UNIQUE INDEX user_role_org_uq
+    ON user_role (user_id, role_id, organization_id)
+    WHERE organization_id IS NOT NULL;
+
 CREATE TABLE role_permission (
     role_id       BIGINT NOT NULL REFERENCES role (role_id),
     permission_id BIGINT NOT NULL REFERENCES permission (permission_id),
@@ -325,8 +335,9 @@ ORDER BY r.is_managed DESC, r.name;
 
 ## Roles available to an organization (with their permissions)
 
-The built-in roles plus the org's own custom roles. One row per role-permission; the API
-groups by role.
+The built-in roles, the org's own custom roles, and the custom roles created by any store
+under the org — so an org admin sees every role in their organization. One row per
+role-permission; the API groups by role.
 
 ```sql
 SELECT r.role_id,
@@ -337,8 +348,12 @@ SELECT r.role_id,
 FROM role r
 LEFT JOIN role_permission rp ON rp.role_id = r.role_id
 LEFT JOIN permission p       ON p.permission_id = rp.permission_id
-WHERE r.is_managed      = TRUE                -- built-in roles
-   OR r.organization_id = :organization_id    -- this org's custom roles
+WHERE r.is_managed = TRUE                     -- built-in roles
+   OR r.organization_id = :organization_id    -- the org's own custom roles
+   OR r.store_id IN (                          -- custom roles of stores under the org
+        SELECT store_id FROM store
+        WHERE organization_id = :organization_id
+      )
 ORDER BY r.is_managed DESC, r.name;
 ```
 
