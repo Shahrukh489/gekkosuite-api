@@ -103,11 +103,15 @@ CREATE TABLE organization_membership_detail (
 
 ```sql
 CREATE TABLE plan (
-    plan_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+    plan_id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    price_per_store NUMERIC(12, 2) NOT NULL   -- billed per store: total = price_per_store × store count
 );
 
 CREATE TABLE feature (
-    feature_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+    feature_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    code        TEXT NOT NULL UNIQUE,   -- stable machine identifier, e.g. 'multi_store' (code checks this; never rename)
+    label       TEXT NOT NULL,          -- human display text, e.g. 'Multi-store' (safe to change)
+    description TEXT
 );
 
 CREATE TABLE plan_feature (
@@ -123,12 +127,14 @@ CREATE TABLE plan_feature (
 CREATE TABLE organization (
     organization_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     owner_user_id    BIGINT REFERENCES "user" (user_id),
+    plan_id          BIGINT REFERENCES plan (plan_id),     -- the org's one plan; every store inherits its features
     default_store_id BIGINT REFERENCES store (store_id)
+    -- The plan is bought at the org and applies to all its stores. Billing is per store:
+    -- total = plan.price_per_store × number of stores in the org (derived, not stored). See plans.md.
     -- Every org gets a default ("main") store created on onboarding — the store it sells and
     -- purchases through by default. default_store_id points at it; the owner can promote a
     -- different store later. Nullable only because the org row may be inserted just before its
     -- first store in the same onboarding transaction.
-    -- no plan here: billing is per-store, so the plan lives on `store`.
     -- customers, suppliers, and the product catalog are all org-level and visible to every
     -- store (tightly-coupled single company), so there's no per-store sharing flag.
 );
@@ -140,7 +146,6 @@ CREATE TABLE organization (
 CREATE TABLE store (
     store_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id  BIGINT NOT NULL REFERENCES organization (organization_id),
-    plan_id          BIGINT REFERENCES plan (plan_id),   -- each store is billed on its own plan
     region           TEXT,                               -- grouping label, e.g. 'NorthWest'
     sub_region       TEXT,                               -- finer grouping, e.g. 'Seattle-Metro'
     purchase_balance NUMERIC(12, 2),                     -- delegated inventory-buying allowance; NULL = unlimited
@@ -288,10 +293,10 @@ CREATE INDEX ON membership_role (role_id);          -- membership_id covered by 
 CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
 
 -- Organization
-CREATE INDEX ON store        (plan_id);
 CREATE INDEX ON store        (organization_id, region);   -- group an org's stores by region
 CREATE INDEX ON store_tag    (tag);                       -- find stores by tag (store_id covered by PK)
 CREATE INDEX ON organization (owner_user_id);
+CREATE INDEX ON organization (plan_id);
 CREATE INDEX ON organization (default_store_id);
 CREATE INDEX ON plan_feature (feature_id);         -- plan_id covered by PK
 
@@ -320,181 +325,3 @@ CREATE INDEX ON product        (organization_id, name);    -- the org catalog, a
 CREATE INDEX ON sales_order     (store_id, order_id DESC);
 CREATE INDEX ON purchase_order  (store_id, purchase_order_id DESC);   -- a store's purchases, newest first
 ```
-
-
-# ER Diagrams
-
-One diagram per entity, showing that entity's own relationships. Legend: `}o--||` means **many-to-one** — the crow's-foot (`}o`) side is the "many," the `||` side is the "one."
-
-
-## User
-
-```mermaid
-erDiagram
-    user }o--|| organization : "home org"
-    user }o--o| user : "created by"
-```
-
-
-## Organization
-
-```mermaid
-erDiagram
-    organization }o--|| user : "owned by"
-    organization ||--o{ store : "has"
-    organization }o--o| store : "default (main) store"
-```
-
-
-## Store
-
-```mermaid
-erDiagram
-    store }o--|| organization : "belongs to"
-    store }o--|| plan : "is on"
-    store ||--o{ product_store : "stocks"
-```
-
-
-## Product
-
-```mermaid
-erDiagram
-    product       }o--|| organization : "belongs to (catalog)"
-    product       ||--o{ product_store : "stocked as"
-    store         ||--o{ product_store : "stocks"
-```
-
-
-## Customer
-
-```mermaid
-erDiagram
-    customer }o--|| organization : "belongs to"
-```
-
-
-## Supplier
-
-```mermaid
-erDiagram
-    supplier }o--|| organization : "belongs to"
-```
-
-
-## Plan
-
-```mermaid
-erDiagram
-    plan    ||--o{ plan_feature : "has"
-    feature ||--o{ plan_feature : "in"
-```
-
-
-## Membership
-
-```mermaid
-erDiagram
-    membership }o--|| user : "for"
-    membership }o--|| organization : "at (or)"
-    membership }o--|| store : "at"
-    membership ||--o{ membership_role : "has"
-    role       ||--o{ membership_role : "granted by"
-    membership ||--o| store_membership_detail : "store-only fields"
-    membership ||--o| organization_membership_detail : "org-only fields"
-```
-
-
-## Role
-
-```mermaid
-erDiagram
-    role       ||--o{ role_permission : "has"
-    permission ||--o{ role_permission : "in"
-```
-
-
-## Order
-
-```mermaid
-erDiagram
-    sales_order }o--|| store : "belongs to"
-    sales_order }o--|| customer : "placed by"
-    sales_order ||--o{ sales_order_product : "contains"
-    product     ||--o{ sales_order_product : "appears in"
-```
-
-
-## Return
-
-```mermaid
-erDiagram
-    sales_order_return }o--|| store : "belongs to"
-    sales_order_return }o--|| sales_order : "refunds"
-    sales_order_return ||--o{ sales_order_return_product : "contains"
-    product            ||--o{ sales_order_return_product : "appears in"
-```
-
-
-## Purchase Order
-
-```mermaid
-erDiagram
-    purchase_order }o--|| store : "placed by"
-    purchase_order }o--|| supplier : "bought from"
-    purchase_order ||--o{ purchase_order_product : "contains"
-    product        ||--o{ purchase_order_product : "appears in"
-```
-
-
-## Expense
-
-```mermaid
-erDiagram
-    expense }o--|| organization : "belongs to"
-    expense }o--o| store : "spent by (or org-level)"
-    expense }o--o| supplier : "vendor"
-```
-
-
-# Queries
- add later
-
-
-# Audit Logging & Tracing (TODO)
-
-We need an audit trail that records **who did what, when, and to which record** — for security,
-debugging, accountability, and especially money-related accountability (every balance top-up,
-purchase, expense, role grant, and membership change should be traceable). This is a TODO; the
-notes below are what to design when we build it.
-
-## Why we need it
-- **Money trail** — top-ups to `purchase_balance` / `expense_balance`, purchases, expenses:
-  who changed a limit, who approved a spend, how a balance reached its current value.
-- **Access changes** — role grants/revokes, membership add/remove (soft-delete already keeps
-  the row, but not *who* removed it or *when* in a queryable log).
-- **Security / forensics** — trace suspicious activity back to a user, time, and place.
-- **Support / debugging** — reconstruct "how did this record get into this state."
-
-## What to add later
-- [ ] An **`audit_log`** table — at minimum:
-      `audit_id`, `organization_id`, `store_id` (nullable, the place), `actor_user_id`
-      (who), `action` (e.g. `expense.created`, `purchase_balance.topped_up`, `role.granted`),
-      `entity_type` + `entity_id` (what record), `before`/`after` (JSONB snapshot or diff),
-      `created_at`.
-- [ ] Decide **capture mechanism** — application-layer writes (explicit, intentional) vs.
-      database triggers (catches everything, harder to give business context). Likely app-layer
-      for business events + a generic fallback.
-- [ ] **Event taxonomy** — the canonical list of auditable actions (money, access, data) and
-      a consistent naming aligned with the permission `subject:resource:action` style.
-- [ ] **Immutability / retention** — audit rows are append-only (never updated/deleted);
-      decide retention period and whether to archive cold logs.
-- [ ] **Balance-change specifics** — for `purchase_balance` / `expense_balance`, log the old
-      value, new value, delta, and reason, so a balance is fully reconcilable from the log.
-- [ ] **Actor context** — capture acting user, the membership/role used, IP / session if useful.
-- [ ] **Performance** — high write volume; index by `(organization_id, created_at)` and
-      `(entity_type, entity_id)`; consider partitioning by time (see Performance section).
-- [ ] **Tracing** — correlation/request id threaded through actions so a single user operation
-      that touches several tables can be followed end to end.
-- [ ] Relationship to the **workflow engine** — many audit events are also workflow triggers;
-      decide whether the audit log *is* the event source or a separate sink (see `post-mvp.md`).

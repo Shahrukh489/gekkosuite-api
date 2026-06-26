@@ -115,3 +115,52 @@ John's access
 
 Because each record points at a real store or a real organization (a proper database link), a record can never refer to a place that doesn't exist, and deleting a place automatically removes its access records.
 
+
+# Security — TODO
+
+The RBAC *model* above is sound, but a system is only as secure as its enforcement. The
+following are not yet specified and must be designed before this can be called secure. Each
+is a real requirement, not an optional nicety.
+
+## Authentication (currently hand-waved — needs a real section)
+- [ ] **Password storage** — hash with a slow, salted algorithm (argon2id or bcrypt); never
+      plaintext/MD5/SHA1. Add a `password_hash` column to `user`.
+- [ ] **Sessions / tokens** — choose server session vs. JWT; define expiry, rotation, and
+      revocation; store tokens in httpOnly, secure cookies (not localStorage).
+- [ ] **Brute-force protection** — rate limiting and account lockout on login.
+- [ ] **MFA** — at least for org admins (they control users, roles, and funds).
+- [ ] **Password reset** — secure, single-use, expiring tokens; treat as an attack surface.
+- [ ] **Login auditing** — record success/failure, IP, timestamp.
+
+## Enforcement (the core "is it secure" rule — state it explicitly)
+- [ ] **Server-side authorization on every request.** All access checks happen on the
+      backend, per request, for every action. The UI hiding options is **convenience, not
+      security** — never trust the client. This is the single most important rule.
+- [ ] **Deny by default.** No matching grant → denied. State it as the default everywhere.
+- [ ] **Canonical check function** — one `can(user, permission, target)` that every endpoint
+      calls, including the org→store inheritance (direct membership OR org membership whose
+      role grants the permission, expanded over the org's stores). Don't reinvent per-endpoint.
+- [ ] **Privileged actions are permission-gated** — "only an org admin can create users /
+      assign roles" must be enforced by checking the actor's `organization:user:create` /
+      `organization:role:assign` permission server-side, not a hardcoded role-name check.
+
+## Tenant isolation (multi-tenant — prevents cross-org data leaks)
+- [ ] **Derive the tenant from the session, never from client input.** Don't trust a
+      client-supplied `organization_id` / `store_id`.
+- [ ] **IDOR prevention** — for every resource accessed by id, verify it belongs to a place
+      the caller has access to (e.g. requesting `store_id=999` must fail unless the caller can
+      reach that store). Every query is scoped to the caller's org/store.
+
+## Privilege escalation
+- [ ] **Can't grant above yourself** — guard against an admin assigning a role (or creating a
+      user) with more power than the actor holds; restrict who can create org owners/admins.
+
+## Access-resolution invariants (load-bearing, easy to forget)
+- [ ] Every access query filters `membership.deleted_at IS NULL` **and** `is_active = true`.
+      Enforce this in **one** access-resolution function or DB view, not copy-pasted WHERE
+      clauses — one forgotten filter re-grants a removed/suspended user.
+
+## Audit (security-critical events)
+- [ ] Role grants/revokes, user creation, permission changes, and balance top-ups must be
+      audited (non-optional). Ties into the audit log TODO in `database.md`.
+

@@ -137,22 +137,7 @@ Each works the same way and **depletes independently**: when a store records a p
 So the owner sets each store's purchasing and expense power separately, the store spends autonomously, every purchase and expense is recorded (so the balances always reconcile to real records), and the money itself is always the org's.
 
 
-## How does a store get the features in its plan?
+## Plans, features, and billing
 
-Billing is **per store**, so each **store** is on one **plan** (like "Pro"), and each plan includes a set of **features** (like reports or multi-store). The store gets its features *through its plan*. The organization itself has no plan — it's just the container; the bill is the sum of its stores' plans, and different stores can be on different plans.
-
-```
-Store → Plan → Features
-
-StoreA is on the "Pro" plan, StoreB is on "Basic"
-Pro includes:   multi_store, reports, returns
-Basic includes: returns
-So StoreA has multi_store, reports, returns — StoreB has only returns
-```
-
-To check a feature ("can StoreA use reports?"), we look at whether its plan includes that feature.
-
-**One plan per store** — a store has exactly one plan at a time.
-
-**New features spread automatically.** Because features are read through the plan, adding a feature to a plan instantly gives it to **every store on that plan** — no per-store updates. For example, adding "AI Analytics" to the Pro plan means every store on Pro now has it, automatically. Removing a feature works the same way in reverse.
+Plans, features, and how billing works are documented separately in `plans.md`. In short: the **organization** is on one plan, every store inherits the plan's features, and the bill is the plan's per-store price × the number of stores.
 
