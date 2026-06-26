@@ -18,9 +18,22 @@ CREATE TABLE "user" (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Roles are managed: we build and ship them; customers assign them, they don't author roles.
+-- Roles. For MVP all roles are managed (we ship them; customers assign, don't author).
+-- The columns below pre-lay the infrastructure for org-owned CUSTOM roles (post-MVP):
+--   is_managed      = TRUE for the roles we ship; FALSE for a customer's custom role.
+--   organization_id = the owning org for a custom role; NULL for managed (we own those).
+--   scope           = the level the role applies at (ORGANIZATION or STORE).
+-- Custom roles are org-owned only — there are no store-owned custom roles (no store_id).
 CREATE TABLE role (
-    role_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+    role_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    is_managed      BOOLEAN NOT NULL DEFAULT TRUE,
+    organization_id BIGINT REFERENCES organization (organization_id),   -- NULL for managed roles
+    scope           TEXT NOT NULL CHECK (scope IN ('ORGANIZATION', 'STORE')),
+    -- managed roles are ours (no owning org); custom roles belong to one org
+    CHECK (
+        (is_managed = TRUE  AND organization_id IS NULL)
+        OR (is_managed = FALSE AND organization_id IS NOT NULL)
+    )
 );
 
 -- A permission is subject:resource:action (e.g. store:product:read, organization:role:assign).
@@ -169,7 +182,14 @@ CREATE TABLE store_tag (
     tag      TEXT   NOT NULL,
     PRIMARY KEY (store_id, tag)   -- a store can't have the same tag twice
 );
+```
 
+## Org-level entities (catalog, customers, suppliers)
+
+These belong to the organization and are visible to every store — not per-store. Each store
+sets its own stock/price for catalog products via `product_store`.
+
+```sql
 -- Product is an ORG-level identity (one catalog for the whole org), deduped on SKU — one
 -- 'Coke SKU-123' shared across all stores. Each store sets its own quantity and price via
 -- product_store. This fits a tightly-coupled single company: one catalog, per-store stock.
@@ -201,7 +221,14 @@ CREATE TABLE supplier (
     supplier_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
+```
 
+## Store transactions (sales, returns, purchases, expenses)
+
+These happen at a store (the business unit). They reference the org-level catalog/customers/
+suppliers above, but the transaction itself belongs to a store.
+
+```sql
 CREATE TABLE sales_order (
     order_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     store_id    BIGINT NOT NULL REFERENCES store (store_id),
@@ -288,6 +315,7 @@ CREATE INDEX ON "user"          (organization_id);   -- users in their home org
 CREATE INDEX ON "user"          (created_by_user_id);
 CREATE INDEX ON membership      (user_id);
 CREATE INDEX ON membership_role (role_id);          -- membership_id covered by PK
+CREATE INDEX ON role            (organization_id);  -- an org's custom roles (NULL for managed)
 -- store_membership_detail / organization_membership_detail: membership_id is the PK,
 -- already indexed; no extra index needed
 CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
@@ -321,7 +349,7 @@ CREATE INDEX ON expense                    (store_id);
 CREATE INDEX ON expense                    (supplier_id);
 
 -- Composite indexes for the common sorted lists (list newest-first / alphabetical)
-CREATE INDEX ON product        (organization_id, name);    -- the org catalog, alphabetical
+CREATE INDEX ON product        (organization_id, sku);    -- the org catalog, by SKU
 CREATE INDEX ON sales_order     (store_id, order_id DESC);
 CREATE INDEX ON purchase_order  (store_id, purchase_order_id DESC);   -- a store's purchases, newest first
 ```
