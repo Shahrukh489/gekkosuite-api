@@ -9,17 +9,17 @@ Access is a chain of small pieces. Read it left to right:
 
 ```
 user  ──<  membership  ──<  membership_role  >──  role  ──<  role_permission  >──  permission
-(login)    (belongs at        (a role granted     (a named    (the role's          (subject:
-           one place:          on that             bundle of   permissions)         resource:
-           a store or          membership)         permissions)                     action)
-           the org)
+(login)    (belongs at        (a role granted     (bundle of    (the role's          (resource:
+           one place:          on that             perms +       permissions)         action,
+           a store or          membership)         a scope:                           scope-free)
+           the org)                                STORE/ORG)
 ```
 
 - **user** — one login per person (global identity).
 - **membership** — the user belongs at a place (a store, or the org).
 - **membership_role** — a role given to that membership.
 - **role** — a named bundle of permissions we ship.
-- **permission** — one allowed action, like `store:product:read`.
+- **permission** — one allowed action, like `product:read` (scope-free; the role's `scope` sets the level).
 
 So: a user belongs *somewhere* (membership), is given *roles* there (membership_role → role), and each role is a set of *permissions*. The rest of this doc explains each link.
 
@@ -35,7 +35,7 @@ Authentication only proves *who* they are — it grants no access by itself. Eve
 
 A user's **identity** and their **access** are separate: the `user` row is just the login (one per person, global to the system); what they can do comes entirely from memberships and roles. So a brand-new user exists but can do nothing until access is granted.
 
-An **org admin** creates and sets up users — they need the `organization:user:create` permission. The flow is three steps:
+An **org admin** creates and sets up users — they need the `user:create` permission (in their org-scoped role). The flow is three steps:
 
 1. **Create the user** — insert the `user` row (the login). It records `organization_id` (their home org), `created_by_user_id`, and `created_at`. Store-level users can't create accounts.
 2. **Add a membership** — give the user a place: a **store membership** (`store_id`) or an **organization membership** (`organization_id`). This says *where* they belong. A membership has no role on its own.
@@ -61,13 +61,21 @@ In all three the **`user` account itself remains** — you're changing access, n
 
 A **role** is a named set of permissions, like "Cashier" or "Org Owner." Roles are built and maintained by us and shipped with the system. Customers assign these roles to their users; they don't author roles themselves.
 
-A **permission** is a single allowed action, named **`subject:resource:action`** (e.g. `store:product:read`, `store:order:refund`, `organization:role:assign`). The three parts are:
+A **permission** is a single allowed action, named **`resource:action`** (e.g. `product:read`, `order:refund`, `role:assign`):
 
-- **`subject`** — the scope: `store` or `organization`. This is also what the permission acts within.
-- **`resource`** — what's acted on: `product`, `order`, `role`, etc.
+- **`resource`** — what's acted on: `product`, `order`, `role`, `store`, `user`, etc.
 - **`action`** — the verb: `read`, `create`, `refund`, `assign`, etc.
 
-The `subject` tells you whether a permission is a store-level or org-level power — `store:*:*` permissions act on a store, `organization:*:*` permissions act on the org.
+Permissions are **scope-free** — `product:edit` says nothing about org vs. store. The **level lives on the role**, not on the permission. Each role has a **`scope`** of `STORE` or `ORGANIZATION`:
+
+- A **store role** (`scope = STORE`) — its permissions reach the one store it's granted at.
+- An **org role** (`scope = ORGANIZATION`) — its permissions reach the **whole org and all its stores**.
+
+So the *same* permission has different reach depending on the role that holds it. `product:edit` in a Cashier (store) role edits that one store's products; the same `product:edit` in an Org Admin (org) role edits any store's products in the org. This is the standard "role + scope" model (the same shape as Kubernetes `Role` vs `ClusterRole`, or Azure's role-at-a-scope).
+
+**Org-only powers are just permissions we put only in org roles.** Things like `store:create` or `user:create` only make sense org-wide, so they appear only in org-scoped roles and never in store roles. There's no special marking on the permission — it's controlled by which role we ship it in.
+
+Permissions are **explicit, never wildcards** — a role lists exactly the permissions it has. We don't grant `*` / "everything," so a new permission added later reaches nobody until it's deliberately added to a role.
 
 Because users point at a role and the role points at its permissions (nobody keeps their own copy), changing a role's permissions takes effect immediately for everyone who has that role.
 
@@ -81,23 +89,23 @@ Roles attach to a **membership** — "give role R to this user at this place" �
 
 It's structural — there's no special guard to bypass:
 
-- Roles are **managed** (we build them), so a store user's roles only ever carry `store:*:*` permissions; we never ship a store role with org powers.
-- **Only an org admin assigns roles**, and they assign a role *on a membership*. An **org role can only be put on an organization membership** — and a user only has an org membership if an org admin gave them one.
-- So the question "can this user have an org role?" is answered by the `membership` table: **does the user have a row with `organization_id` set?** If not, the UI doesn't offer org roles and there's nowhere to attach one. A pure store user has no organization membership → no org role → no org access.
+- An **org role** (`scope = ORGANIZATION`) can only be granted on an **organization membership**; a **store role** (`scope = STORE`) only on a **store membership**. The role's scope must match the membership's place.
+- **Only an org admin assigns roles**, and a user only has an organization membership if an org admin gave them one.
+- So "can this user have an org role?" is answered by the `membership` table: **does the user have a row with `organization_id` set?** If not, there's no org membership to attach an org role to, and the UI never offers one. A pure store user has no organization membership → no org role → no org access.
 
 In short: org access requires an org membership, only org admins create those, so a store-only user can never reach the org.
 
 
 ## How do permissions reach? (blast radius)
 
-Where a role is granted — the membership's place — determines how far its permissions reach:
+A role's **scope** decides how far its permissions reach:
 
-- A role granted at **one store** has its permissions reach **only that store**.
-- A role granted at the **org** has its `store:*:*` permissions reach **every store in that org**, and its `organization:*:*` permissions act on the org itself.
+- A **store role** reaches **only the one store** its membership is at.
+- An **org role** reaches the **org itself and every store under it** — so its permissions apply at any of the org's stores.
 
-So the *same* permission has a different reach depending on where the role is granted. `store:product:edit` granted at a store edits that one store's products; granted at the org it edits any store's products in the org. This is the whole point of an org role — it's a store power with org-wide reach.
+So the *same* permission reaches differently depending on the role's scope. `order:refund` in a store role refunds at that one store; `order:refund` in an org role refunds at any store in the org. An org admin can act across all stores not because of special permissions, but because his role is org-scoped — org scope is a superset of store reach.
 
-Permissions are explicit, not inherited by wildcard: an org role that should manage stores must actually list `store:product:edit`, `store:product:read`, etc. If an org role does **not** contain a given `store:*:*` permission, it **cannot** do that store operation.
+Permissions are explicit, never wildcards: a role lists exactly what it can do, and a new permission reaches nobody until it's added to a role.
 
 
 ## How do we know what a user can do, and where?
@@ -108,9 +116,9 @@ A user's access always has two parts: a **place** (a store, or the organization)
 John's access
  place    type    name             can do
  ------   -----   --------------   ----------------------------------
- org_1    ORG     Acme Inc         organization:store:create, organization:user:manage
- StoreA   STORE   Acme Seattle     store:product:read, store:order:sell
- StoreB   STORE   Acme Portland    store:product:read, store:order:sell, store:order:refund
+ org_1    ORG     Acme Inc         store:create, user:create, product:edit (all stores)
+ StoreA   STORE   Acme Seattle     product:read, order:sell
+ StoreB   STORE   Acme Portland    product:read, order:sell, order:refund
 ```
 
 Because each record points at a real store or a real organization (a proper database link), a record can never refer to a place that doesn't exist, and deleting a place automatically removes its access records.
@@ -141,8 +149,8 @@ is a real requirement, not an optional nicety.
       calls, including the org→store inheritance (direct membership OR org membership whose
       role grants the permission, expanded over the org's stores). Don't reinvent per-endpoint.
 - [ ] **Privileged actions are permission-gated** — "only an org admin can create users /
-      assign roles" must be enforced by checking the actor's `organization:user:create` /
-      `organization:role:assign` permission server-side, not a hardcoded role-name check.
+      assign roles" must be enforced by checking the actor's `user:create` / `role:assign`
+      permission (in an org-scoped role) server-side, not a hardcoded role-name check.
 
 ## Tenant isolation (multi-tenant — prevents cross-org data leaks)
 - [ ] **Derive the tenant from the session, never from client input.** Don't trust a

@@ -36,16 +36,19 @@ CREATE TABLE role (
     )
 );
 
--- A permission is subject:resource:action (e.g. store:product:read, organization:role:assign).
---   subject  = the scope: 'store' or 'organization' (store:*:* acts on a store, organization:*:* on the org)
---   resource = what's acted on: product, order, role, ...
+-- A permission is resource:action (e.g. product:read, order:refund, role:assign).
+-- Permissions are scope-free and explicit (no wildcards). The LEVEL (org vs store) is NOT on
+-- the permission — it comes from the ROLE that holds it (role.scope) and the membership the
+-- role is granted at. So `product:edit` reaches one store in a STORE role, or every store in
+-- the org in an ORGANIZATION role. What's "org-only" (e.g. store:create, user:create) is just
+-- a permission we put only in org roles.
+--   resource = what's acted on: product, order, role, store, user, ...
 --   action   = the verb: read, create, refund, assign, ...
 CREATE TABLE permission (
     permission_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    subject       TEXT NOT NULL,   -- scope: store | organization
     resource      TEXT NOT NULL,   -- e.g. product, order, role
     action        TEXT NOT NULL,   -- e.g. read, create, refund, assign
-    UNIQUE (subject, resource, action)
+    UNIQUE (resource, action)
 );
 
 CREATE TABLE role_permission (

@@ -81,7 +81,7 @@ This fits the niche (a tightly-coupled single company, not independent franchise
 
 **The organization is the single source of funds.** There's no per-store bank account or balance — these are small businesses with one business account, and a store is just a selling front that operates against the org's money. The real money lives in the company's own bank (outside this system); we record what happens, we don't hold funds.
 
-**Stores still operate on their own — that's permissions, not money.** A store manager can sell and buy inventory without the owner approving each action, because they hold store-level roles with the right permissions (`store:order:sell`, `store:purchase:create`, etc.). The owner delegates once by granting the role; they don't micromanage. (See `auth.md` for how roles and permissions work.)
+**Stores still operate on their own — that's permissions, not money.** A store manager can sell and buy inventory without the owner approving each action, because they hold store-level roles with the right permissions (`order:sell`, `purchase:create`, etc.). The owner delegates once by granting the role; they don't micromanage. (See `auth.md` for how roles and permissions work.)
 
 **Two kinds of spending — inventory vs. expenses.** A store spends money two ways, and we keep them separate because they're different for accounting:
 
