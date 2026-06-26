@@ -89,7 +89,8 @@ Because the stores belong to the same company, we don't build per-store walls, v
 
 # Constraints
 - Organization must have minimum one store to sell products
-    - Create one by default on onboarding
+    - On onboarding, create a **default ("main") store** automatically — the store the org sells and purchases through by default.
+    - `organization.default_store_id` points at it. The owner can promote a different store to main later.
 
 # FAQ
 
@@ -171,13 +172,19 @@ This fits the niche (a tightly-coupled single company, not independent franchise
 
 **Stores still operate on their own — that's permissions, not money.** A store manager can sell and buy inventory without the owner approving each action, because they hold store-level roles with the right permissions (`store:sell`, `store:purchase`, etc.). The owner delegates once by granting the role; they don't micromanage.
 
-**Bounding a store's spending — `purchase_balance`.** To control how much a store can buy without becoming a free-for-all, each store has an optional `purchase_balance` the org admin sets:
+**Two kinds of spending — inventory vs. expenses.** A store spends money two ways, and we keep them separate because they're different for accounting:
 
-- It's a **delegated, depleting allowance.** When a store makes a purchase (a `purchase_order` against an org supplier), the system records the order **and** subtracts its total from `purchase_balance`, in one transaction.
-- A purchase is **rejected if its total exceeds the remaining balance**. At zero, the store can't buy until the owner raises the number ("tops up").
-- **`NULL` = unlimited** — a store the owner fully trusts has no cap.
+- **Inventory** it resells — recorded as a `purchase_order` (with product lines, affects stock). This is cost-of-goods.
+- **Expenses** — non-resale things like furniture, computers, utilities — recorded as an `expense` (a category + amount, a vendor like Amazon/Staples, no product, no stock effect). These are operating expenses. An expense can belong to a **store** (location overhead, depletes that store's `expense_balance`) **or to the org directly** (HQ overhead with no store — the POS subscription, the accountant, company-wide software). Inventory (`purchase_order`) is always store-located; expenses can be org-level because some costs aren't tied to a location.
 
-So the owner sets each store's purchasing power, the store spends it autonomously, every purchase is recorded (so the balance always reconciles to real orders), and the money itself is always the org's. Actually paying suppliers and settling card sales (real money movement) is a separate concern, deferred to a future payments/accounting integration — see `post-mvp.md`.
+**Bounding a store's spending — two optional balances.** To control how much a store can spend without micromanaging, each store has two optional allowances the org admin sets:
+
+- **`purchase_balance`** — caps inventory buying.
+- **`expense_balance`** — caps non-inventory expense spending.
+
+Each works the same way and **depletes independently**: when a store records a purchase (or expense), the system writes the record **and** subtracts its total from the matching balance, in one transaction. The action is **rejected if it exceeds the remaining balance**; at zero the store can't spend in that category until the owner raises the number ("tops up"). **`NULL` = unlimited** for either — a store the owner fully trusts has no cap.
+
+So the owner sets each store's purchasing and expense power separately, the store spends autonomously, every purchase and expense is recorded (so the balances always reconcile to real records), and the money itself is always the org's. Actually paying suppliers and settling card sales (real money movement) is a separate concern, deferred to a future payments/accounting integration — see `post-mvp.md`.
 
 
 ## How does an organization owner see everything across all stores?

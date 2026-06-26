@@ -148,8 +148,13 @@ CREATE TABLE plan_feature (
 
 ```sql
 CREATE TABLE organization (
-    organization_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    owner_user_id   BIGINT REFERENCES "user" (user_id)
+    organization_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    owner_user_id    BIGINT REFERENCES "user" (user_id),
+    default_store_id BIGINT REFERENCES store (store_id)
+    -- Every org gets a default ("main") store created on onboarding — the store it sells and
+    -- purchases through by default. default_store_id points at it; the owner can promote a
+    -- different store later. Nullable only because the org row may be inserted just before its
+    -- first store in the same onboarding transaction.
     -- no plan here: billing is per-store, so the plan lives on `store`.
     -- customers, suppliers, and the product catalog are all org-level and visible to every
     -- store (tightly-coupled single company), so there's no per-store sharing flag.
@@ -165,12 +170,15 @@ CREATE TABLE store (
     plan_id          BIGINT REFERENCES plan (plan_id),   -- each store is billed on its own plan
     region           TEXT,                               -- grouping label, e.g. 'NorthWest'
     sub_region       TEXT,                               -- finer grouping, e.g. 'Seattle-Metro'
-    purchase_balance NUMERIC(12, 2)                      -- delegated purchasing allowance; NULL = unlimited
-    -- The org is the single source of funds; a store has no account of its own. purchase_balance
-    -- is how much purchasing power the org admin delegates to this store. It DEPLETES: each
-    -- purchase_order both inserts a row AND decrements this, in one transaction. A purchase is
-    -- rejected if its total exceeds the balance (when not NULL). The owner "tops up" by raising
-    -- this number. NULL = no limit.
+    purchase_balance NUMERIC(12, 2),                     -- delegated inventory-buying allowance; NULL = unlimited
+    expense_balance  NUMERIC(12, 2)                      -- delegated expense-spending allowance; NULL = unlimited
+    -- The org is the single source of funds; a store has no account of its own. These two are
+    -- how much spending power the org admin delegates to this store, each DEPLETING independently:
+    --   purchase_balance -> inventory buys (purchase_order); each PO decrements it.
+    --   expense_balance  -> non-inventory spend (expense, e.g. furniture); each expense decrements it.
+    -- A purchase/expense is rejected if its total exceeds the matching balance (when not NULL).
+    -- On success, the record is inserted AND the matching balance decremented in one transaction.
+    -- The owner "tops up" by raising the number. NULL = no limit.
     -- region/sub_region are descriptive tags for filtering and reports, NOT places you can
     -- grant roles at. If a region ever needs to OWN access (a real district manager role)
     -- it graduates to its own entity; until then it's just a label on the store.
@@ -264,6 +272,25 @@ CREATE TABLE purchase_order_product (
     unit_cost         NUMERIC(12, 2) NOT NULL,   -- cost per unit at purchase time
     PRIMARY KEY (purchase_order_id, product_id)
 );
+
+-- Non-inventory spending (furniture, computers, utilities, SaaS, accountant fees, etc.) —
+-- money OUT that is NOT resold and does NOT touch stock, so it's separate from purchase_order.
+-- No product lines: just a category and amount. An expense belongs to EITHER a store OR the
+-- org directly:
+--   store_id set   -> a store expense (location accounting; depletes that store's expense_balance)
+--   store_id NULL  -> an ORG-level expense (HQ overhead: the POS subscription, accountant,
+--                     company-wide software) — no store, so no per-store balance is depleted.
+-- organization_id is always set so org-level expenses (store_id NULL) still have an owner.
+CREATE TABLE expense (
+    expense_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),  -- always the owning org
+    store_id        BIGINT REFERENCES store (store_id),       -- set = store expense; NULL = org-level expense
+    supplier_id     BIGINT REFERENCES supplier (supplier_id), -- the vendor (Amazon, Staples, ...); optional
+    category        TEXT NOT NULL,             -- e.g. 'furniture', 'equipment', 'utilities', 'software'
+    amount          NUMERIC(12, 2) NOT NULL,   -- store expense: deducted from the store's expense_balance
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- when store_id is set, its store must belong to organization_id (enforced on the write path)
+);
 ```
 
 ## Indexes
@@ -298,6 +325,7 @@ CREATE INDEX ON store        (plan_id);
 CREATE INDEX ON store        (organization_id, region);   -- group an org's stores by region
 CREATE INDEX ON store_tag    (tag);                       -- find stores by tag (store_id covered by PK)
 CREATE INDEX ON organization (owner_user_id);
+CREATE INDEX ON organization (default_store_id);
 CREATE INDEX ON plan_feature (feature_id);         -- plan_id covered by PK
 
 -- Org-level identities (customers, suppliers, product catalog)
@@ -316,6 +344,9 @@ CREATE INDEX ON sales_order_return_product (product_id);   -- return_id covered 
 CREATE INDEX ON purchase_order             (store_id);
 CREATE INDEX ON purchase_order             (supplier_id);
 CREATE INDEX ON purchase_order_product     (product_id);   -- purchase_order_id covered by PK
+CREATE INDEX ON expense                    (organization_id);   -- org-level expenses (store_id NULL)
+CREATE INDEX ON expense                    (store_id);
+CREATE INDEX ON expense                    (supplier_id);
 
 -- Composite indexes for the common sorted lists (list newest-first / alphabetical)
 CREATE INDEX ON product        (organization_id, name);    -- the org catalog, alphabetical
@@ -345,6 +376,7 @@ erDiagram
 erDiagram
     organization }o--|| user : "owned by"
     organization ||--o{ store : "has"
+    organization }o--o| store : "default (main) store"
 ```
 
 
@@ -451,5 +483,54 @@ erDiagram
 ```
 
 
+## Expense
+
+```mermaid
+erDiagram
+    expense }o--|| organization : "belongs to"
+    expense }o--o| store : "spent by (or org-level)"
+    expense }o--o| supplier : "vendor"
+```
+
+
 # Queries
  add later
+
+
+# Audit Logging & Tracing (TODO)
+
+We need an audit trail that records **who did what, when, and to which record** — for security,
+debugging, accountability, and especially money-related accountability (every balance top-up,
+purchase, expense, role grant, and membership change should be traceable). This is a TODO; the
+notes below are what to design when we build it.
+
+## Why we need it
+- **Money trail** — top-ups to `purchase_balance` / `expense_balance`, purchases, expenses:
+  who changed a limit, who approved a spend, how a balance reached its current value.
+- **Access changes** — role grants/revokes, membership add/remove (soft-delete already keeps
+  the row, but not *who* removed it or *when* in a queryable log).
+- **Security / forensics** — trace suspicious activity back to a user, time, and place.
+- **Support / debugging** — reconstruct "how did this record get into this state."
+
+## What to add later
+- [ ] An **`audit_log`** table — at minimum:
+      `audit_id`, `organization_id`, `store_id` (nullable, the place), `actor_user_id`
+      (who), `action` (e.g. `expense.created`, `purchase_balance.topped_up`, `role.granted`),
+      `entity_type` + `entity_id` (what record), `before`/`after` (JSONB snapshot or diff),
+      `created_at`.
+- [ ] Decide **capture mechanism** — application-layer writes (explicit, intentional) vs.
+      database triggers (catches everything, harder to give business context). Likely app-layer
+      for business events + a generic fallback.
+- [ ] **Event taxonomy** — the canonical list of auditable actions (money, access, data) and
+      a consistent `subject.verb` naming, aligned with the permission `subject:action` style.
+- [ ] **Immutability / retention** — audit rows are append-only (never updated/deleted);
+      decide retention period and whether to archive cold logs.
+- [ ] **Balance-change specifics** — for `purchase_balance` / `expense_balance`, log the old
+      value, new value, delta, and reason, so a balance is fully reconcilable from the log.
+- [ ] **Actor context** — capture acting user, the membership/role used, IP / session if useful.
+- [ ] **Performance** — high write volume; index by `(organization_id, created_at)` and
+      `(entity_type, entity_id)`; consider partitioning by time (see Performance section).
+- [ ] **Tracing** — correlation/request id threaded through actions so a single user operation
+      that touches several tables can be followed end to end.
+- [ ] Relationship to the **workflow engine** — many audit events are also workflow triggers;
+      decide whether the audit log *is* the event source or a separate sink (see `post-mvp.md`).
