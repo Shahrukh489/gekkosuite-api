@@ -3,6 +3,10 @@
 Things intentionally deferred. Captured so we don't hard-code them as one-off behaviors and
 have to claw them back later.
 
+# Custom Roles
+
+
+
 ## Workflow / event engine
 
 A future event-driven engine (org-admin-configurable from the UI): **event → condition → action**.

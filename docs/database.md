@@ -8,16 +8,6 @@ Note: `user` is a reserved word in Postgres, so the table name is quoted as `"us
 ## Auth / RBAC
 
 ```sql
--- role_level is a small lookup table (not an enum) so its label can be edited and it can
--- grow its own fields later (display name, description, sort order). Seeded with two rows:
--- 'ORGANIZATION' and 'STORE'. Both `role` and `permission` reference it by role_level_id, so
--- the vocabulary lives in one place; the write path compares permission.role_level_id to
--- role.role_level_id.
-CREATE TABLE role_level (
-    role_level_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    code          TEXT NOT NULL UNIQUE   -- 'ORGANIZATION' | 'STORE' (extra fields like name can be added later)
-);
-
 -- `user` is the GLOBAL identity table for the whole system (one login per person), not an
 -- org-owned table. Provenance fields record where the account originated, so even after
 -- every membership is removed we still know the user's home org and who created them.
@@ -29,37 +19,21 @@ CREATE TABLE "user" (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Roles are managed: we build and ship them; customers assign them, they don't author roles.
 CREATE TABLE role (
-    role_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT REFERENCES organization (organization_id),
-    store_id        BIGINT REFERENCES store (store_id),
-    is_managed      BOOLEAN NOT NULL DEFAULT FALSE,   -- TRUE = we built it, FALSE = a customer did
-    role_level_id   BIGINT NOT NULL REFERENCES role_level (role_level_id),  -- ORGANIZATION | STORE
-    created_user_id BIGINT REFERENCES "user" (user_id),  -- who made it (NULL for ones we ship)
-    -- Two independent ideas:
-    --   is_managed    = who OWNS the role (us vs a customer)
-    --   role_level_id = the LEVEL it applies at, and the only level it can be granted at
-    -- Owner-column rule, enforced by the DB (the owner column also reflects the level):
-    --   is_managed = TRUE  (we built it):  BOTH owner columns NULL, any level
-    --   is_managed = FALSE (a customer's): exactly ONE owner column set
-    -- (matching role_level_id to the right owner column — ORG level -> organization_id set,
-    --  STORE level -> store_id set — is enforced on the write path, since role_level_id
-    --  values aren't known literals the CHECK can compare to.)
-    CHECK (
-        (is_managed = TRUE  AND organization_id IS NULL AND store_id IS NULL)
-        OR (is_managed = FALSE AND (organization_id IS NOT NULL) <> (store_id IS NOT NULL))
-    )
+    role_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
 );
 
+-- A permission is subject:resource:action (e.g. store:product:read, organization:role:assign).
+--   subject  = the scope: 'store' or 'organization' (store:*:* acts on a store, organization:*:* on the org)
+--   resource = what's acted on: product, order, role, ...
+--   action   = the verb: read, create, refund, assign, ...
 CREATE TABLE permission (
     permission_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    subject       TEXT NOT NULL,   -- e.g. store, organization
-    action        TEXT NOT NULL,   -- e.g. refund, edit
-    role_level_id BIGINT NOT NULL REFERENCES role_level (role_level_id),  -- ORGANIZATION | STORE
-    -- the level this permission applies at. A role may only hold permissions whose
-    -- role_level_id matches the role's role_level_id (enforced on the write path when a role
-    -- is created/edited), so e.g. a STORE role can never contain an ORGANIZATION permission.
-    UNIQUE (subject, action)
+    subject       TEXT NOT NULL,   -- scope: store | organization
+    resource      TEXT NOT NULL,   -- e.g. product, order, role
+    action        TEXT NOT NULL,   -- e.g. read, create, refund, assign
+    UNIQUE (subject, resource, action)
 );
 
 CREATE TABLE role_permission (
@@ -313,11 +287,6 @@ CREATE INDEX ON membership      (user_id);
 CREATE INDEX ON membership_role (role_id);          -- membership_id covered by PK
 -- store_membership_detail / organization_membership_detail: membership_id is the PK,
 -- already indexed; no extra index needed
-CREATE INDEX ON role            (organization_id);
-CREATE INDEX ON role            (store_id);
-CREATE INDEX ON role            (created_user_id);
-CREATE INDEX ON role            (role_level_id);
-CREATE INDEX ON permission      (role_level_id);
 CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
 
 -- Organization
@@ -443,8 +412,6 @@ erDiagram
 
 ```mermaid
 erDiagram
-    role       }o--|| organization : "owned by (or)"
-    role       }o--|| store : "owned by"
     role       ||--o{ role_permission : "has"
     permission ||--o{ role_permission : "in"
 ```
@@ -522,7 +489,7 @@ notes below are what to design when we build it.
       database triggers (catches everything, harder to give business context). Likely app-layer
       for business events + a generic fallback.
 - [ ] **Event taxonomy** — the canonical list of auditable actions (money, access, data) and
-      a consistent `subject.verb` naming, aligned with the permission `subject:action` style.
+      a consistent naming aligned with the permission `subject:resource:action` style.
 - [ ] **Immutability / retention** — audit rows are append-only (never updated/deleted);
       decide retention period and whether to archive cold logs.
 - [ ] **Balance-change specifics** — for `purchase_balance` / `expense_balance`, log the old
