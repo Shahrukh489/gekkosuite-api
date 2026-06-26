@@ -18,8 +18,15 @@ CREATE TABLE role_level (
     code          TEXT NOT NULL UNIQUE   -- 'ORGANIZATION' | 'STORE' (extra fields like name can be added later)
 );
 
+-- `user` is the GLOBAL identity table for the whole system (one login per person), not an
+-- org-owned table. Provenance fields record where the account originated, so even after
+-- every membership is removed we still know the user's home org and who created them.
 CREATE TABLE "user" (
-    user_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+    user_id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id    BIGINT NOT NULL REFERENCES organization (organization_id),  -- origin/home org (set once, immutable)
+    origin_store_id    BIGINT REFERENCES store (store_id),     -- the store they were created at, if any (NULL for org-created)
+    created_by_user_id BIGINT REFERENCES "user" (user_id),     -- who created this account (NULL for self-signup / first owner)
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE role (
@@ -71,21 +78,26 @@ CREATE TABLE membership (
     organization_id BIGINT REFERENCES organization (organization_id),
     store_id        BIGINT REFERENCES store (store_id),
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    -- is_active is the "is this person active at this place" switch: suspend someone
-    -- without deleting the membership or re-adding their roles later.
+    deleted_at      TIMESTAMPTZ,   -- soft delete: NULL = live, set = removed (kept for history)
+    -- Two distinct switches:
+    --   is_active  = suspended but still belongs here (temporary; reversible toggle).
+    --   deleted_at = removed from this place, but the row is retained for audit/history.
+    -- A live membership has deleted_at IS NULL. Every access query must filter
+    -- deleted_at IS NULL, or a removed membership would still grant access.
     -- the place is organization_id OR store_id: EXACTLY ONE set, never both, never neither.
     -- The `<>` (XOR) means exactly one of the two is NOT NULL.
     CHECK ((organization_id IS NOT NULL) <> (store_id IS NOT NULL))
 );
 
--- one membership per user per place (no duplicate placements)
+-- one LIVE membership per user per place. Soft-deleted rows (deleted_at set) are excluded,
+-- so removing then re-adding a user at the same place doesn't collide with the old tombstone.
 CREATE UNIQUE INDEX membership_store_uq
     ON membership (user_id, store_id)
-    WHERE store_id IS NOT NULL;
+    WHERE store_id IS NOT NULL AND deleted_at IS NULL;
 
 CREATE UNIQUE INDEX membership_org_uq
     ON membership (user_id, organization_id)
-    WHERE organization_id IS NOT NULL;
+    WHERE organization_id IS NOT NULL AND deleted_at IS NULL;
 
 -- A role granted on a membership. Zero or more per membership.
 -- Losing a role = deleting its row here; the membership above is untouched.
@@ -139,6 +151,8 @@ CREATE TABLE organization (
     organization_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     owner_user_id   BIGINT REFERENCES "user" (user_id)
     -- no plan here: billing is per-store, so the plan lives on `store`.
+    -- customers, suppliers, and the product catalog are all org-level and visible to every
+    -- store (tightly-coupled single company), so there's no per-store sharing flag.
 );
 ```
 
@@ -164,16 +178,36 @@ CREATE TABLE store_tag (
     PRIMARY KEY (store_id, tag)   -- a store can't have the same tag twice
 );
 
+-- Product is an ORG-level identity (one catalog for the whole org), deduped on SKU — one
+-- 'Coke SKU-123' shared across all stores. Each store sets its own quantity and price via
+-- product_store. This fits a tightly-coupled single company: one catalog, per-store stock.
 CREATE TABLE product (
-    product_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id   BIGINT NOT NULL REFERENCES store (store_id),
-    sku        TEXT,
-    UNIQUE (store_id, sku)   -- sku is unique within a store
+    product_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
+    sku             TEXT,
+    UNIQUE (organization_id, sku)   -- sku is unique within the org (the dedup key)
 );
 
+-- A store's stock and price for a product. One row per (product, store) the store carries.
+CREATE TABLE product_store (
+    product_id BIGINT NOT NULL REFERENCES product (product_id),
+    store_id   BIGINT NOT NULL REFERENCES store (store_id),
+    quantity   INTEGER NOT NULL DEFAULT 0,   -- this store's own stock (independent per store)
+    price      NUMERIC(12, 2),               -- this store's own price
+    PRIMARY KEY (product_id, store_id)
+);
+
+-- Customer is an ORG-level identity: one account per person for the whole org, visible to
+-- every store. Walk into any store, use the same account. No per-store customer data.
 CREATE TABLE customer (
-    customer_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id    BIGINT NOT NULL REFERENCES store (store_id)
+    customer_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
+);
+
+-- Supplier is an ORG-level vendor record, visible to every store. No per-store terms.
+CREATE TABLE supplier (
+    supplier_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
 
 CREATE TABLE sales_order (
@@ -218,6 +252,9 @@ the other column.
 ```sql
 -- RBAC
 CREATE INDEX ON store           (organization_id);
+CREATE INDEX ON "user"          (organization_id);   -- users in their home org
+CREATE INDEX ON "user"          (origin_store_id);
+CREATE INDEX ON "user"          (created_by_user_id);
 CREATE INDEX ON membership      (user_id);
 CREATE INDEX ON membership_role (role_id);          -- membership_id covered by PK
 -- store_membership_detail / organization_membership_detail: membership_id is the PK,
@@ -236,9 +273,13 @@ CREATE INDEX ON store_tag    (tag);                       -- find stores by tag 
 CREATE INDEX ON organization (owner_user_id);
 CREATE INDEX ON plan_feature (feature_id);         -- plan_id covered by PK
 
+-- Org-level identities (customers, suppliers, product catalog)
+CREATE INDEX ON customer (organization_id);
+CREATE INDEX ON supplier (organization_id);
+CREATE INDEX ON product  (organization_id);
+
 -- Store data (the big tables — these matter most)
-CREATE INDEX ON product                (store_id);
-CREATE INDEX ON customer               (store_id);
+CREATE INDEX ON product_store          (store_id);     -- a store's catalog (product_id covered by PK)
 CREATE INDEX ON sales_order            (store_id);
 CREATE INDEX ON sales_order            (customer_id);
 CREATE INDEX ON sales_order_product    (product_id);   -- order_id covered by PK
@@ -247,7 +288,7 @@ CREATE INDEX ON sales_order_return         (order_id);
 CREATE INDEX ON sales_order_return_product (product_id);   -- return_id covered by PK
 
 -- Composite indexes for the common sorted lists (list newest-first / alphabetical)
-CREATE INDEX ON product     (store_id, name);
+CREATE INDEX ON product     (organization_id, name);    -- the org catalog, alphabetical
 CREATE INDEX ON sales_order  (store_id, order_id DESC);
 ```
 
@@ -255,6 +296,16 @@ CREATE INDEX ON sales_order  (store_id, order_id DESC);
 # ER Diagrams
 
 One diagram per entity, showing that entity's own relationships. Legend: `}o--||` means **many-to-one** — the crow's-foot (`}o`) side is the "many," the `||` side is the "one."
+
+
+## User
+
+```mermaid
+erDiagram
+    user }o--|| organization : "home org (origin)"
+    user }o--o| store : "created at (origin)"
+    user }o--o| user : "created by"
+```
 
 
 ## Organization
@@ -272,8 +323,33 @@ erDiagram
 erDiagram
     store }o--|| organization : "belongs to"
     store }o--|| plan : "is on"
-    store ||--o{ product : "has"
-    store ||--o{ customer : "has"
+    store ||--o{ product_store : "stocks"
+```
+
+
+## Product
+
+```mermaid
+erDiagram
+    product       }o--|| organization : "belongs to (catalog)"
+    product       ||--o{ product_store : "stocked as"
+    store         ||--o{ product_store : "stocks"
+```
+
+
+## Customer
+
+```mermaid
+erDiagram
+    customer }o--|| organization : "belongs to"
+```
+
+
+## Supplier
+
+```mermaid
+erDiagram
+    supplier }o--|| organization : "belongs to"
 ```
 
 
@@ -334,404 +410,4 @@ erDiagram
 
 
 # Queries
-
-Each query returns flat joined rows with all the columns a screen needs. The API layer
-groups/combines these rows (e.g. collapsing a user's many roles into one object), so the
-SQL stays plain joins — no aggregation here.
-
-Bind parameters: `:organization_id`, `:store_id`, `:user_id`, `:order_id`.
-
-These examples use descriptive columns (`name`, `email`, `phone`, `price`, etc.) that
-are added to the tables later — the schema above lists keys only.
-
-
-## Products for every store in an organization
-
-Each product with its price/stock and which store it's in.
-
-```sql
-SELECT p.product_id,
-       p.name,
-       p.sku,
-       p.price,
-       p.quantity,
-       s.store_id,
-       s.name AS store_name
-FROM product p
-JOIN store s ON s.store_id = p.store_id
-WHERE s.organization_id = :organization_id
-ORDER BY s.name, p.name;
-```
-
-
-## A user's full access (everything the app loads at login)
-
-Access is resolved in two parts, combined by the API. Permissions reach by **blast radius**:
-a store membership's permissions apply to that one store; an org membership's permissions
-apply to the org itself, and its `store:*` permissions fan out to **every store in the org**.
-
-**Part 1 — direct membership permissions** (each permission tagged with its own place):
-
-```sql
-SELECT ur.organization_id,
-       o.name AS organization_name,
-       ur.store_id,
-       s.name AS store_name,
-       p.subject,
-       p.action
-FROM membership ur
-JOIN membership_role mr ON mr.membership_id = ur.membership_id
-JOIN role_permission rp ON rp.role_id = mr.role_id
-JOIN permission p       ON p.permission_id = rp.permission_id
-LEFT JOIN organization o ON o.organization_id = ur.organization_id
-LEFT JOIN store s        ON s.store_id        = ur.store_id
-WHERE ur.user_id = :user_id
-  AND ur.is_active = TRUE;   -- suspended memberships grant no access
-```
-
-**Part 2 — store permissions inherited from org roles** (the org membership's `store:*`
-permissions, expanded over every store in that org). One row per (store, permission):
-
-```sql
-SELECT s.store_id,
-       s.name AS store_name,
-       p.subject,
-       p.action
-FROM membership ur
-JOIN store s            ON s.organization_id = ur.organization_id   -- fan out to the org's stores
-JOIN membership_role mr ON mr.membership_id = ur.membership_id
-JOIN role_permission rp ON rp.role_id = mr.role_id
-JOIN permission p       ON p.permission_id = rp.permission_id
-WHERE ur.user_id = :user_id
-  AND ur.is_active = TRUE
-  AND ur.organization_id IS NOT NULL   -- only org memberships inherit down
-  AND p.subject = 'store';             -- only store:* permissions reach the stores
-```
-
-The API merges Part 1 and Part 2 into the per-store permission list (a store can pick up
-powers from both a direct store membership and an inherited org role — the result is the
-union).
-
-
-## Users in a store (with their info and roles)
-
-For a store's "staff" screen. One row per user-role, with the user's details. A user with
-two roles at the store returns two rows; the API groups them into one user with a role
-list. A user who belongs to the store but has no roles still appears (one row, role
-columns NULL) — the LEFT JOIN to `membership_role` keeps role-less members visible.
-
-Because this is a store screen, it joins the store-only detail (`store_pin`); the org
-detail table is never involved.
-
-```sql
-SELECT u.user_id,
-       u.name,
-       u.email,
-       u.phone,
-       smd.store_pin,
-       r.role_id,
-       r.name AS role_name
-FROM membership m
-JOIN "user" u                       ON u.user_id = m.user_id
-LEFT JOIN store_membership_detail smd ON smd.membership_id = m.membership_id
-LEFT JOIN membership_role mr        ON mr.membership_id = m.membership_id
-LEFT JOIN role r                    ON r.role_id = mr.role_id
-WHERE m.store_id = :store_id
-ORDER BY u.name;
-```
-
-
-## Users in an organization (with info, and where they work)
-
-Every person in the org — at the org level, or at any store under it — one row per grant
-with the user's details, the role, and the place. The API groups by user.
-
-```sql
-SELECT u.user_id,
-       u.name,
-       u.email,
-       u.phone,
-       r.name AS role_name,
-       ur.organization_id,
-       o.name AS organization_name,
-       ur.store_id,
-       s.name AS store_name
-FROM membership ur
-JOIN "user" u                ON u.user_id = ur.user_id
-LEFT JOIN membership_role mr ON mr.membership_id = ur.membership_id
-LEFT JOIN role r             ON r.role_id  = mr.role_id
-LEFT JOIN organization o     ON o.organization_id = ur.organization_id
-LEFT JOIN store s            ON s.store_id        = ur.store_id
-WHERE ur.organization_id = :organization_id
-   OR s.organization_id   = :organization_id
-ORDER BY u.name;
-```
-
-
-## Roles a store can assign (with their permissions)
-
-Only **store-level** roles (`role_level = 'STORE'`): the built-in store roles we ship plus
-this store's own custom roles. Organization-level roles are excluded, so a store admin can
-never grant an org role to a store user. One row per role-permission; the API groups by role.
-
-```sql
-SELECT r.role_id,
-       r.name,
-       r.is_managed,
-       p.subject,
-       p.action
-FROM role r
-JOIN role_level rl           ON rl.role_level_id = r.role_level_id
-LEFT JOIN role_permission rp ON rp.role_id = r.role_id
-LEFT JOIN permission p       ON p.permission_id = rp.permission_id
-WHERE rl.code = 'STORE'                        -- store-level roles only
-  AND (r.is_managed = TRUE                      -- built-in store roles
-       OR r.store_id = :store_id)               -- this store's custom roles
-ORDER BY r.is_managed DESC, r.name;
-```
-
-
-## Roles an organization can assign (with their permissions)
-
-Only **organization-level** roles (`role_level = 'ORGANIZATION'`): the built-in org roles we
-ship plus this org's own custom roles. One row per role-permission; the API groups by role.
-
-```sql
-SELECT r.role_id,
-       r.name,
-       r.is_managed,
-       p.subject,
-       p.action
-FROM role r
-JOIN role_level rl           ON rl.role_level_id = r.role_level_id
-LEFT JOIN role_permission rp ON rp.role_id = r.role_id
-LEFT JOIN permission p       ON p.permission_id = rp.permission_id
-WHERE rl.code = 'ORGANIZATION'                 -- org-level roles only
-  AND (r.is_managed = TRUE                      -- built-in org roles
-       OR r.organization_id = :organization_id) -- this org's own custom roles
-ORDER BY r.is_managed DESC, r.name;
-```
-
-
-## An order with its line items (receipt / order detail)
-
-The order, who placed it, and one row per line item. The API groups the lines under the
-order and sums the total.
-
-```sql
-SELECT so.order_id,
-       so.status,
-       c.customer_id,
-       c.name AS customer_name,
-       p.product_id,
-       p.name AS product_name,
-       sop.quantity,
-       sop.unit_price
-FROM sales_order so
-LEFT JOIN customer c         ON c.customer_id = so.customer_id
-JOIN sales_order_product sop ON sop.order_id = so.order_id
-JOIN product p               ON p.product_id = sop.product_id
-WHERE so.order_id = :order_id;
-```
-
-
-## Products in a store (catalog / inventory list)
-
-The main product list for a single store's catalog or inventory screen.
-
-```sql
-SELECT product_id,
-       name,
-       sku,
-       price,
-       quantity
-FROM product
-WHERE store_id = :store_id
-ORDER BY name;
-```
-
-
-## Search products in a store
-
-Type-ahead / search box on the product list. Matches name or SKU.
-
-```sql
-SELECT product_id,
-       name,
-       sku,
-       price,
-       quantity
-FROM product
-WHERE store_id = :store_id
-  AND (name ILIKE '%' || :search || '%' OR sku ILIKE '%' || :search || '%')
-ORDER BY name
-LIMIT 50;
-```
-
-
-## Customers in a store
-
-The customer list for a store.
-
-```sql
-SELECT customer_id,
-       name,
-       email,
-       phone
-FROM customer
-WHERE store_id = :store_id
-ORDER BY name;
-```
-
-
-## Orders for a store (order list)
-
-The orders screen for a store, newest first, with the customer's name.
-
-```sql
-SELECT so.order_id,
-       so.status,
-       c.name AS customer_name
-FROM sales_order so
-LEFT JOIN customer c ON c.customer_id = so.customer_id
-WHERE so.store_id = :store_id
-ORDER BY so.order_id DESC;
-```
-
-
-## Orders for a customer (customer history)
-
-Every order a single customer has placed.
-
-```sql
-SELECT order_id,
-       status
-FROM sales_order
-WHERE customer_id = :customer_id
-ORDER BY order_id DESC;
-```
-
-
-## Returns for a store (returns list)
-
-The returns screen for a store, with the order each return refunds.
-
-```sql
-SELECT pr.return_id,
-       pr.order_id
-FROM sales_order_return pr
-WHERE pr.store_id = :store_id
-ORDER BY pr.return_id DESC;
-```
-
-
-## A return with its line items (return detail)
-
-The return, the order it refunds, and one row per returned item. The API groups the lines
-under the return.
-
-```sql
-SELECT pr.return_id,
-       pr.order_id,
-       p.product_id,
-       p.name AS product_name,
-       prp.quantity
-FROM sales_order_return pr
-JOIN sales_order_return_product prp ON prp.return_id = pr.return_id
-JOIN product p                      ON p.product_id = prp.product_id
-WHERE pr.return_id = :return_id;
-```
-
-
-## Stores in an organization (store switcher / store list)
-
-The list of stores for an org — used by the org dashboard and the place switcher.
-
-```sql
-SELECT store_id,
-       name
-FROM store
-WHERE organization_id = :organization_id
-ORDER BY name;
-```
-
-
-## Stores a user can act on (direct + inherited from org roles)
-
-Every store the user can reach: stores he's a direct member of, plus all stores under any
-org he has an org membership in. `UNION` de-duplicates a store that appears via both paths.
-(To require a specific power, add a permission join on each branch — e.g. the org branch
-only counts org roles that carry a `store:*` permission.)
-
-```sql
--- direct: stores the user is a member of
-SELECT s.store_id, s.name
-FROM membership m
-JOIN store s ON s.store_id = m.store_id
-WHERE m.user_id = :user_id
-  AND m.is_active = TRUE
-  AND m.store_id IS NOT NULL
-
-UNION   -- inherited: every store under an org the user is a member of
-
-SELECT s.store_id, s.name
-FROM membership m
-JOIN store s ON s.organization_id = m.organization_id
-WHERE m.user_id = :user_id
-  AND m.is_active = TRUE
-  AND m.organization_id IS NOT NULL
-ORDER BY name;
-```
-
-
-## A role with its permissions (role detail / edit)
-
-For viewing or editing a single role. One row per permission; the API groups them under
-the role.
-
-```sql
-SELECT r.role_id,
-       r.name,
-       r.is_managed,
-       p.subject,
-       p.action
-FROM role r
-LEFT JOIN role_permission rp ON rp.role_id = r.role_id
-LEFT JOIN permission p       ON p.permission_id = rp.permission_id
-WHERE r.role_id = :role_id;
-```
-
-
-## All available permissions (role builder)
-
-The full list of permissions the UI offers when building or editing a role.
-
-```sql
-SELECT permission_id,
-       subject,
-       action
-FROM permission
-ORDER BY subject, action;
-```
-
-
-## A store's plan and its features
-
-For a billing / plan screen: the store's plan and the features it includes. Billing is
-per-store, so each store has its own plan and its own feature set.
-
-```sql
-SELECT pl.plan_id,
-       pl.name AS plan_name,
-       f.feature_id,
-       f.name AS feature_name
-FROM store st
-JOIN plan pl              ON pl.plan_id = st.plan_id
-LEFT JOIN plan_feature pf ON pf.plan_id = pl.plan_id
-LEFT JOIN feature f       ON f.feature_id = pf.feature_id
-WHERE st.store_id = :store_id
-ORDER BY f.name;
-```
-
-
-# Performance
+ add later

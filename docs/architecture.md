@@ -1,14 +1,91 @@
 Author: Salman Hoosein
 Version : 1.0
 Project:
-Description: 
+Description: A multi-store POS where one organization onboards its people, grants them access to stores (and optionally the org itself), and runs sales through each store as a business unit.
+
+# System Overview
+
+In plain terms, the system works like this:
+
+- An **organization** onboards its **users** and gives each one access to one or more **stores** — and **optionally to the organization level** too (for people who oversee the whole business, like owners, partners, or investors who need a cross-store view without working a register).
+- **Org-level users see everything** across the business — all stores, and the org-wide **customers**, **suppliers**, and **product catalog**.
+- **Selling always happens through a store.** A store is the real **business unit** — it's where sales, tax, and money live — so you can't sell "at the org"; you sell at a store. The org is the umbrella that owns the stores.
+- Each **store manages and overrides its own products** — it sets its own quantity and price from the shared catalog — so stores run their own day-to-day operation.
+- But stores don't start from scratch: they easily **reuse the org's shared customers and suppliers**, so the same customer account or vendor works at any store without re-entering it.
+
+So the org is the shared backbone (people, catalog, customers, suppliers, oversight), and each store is an independent selling unit on top of it. The rest of this document explains how each piece works.
+
+**1. The ownership tree — org owns stores, each store runs its own sales.**
+
+```mermaid
+flowchart TB
+    ORG["Organization<br/>(the business)"]
+    ST1["Store A<br/>(sales + tax)"]
+    ST2["Store B<br/>(sales + tax)"]
+    PS1["product_store<br/>(own qty + price)"]
+    PS2["product_store<br/>(own qty + price)"]
+    O1["Orders / Returns"]
+    O2["Orders / Returns"]
+
+    ORG --> ST1
+    ORG --> ST2
+    ST1 --> PS1
+    ST2 --> PS2
+    PS1 --> O1
+    PS2 --> O2
+
+    style ORG fill:#dbeafe,stroke:#93c5fd
+```
+
+**2. Shared org-wide data — one catalog, customers, and suppliers for the whole org.**
+
+```mermaid
+flowchart TB
+    ORG["Organization"]
+    subgraph shared["Shared org-wide"]
+        CAT["Product catalog<br/>(deduped on SKU)"]
+        CUST["Customers"]
+        SUP["Suppliers"]
+    end
+    ORG --> shared
+
+    style ORG fill:#dbeafe,stroke:#93c5fd
+    style shared fill:#ecfdf5,stroke:#6ee7b7
+```
+
+Each store draws from this shared data: it stocks products from the one catalog (setting its own qty/price in `product_store`), and reuses the org's customers and suppliers — nothing is re-entered per store.
+
+**3. User access — people are onboarded by the org and granted access to places.**
+
+```mermaid
+flowchart TB
+    USERS["Users<br/>(the people)"]
+    ORG["Organization"]
+    ST1["Store A"]
+    ST2["Store B"]
+
+    USERS -->|"store access"| ST1
+    USERS -->|"store access"| ST2
+    USERS -. "optional org access<br/>(owners / partners / investors)" .-> ORG
+
+    style USERS fill:#fef3c7,stroke:#fcd34d
+    style ORG fill:#dbeafe,stroke:#93c5fd
+```
 
 # Features
 - Organzation can have many stores
 - Stores have plans
 
-# Target Niche 
-We serve small and mid-size businesses running a multi-store POS. A typical organization has up to ~100 stores. At this scale we keep the design simple with a monolith application and single database
+# Target Niche
+We serve small and mid-size businesses running a multi-store POS. A typical organization has up to ~100 stores. At this scale we keep the design simple with a monolith application and single database.
+
+These are **tightly-coupled single companies** — one business that owns and runs all its stores — **not franchise systems** where each location is an independent business. The users are **non-technical**, so the system is deliberately simple over flexible:
+
+- One organization owns many stores; the org admin sees everything across all of them (customers, suppliers, products, stores).
+- **Customers and suppliers are shared org-wide** — one customer account / one vendor record works at every store. A customer can walk into any store and use the same account.
+- There is **one product catalog** for the org (deduped on SKU), and each store **overrides its own quantity and price** for what it sells.
+
+Because the stores belong to the same company, we don't build per-store walls, visibility toggles, or franchise-style isolation between locations — that would add complexity our users don't want. Features that imply looser coupling (per-store customer privacy, cross-store inventory sharing, regions/districts as managed entities) are deferred unless a concrete need appears; see `post-mvp.md`.
 
 # Constraints
 - Organization must have minimum one store to sell products
@@ -19,6 +96,23 @@ We serve small and mid-size businesses running a multi-store POS. A typical orga
 ## What is the user login flow?
 
 ## How to create a user in a store but not in the organization level?
+
+A user's **identity** and their **access** are separate things:
+
+- The `user` table is the **global identity** for the whole system — one login per person. It is not owned by an org or a store; creating a user is a single insert into this one table.
+- **Access** is expressed only through `membership` rows. Belonging to a store is a `store` membership; belonging to the org is an `organization` membership.
+
+So to create a user *in a store but not at the org*: insert the `user`, then add **only** a store membership. No org membership is created, so they have no org-level access — exactly as intended. (Per the [blast-radius rule](#how-do-we-verify-which-stores-a-user-can-act-on-given-his-org-role), org access is the thing that reaches all stores; a store-only user never gets it.)
+
+**Knowing where a user came from (provenance).** Because access lives in memberships and memberships can be removed, a user could end up with *no* memberships and become an orphan. To prevent losing their origin, the `user` row carries provenance set once at creation:
+
+- `organization_id` — their **home org** (a store always belongs to an org, so even a store-created user has one). This permanently answers "where did this user belong," regardless of membership churn.
+- `origin_store_id` — the store they were created at, if any.
+- `created_by_user_id` / `created_at` — who made the account and when.
+
+These are immutable history on the identity, *not* access — removing every membership never erases where the user originated.
+
+**Removing access keeps history.** Memberships are **soft-deleted** (`deleted_at` set, row retained), so you keep an audit trail of where a user used to have access. Every access query filters `deleted_at IS NULL`, so a removed membership grants nothing — but the record (and the user) remain for history.
 
 
 ## How do we ensure a store admin can never assign an organization admin roles?
@@ -47,21 +141,28 @@ The rule is simple: **the role's level must equal the membership's place type.**
 
 
 
-## How does each store keep its own products separate from other stores?
+## How do products, prices, and stock work across stores?
 
-Every product belongs to exactly one store. We record this with a `store_id` on every product row, and a store only ever loads products with its own `store_id`. So one store can never see or change another store's products.
+There is **one product catalog for the whole organization** — a product (its SKU, name, description) is an org-level identity, deduped on SKU, so "Coke SKU-123" is a single catalog entry the whole org shares. No duplicating the same product in every store.
 
-If two stores happen to sell the same item with the same SKU, each store still gets its own separate row — with its own price and stock:
+Each store then sets its **own price and quantity** for the products it carries. That per-store stock and price live in `product_store` (one row per product per store), independent of every other store:
 
 ```
-product
- store_id   sku       name   price
- --------   --------  -----  -----
- StoreA     SKU-123   Coke   1.50
- StoreB     SKU-123   Coke   1.75
+product (org catalog)        product_store (per store)
+ sku       name               store    sku        qty   price
+ -------   -----              ------   --------    ---   -----
+ SKU-123   Coke               StoreA   SKU-123     40    1.50
+                              StoreB   SKU-123     12    1.75
 ```
 
-Within a single store, the same SKU can't be listed twice. Across stores it's fine — they're independent.
+So the *identity* is shared (one SKU across the org), but the *stock and price* are each store's own — selling at Store A doesn't touch Store B's quantity. (Cross-store stock sharing — e.g. an online store deducting a physical store — is deferred to the future workflow engine; see `post-mvp.md`.)
+
+
+## Are customers and suppliers per-store or shared across the organization?
+
+**Org-level and visible to every store.** A customer is one account for the whole organization — walk into any store and use the same account. A supplier is one vendor record the whole org deals with. Neither is duplicated per store, and the org admin sees all customers and suppliers across all stores at once.
+
+This fits the niche (a tightly-coupled single company, not independent franchises): stores naturally work with the same customers and suppliers, so there's no per-store wall or visibility toggle — it's deliberately simple for non-technical users. Per-store customer/supplier data (e.g. different reward tiers, store-specific vendor terms) is intentionally **not** modeled now; if it's ever needed it's an additive change, not a rework.
 
 
 ## How does an organization owner see everything across all stores?
