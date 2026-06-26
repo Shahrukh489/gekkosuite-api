@@ -8,6 +8,16 @@ Note: `user` is a reserved word in Postgres, so the table name is quoted as `"us
 ## Auth / RBAC
 
 ```sql
+-- role_level is a small lookup table (not an enum) so its label can be edited and it can
+-- grow its own fields later (display name, description, sort order). Seeded with two rows:
+-- 'ORGANIZATION' and 'STORE'. Both `role` and `permission` reference it by role_level_id, so
+-- the vocabulary lives in one place; the write path compares permission.role_level_id to
+-- role.role_level_id.
+CREATE TABLE role_level (
+    role_level_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    code          TEXT NOT NULL UNIQUE   -- 'ORGANIZATION' | 'STORE' (extra fields like name can be added later)
+);
+
 CREATE TABLE "user" (
     user_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
 );
@@ -17,19 +27,20 @@ CREATE TABLE role (
     organization_id BIGINT REFERENCES organization (organization_id),
     store_id        BIGINT REFERENCES store (store_id),
     is_managed      BOOLEAN NOT NULL DEFAULT FALSE,   -- TRUE = we built it, FALSE = a customer did
-    scope           TEXT NOT NULL CHECK (scope IN ('ORGANIZATION', 'STORE')),
+    role_level_id   BIGINT NOT NULL REFERENCES role_level (role_level_id),  -- ORGANIZATION | STORE
     created_user_id BIGINT REFERENCES "user" (user_id),  -- who made it (NULL for ones we ship)
     -- Two independent ideas:
-    --   is_managed = who OWNS the role (us vs a customer)
-    --   scope      = the LEVEL it applies at, and the only level it can be granted at
-    -- Owner-column rule, enforced by the DB:
-    --   is_managed = TRUE  (we built it): BOTH owner columns NULL, any scope
-    --   is_managed = FALSE (a customer's): exactly ONE owner column set, and it must
-    --                                      match the scope (STORE->store_id, ORG->organization_id)
+    --   is_managed    = who OWNS the role (us vs a customer)
+    --   role_level_id = the LEVEL it applies at, and the only level it can be granted at
+    -- Owner-column rule, enforced by the DB (the owner column also reflects the level):
+    --   is_managed = TRUE  (we built it):  BOTH owner columns NULL, any level
+    --   is_managed = FALSE (a customer's): exactly ONE owner column set
+    -- (matching role_level_id to the right owner column — ORG level -> organization_id set,
+    --  STORE level -> store_id set — is enforced on the write path, since role_level_id
+    --  values aren't known literals the CHECK can compare to.)
     CHECK (
         (is_managed = TRUE  AND organization_id IS NULL AND store_id IS NULL)
-        OR (is_managed = FALSE AND scope = 'ORGANIZATION' AND organization_id IS NOT NULL AND store_id IS NULL)
-        OR (is_managed = FALSE AND scope = 'STORE'        AND store_id IS NOT NULL        AND organization_id IS NULL)
+        OR (is_managed = FALSE AND (organization_id IS NOT NULL) <> (store_id IS NOT NULL))
     )
 );
 
@@ -37,10 +48,10 @@ CREATE TABLE permission (
     permission_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     subject       TEXT NOT NULL,   -- e.g. store, organization
     action        TEXT NOT NULL,   -- e.g. refund, edit
-    scope         TEXT NOT NULL CHECK (scope IN ('ORGANIZATION', 'STORE')),
+    role_level_id BIGINT NOT NULL REFERENCES role_level (role_level_id),  -- ORGANIZATION | STORE
     -- the level this permission applies at. A role may only hold permissions whose
-    -- scope matches the role's scope (enforced on the write path when a role is
-    -- created/edited), so e.g. a STORE role can never contain an ORGANIZATION permission.
+    -- role_level_id matches the role's role_level_id (enforced on the write path when a role
+    -- is created/edited), so e.g. a STORE role can never contain an ORGANIZATION permission.
     UNIQUE (subject, action)
 );
 
@@ -59,9 +70,8 @@ CREATE TABLE membership (
     user_id         BIGINT NOT NULL REFERENCES "user" (user_id),
     organization_id BIGINT REFERENCES organization (organization_id),
     store_id        BIGINT REFERENCES store (store_id),
-    status          TEXT NOT NULL DEFAULT 'ACTIVE'
-                    CHECK (status IN ('ACTIVE', 'INACTIVE')),
-    -- status is the "is this person active at this place" switch: suspend someone
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    -- is_active is the "is this person active at this place" switch: suspend someone
     -- without deleting the membership or re-adding their roles later.
     -- the place is organization_id OR store_id: EXACTLY ONE set, never both, never neither.
     -- The `<>` (XOR) means exactly one of the two is NOT NULL.
@@ -215,6 +225,8 @@ CREATE INDEX ON membership_role (role_id);          -- membership_id covered by 
 CREATE INDEX ON role            (organization_id);
 CREATE INDEX ON role            (store_id);
 CREATE INDEX ON role            (created_user_id);
+CREATE INDEX ON role            (role_level_id);
+CREATE INDEX ON permission      (role_level_id);
 CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
 
 -- Organization
@@ -354,8 +366,11 @@ ORDER BY s.name, p.name;
 
 ## A user's full access (everything the app loads at login)
 
-One row per permission, tagged with the place it applies to (a store or the org) and
-that place's name. The API groups these by place to build the per-place permission lists.
+Access is resolved in two parts, combined by the API. Permissions reach by **blast radius**:
+a store membership's permissions apply to that one store; an org membership's permissions
+apply to the org itself, and its `store:*` permissions fan out to **every store in the org**.
+
+**Part 1 — direct membership permissions** (each permission tagged with its own place):
 
 ```sql
 SELECT ur.organization_id,
@@ -371,8 +386,31 @@ JOIN permission p       ON p.permission_id = rp.permission_id
 LEFT JOIN organization o ON o.organization_id = ur.organization_id
 LEFT JOIN store s        ON s.store_id        = ur.store_id
 WHERE ur.user_id = :user_id
-  AND ur.status  = 'ACTIVE';   -- suspended memberships grant no access
+  AND ur.is_active = TRUE;   -- suspended memberships grant no access
 ```
+
+**Part 2 — store permissions inherited from org roles** (the org membership's `store:*`
+permissions, expanded over every store in that org). One row per (store, permission):
+
+```sql
+SELECT s.store_id,
+       s.name AS store_name,
+       p.subject,
+       p.action
+FROM membership ur
+JOIN store s            ON s.organization_id = ur.organization_id   -- fan out to the org's stores
+JOIN membership_role mr ON mr.membership_id = ur.membership_id
+JOIN role_permission rp ON rp.role_id = mr.role_id
+JOIN permission p       ON p.permission_id = rp.permission_id
+WHERE ur.user_id = :user_id
+  AND ur.is_active = TRUE
+  AND ur.organization_id IS NOT NULL   -- only org memberships inherit down
+  AND p.subject = 'store';             -- only store:* permissions reach the stores
+```
+
+The API merges Part 1 and Part 2 into the per-store permission list (a store can pick up
+powers from both a direct store membership and an inherited org role — the result is the
+union).
 
 
 ## Users in a store (with their info and roles)
@@ -432,9 +470,9 @@ ORDER BY u.name;
 
 ## Roles a store can assign (with their permissions)
 
-Only **store-level** roles (`scope = 'STORE'`): the built-in store roles we ship plus this
-store's own custom roles. Organization-level roles are excluded, so a store admin can never
-grant an org role to a store user. One row per role-permission; the API groups by role.
+Only **store-level** roles (`role_level = 'STORE'`): the built-in store roles we ship plus
+this store's own custom roles. Organization-level roles are excluded, so a store admin can
+never grant an org role to a store user. One row per role-permission; the API groups by role.
 
 ```sql
 SELECT r.role_id,
@@ -443,9 +481,10 @@ SELECT r.role_id,
        p.subject,
        p.action
 FROM role r
+JOIN role_level rl           ON rl.role_level_id = r.role_level_id
 LEFT JOIN role_permission rp ON rp.role_id = r.role_id
 LEFT JOIN permission p       ON p.permission_id = rp.permission_id
-WHERE r.scope = 'STORE'                        -- store-level roles only
+WHERE rl.code = 'STORE'                        -- store-level roles only
   AND (r.is_managed = TRUE                      -- built-in store roles
        OR r.store_id = :store_id)               -- this store's custom roles
 ORDER BY r.is_managed DESC, r.name;
@@ -454,8 +493,8 @@ ORDER BY r.is_managed DESC, r.name;
 
 ## Roles an organization can assign (with their permissions)
 
-Only **organization-level** roles (`scope = 'ORGANIZATION'`): the built-in org roles we ship
-plus this org's own custom roles. One row per role-permission; the API groups by role.
+Only **organization-level** roles (`role_level = 'ORGANIZATION'`): the built-in org roles we
+ship plus this org's own custom roles. One row per role-permission; the API groups by role.
 
 ```sql
 SELECT r.role_id,
@@ -464,9 +503,10 @@ SELECT r.role_id,
        p.subject,
        p.action
 FROM role r
+JOIN role_level rl           ON rl.role_level_id = r.role_level_id
 LEFT JOIN role_permission rp ON rp.role_id = r.role_id
 LEFT JOIN permission p       ON p.permission_id = rp.permission_id
-WHERE r.scope = 'ORGANIZATION'                 -- org-level roles only
+WHERE rl.code = 'ORGANIZATION'                 -- org-level roles only
   AND (r.is_managed = TRUE                      -- built-in org roles
        OR r.organization_id = :organization_id) -- this org's own custom roles
 ORDER BY r.is_managed DESC, r.name;
@@ -612,6 +652,34 @@ SELECT store_id,
        name
 FROM store
 WHERE organization_id = :organization_id
+ORDER BY name;
+```
+
+
+## Stores a user can act on (direct + inherited from org roles)
+
+Every store the user can reach: stores he's a direct member of, plus all stores under any
+org he has an org membership in. `UNION` de-duplicates a store that appears via both paths.
+(To require a specific power, add a permission join on each branch — e.g. the org branch
+only counts org roles that carry a `store:*` permission.)
+
+```sql
+-- direct: stores the user is a member of
+SELECT s.store_id, s.name
+FROM membership m
+JOIN store s ON s.store_id = m.store_id
+WHERE m.user_id = :user_id
+  AND m.is_active = TRUE
+  AND m.store_id IS NOT NULL
+
+UNION   -- inherited: every store under an org the user is a member of
+
+SELECT s.store_id, s.name
+FROM membership m
+JOIN store s ON s.organization_id = m.organization_id
+WHERE m.user_id = :user_id
+  AND m.is_active = TRUE
+  AND m.organization_id IS NOT NULL
 ORDER BY name;
 ```
 

@@ -3,7 +3,9 @@ Version : 1.0
 Project:
 Description: 
 
-
+# Features
+- Organzation can have many stores
+- Stores have plans
 
 # Target Niche 
 We serve small and mid-size businesses running a multi-store POS. A typical organization has up to ~100 stores. At this scale we keep the design simple with a monolith application and single database
@@ -21,27 +23,27 @@ We serve small and mid-size businesses running a multi-store POS. A typical orga
 
 ## How do we ensure a store admin can never assign an organization admin roles?
 
-Every role carries a `scope` (`STORE` or `ORGANIZATION`) — the level it's meant for, and the only level it can be granted at. Two layers keep a store admin from handing out an org role:
+Every role carries a `role_level` (`STORE` or `ORGANIZATION`) — the level it's meant for, and the only level it can be granted at. Two layers keep a store admin from handing out an org role:
 
-1. **The UI hides them.** A store's "assign role" screen only lists `scope = STORE` roles, so org roles never even appear as an option.
+1. **The UI hides them.** A store's "assign role" screen only lists `role_level = STORE` roles, so org roles never even appear as an option.
 
-2. **The write path rejects them — this is the real guard.** Hiding a role in the UI isn't security; someone could still call the API directly. So when a role is granted, the server checks the role's `scope` against the place before writing the `membership_role` row:
+2. **The write path rejects them — this is the real guard.** Hiding a role in the UI isn't security; someone could still call the API directly. So when a role is granted, the server checks the role's `role_level` against the place before writing the `membership_role` row:
 
-   - granting at a **store** → the role must be `scope = STORE`
-   - granting at an **organization** → the role must be `scope = ORGANIZATION`
+   - granting at a **store** → the role must be `role_level = STORE`
+   - granting at an **organization** → the role must be `role_level = ORGANIZATION`
 
    If they don't match, the request is rejected — no row is written. So a store admin calling the grant endpoint with an org role's id gets turned away, regardless of what the UI showed.
 
 ```
 grant request: give role R to membership M
 
-  M is a STORE membership, R.scope = STORE          -> allowed
-  M is a STORE membership, R.scope = ORGANIZATION    -> REJECTED
-  M is an ORG membership,  R.scope = ORGANIZATION     -> allowed
-  M is an ORG membership,  R.scope = STORE            -> REJECTED
+  M is a STORE membership, R.role_level = STORE          -> allowed
+  M is a STORE membership, R.role_level = ORGANIZATION    -> REJECTED
+  M is an ORG membership,  R.role_level = ORGANIZATION     -> allowed
+  M is an ORG membership,  R.role_level = STORE            -> REJECTED
 ```
 
-The rule is simple: **the role's scope must equal the membership's place type.** The UI filter is the convenience; the write-path check is the enforcement.
+The rule is simple: **the role's level must equal the membership's place type.** The UI filter is the convenience; the write-path check is the enforcement.
 
 
 
@@ -102,6 +104,31 @@ John's access
 
 Because each record points at a real store or a real organization (a proper database link), a record can never refer to a place that doesn't exist, and deleting a place automatically removes its access records.
 
+
+## How do we verify which stores a user can act on, given his org role?
+
+A user can act on a store two ways, and we never copy memberships into each store — we resolve access at check time:
+
+1. **Direct** — the user has a **store membership** at that store, with a role granting the permission.
+2. **Inherited** — the user has an **organization membership** whose role contains the `store:*` permission. An org role reaches **every store under that org**, so the permission applies to each of them without a per-store membership.
+
+To check *"can this user do `store:edit` on Store 47?"* the server asks two things:
+
+```
+ALLOW if:
+  (A) a store membership at Store 47 has a role containing store:edit
+   OR
+  (B) an org membership at Store 47's org has a role containing store:edit
+      (the org role reaches down to every store in that org)
+```
+
+Branch **(B)** is the inheritance: we take the user's org memberships, expand each to all stores in that org (`store.organization_id = the org`), and apply the org role's `store:*` permissions to them. So an OrgAdmin with `store:edit` can edit any of the org's stores — including stores created *after* the role was granted — with no extra setup.
+
+To list **every store a user can act on**: take the stores from his direct store memberships, plus all stores under any org he has an org membership in (filtered to org roles that actually carry a `store:*` permission). The direct set and the inherited set are combined; a store can appear in both, which is fine — access is the union.
+
+This is the same federated pattern as the org-owner view: the org's reach is computed by joining the org grant to the org's stores on demand, not by storing a copy per store.
+
+
 ## How does an organization or store create its own custom roles?
 
 Besides the built-in roles we ship (like Root Admin and Cashier), customers can create their own roles. A custom role can belong to a whole **organization** (every store in the org can use it) or to a single **store** (only that store uses it). It is visible only to its owner — no other org or store sees it.
@@ -109,15 +136,15 @@ Besides the built-in roles we ship (like Root Admin and Cashier), customers can 
 All roles live in one `Role` table — built-in and custom, org-level and store-level together. A few fields describe each role, and two of them mean different things:
 
 - **`is_managed`** — *who owns it.* `true` means we built and maintain it; `false` means a customer created it.
-- **`scope`** — *what level it's for.* Either `STORE` or `ORGANIZATION`. This is also the **only level the role can be granted at**: a `STORE` role can only go to a store user, an `ORGANIZATION` role only to an org user.
-- **`organization_id`** / **`store_id`** — the owner, set only on *custom* roles. A built-in role has neither (we own it); a custom role has exactly the one that matches its scope.
+- **`role_level`** — *what level it's for.* Either `STORE` or `ORGANIZATION`. This is also the **only level the role can be granted at**: a `STORE` role can only go to a store user, an `ORGANIZATION` role only to an org user.
+- **`organization_id`** / **`store_id`** — the owner, set only on *custom* roles. A built-in role has neither (we own it); a custom role has exactly the one that matches its level.
 - **`created_user_id`** — the user who created it (empty for built-in roles we ship).
 
-`is_managed` and `scope` are independent: a role we ship can be either a store role or an org role. For example a built-in "Cashier" is `is_managed = true, scope = STORE`, while a built-in "Org Owner" is `is_managed = true, scope = ORGANIZATION`.
+`is_managed` and `role_level` are independent: a role we ship can be either a store role or an org role. For example a built-in "Cashier" is `is_managed = true, role_level = STORE`, while a built-in "Org Owner" is `is_managed = true, role_level = ORGANIZATION`.
 
 ```
 Role
- name           is_managed  scope         organization_id  store_id   meaning
+ name           is_managed  role_level    organization_id  store_id   meaning
  ------------   ----------  ------------  ---------------  --------   --------------------------------
  OrgOwner       true        ORGANIZATION  (empty)          (empty)    built-in, org-level
  Cashier        true        STORE         (empty)          (empty)    built-in, store-level
@@ -125,16 +152,28 @@ Role
  WeekendOpener  false       STORE         (empty)          StoreA     custom, used only at Store A
 ```
 
-To make a custom role, the owner creates a `Role` row (`is_managed = false`) with a `scope` and the matching owner field (`organization_id` for an org role, `store_id` for a store role), then chooses its permissions. Names only need to be unique within the owner, so two different orgs (or stores) can each have a "Manager" role without clashing.
+To make a custom role, the owner creates a `Role` row (`is_managed = false`) with a `role_level` and the matching owner field (`organization_id` for an org role, `store_id` for a store role), then chooses its permissions. Names only need to be unique within the owner, so two different orgs (or stores) can each have a "Manager" role without clashing.
 
-**Scope is mandatory and decides which permissions a role may hold.** Every permission also carries a `scope` (`STORE` or `ORGANIZATION`). When a role is created or edited, the server checks each permission against the role: a `STORE` role may only hold `STORE` permissions, an `ORGANIZATION` role only `ORGANIZATION` permissions. So a store role physically can't be given an `organization:*` permission — the save is rejected. This matters most for *custom* roles, which customers build themselves: it stops them from accidentally putting an org-level power into a store role.
+**Role level decides where the role is granted — which sets its blast radius.** `role_level` is not "which permissions are allowed in the role." It's where the role attaches, and that determines how far its permissions reach:
 
-**Why scope matters for safety.** Two write-path checks close the loop:
+- A **STORE** role is granted at one store; its permissions reach **only that store**.
+- An **ORGANIZATION** role is granted at the org; its `store:*` permissions reach **every store in that org**, and its `organization:*` permissions act on the org itself.
 
-1. **Building a role** — each permission's scope must equal the role's scope (so an org permission can't get into a store role).
-2. **Granting a role** — the role's scope must equal the place it's granted at (so a store user can't be given an org role).
+So the *same* permission has a different reach depending on the role's level. `store:edit` in a store role edits that one store; `store:edit` in an org role edits any store in the org. This is the whole point of an org role — it's a store power with org-wide reach.
 
-Together, a store admin can never hand a store user organization-level power: the org permission can't be in a store role, and an org role can't be granted at a store. The UI also hides mismatched options for convenience, but the write-path checks are the real enforcement — the server rejects a bad request even if it bypasses the UI.
+**Which permissions a role may hold:**
+
+- A **STORE** role may hold **only `store:*`** permissions (a store role has no business holding `organization:*`).
+- An **ORGANIZATION** role may hold **both `store:*` and `organization:*`** — `store:*` to act on the org's stores, `organization:*` to act on the org itself.
+
+Permissions are explicit, not inherited by wildcard: an org role that should manage stores must actually list `store:edit`, `store:read`, etc. If an org role does **not** contain a given `store:*` permission, it **cannot** do that store operation — there's no implicit "org role can do everything to stores." You grant exactly the store powers you intend.
+
+**Why this is safe.** Two write-path checks:
+
+1. **Building a role** — a `STORE` role's permissions must all be `store:*` (reject `organization:*` in a store role). An `ORGANIZATION` role may hold either.
+2. **Granting a role** — the role's level must equal the place it's granted at (a store user can't be given an org role, and vice versa).
+
+Together, a store admin can never gain org-level power: an `organization:*` permission can't live in a store role, and an org role can't be granted at a store. The UI also hides mismatched options for convenience, but the write-path checks are the real enforcement.
 
 
 ## What happens to existing users when a built-in role's permissions change?
