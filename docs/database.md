@@ -16,18 +16,20 @@ CREATE TABLE role (
     role_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT REFERENCES organization (organization_id),
     store_id        BIGINT REFERENCES store (store_id),
-    is_managed      BOOLEAN NOT NULL DEFAULT FALSE,
-    scope           TEXT NOT NULL CHECK (scope IN ('GLOBAL', 'ORGANIZATION', 'STORE')),
-    -- `scope` is a readable label for the role's level. It is DERIVED from the owner
-    -- columns (the FKs remain the source of truth); the CHECK below keeps it consistent
-    -- so it can never drift out of sync:
-    --   GLOBAL       (built-in, we manage it): BOTH owner columns NULL
-    --   ORGANIZATION (custom):                 organization_id set, store_id NULL
-    --   STORE        (custom):                 store_id set, organization_id NULL
+    is_managed      BOOLEAN NOT NULL DEFAULT FALSE,   -- TRUE = we built it, FALSE = a customer did
+    scope           TEXT NOT NULL CHECK (scope IN ('ORGANIZATION', 'STORE')),
+    created_user_id BIGINT REFERENCES "user" (user_id),  -- who made it (NULL for ones we ship)
+    -- Two independent ideas:
+    --   is_managed = who OWNS the role (us vs a customer)
+    --   scope      = the LEVEL it applies at, and the only level it can be granted at
+    -- Owner-column rule, enforced by the DB:
+    --   is_managed = TRUE  (we built it): BOTH owner columns NULL, any scope
+    --   is_managed = FALSE (a customer's): exactly ONE owner column set, and it must
+    --                                      match the scope (STORE->store_id, ORG->organization_id)
     CHECK (
-        (scope = 'GLOBAL'       AND is_managed = TRUE  AND organization_id IS NULL     AND store_id IS NULL)
-        OR (scope = 'ORGANIZATION' AND is_managed = FALSE AND organization_id IS NOT NULL AND store_id IS NULL)
-        OR (scope = 'STORE'        AND is_managed = FALSE AND store_id IS NOT NULL        AND organization_id IS NULL)
+        (is_managed = TRUE  AND organization_id IS NULL AND store_id IS NULL)
+        OR (is_managed = FALSE AND scope = 'ORGANIZATION' AND organization_id IS NOT NULL AND store_id IS NULL)
+        OR (is_managed = FALSE AND scope = 'STORE'        AND store_id IS NOT NULL        AND organization_id IS NULL)
     )
 );
 
@@ -176,6 +178,7 @@ CREATE INDEX ON membership      (user_id);
 CREATE INDEX ON membership_role (role_id);          -- membership_id covered by PK
 CREATE INDEX ON role            (organization_id);
 CREATE INDEX ON role            (store_id);
+CREATE INDEX ON role            (created_user_id);
 CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
 
 -- Organization
@@ -382,10 +385,11 @@ ORDER BY u.name;
 ```
 
 
-## Roles available to a store (with their permissions)
+## Roles a store can assign (with their permissions)
 
-The built-in (managed) roles plus this store's own custom roles. One row per
-role-permission; the API groups by role.
+Only **store-level** roles (`scope = 'STORE'`): the built-in store roles we ship plus this
+store's own custom roles. Organization-level roles are excluded, so a store admin can never
+grant an org role to a store user. One row per role-permission; the API groups by role.
 
 ```sql
 SELECT r.role_id,
@@ -396,17 +400,17 @@ SELECT r.role_id,
 FROM role r
 LEFT JOIN role_permission rp ON rp.role_id = r.role_id
 LEFT JOIN permission p       ON p.permission_id = rp.permission_id
-WHERE r.is_managed = TRUE          -- built-in roles
-   OR r.store_id   = :store_id     -- this store's custom roles
+WHERE r.scope = 'STORE'                        -- store-level roles only
+  AND (r.is_managed = TRUE                      -- built-in store roles
+       OR r.store_id = :store_id)               -- this store's custom roles
 ORDER BY r.is_managed DESC, r.name;
 ```
 
 
-## Roles available to an organization (with their permissions)
+## Roles an organization can assign (with their permissions)
 
-The built-in roles, the org's own custom roles, and the custom roles created by any store
-under the org — so an org admin sees every role in their organization. One row per
-role-permission; the API groups by role.
+Only **organization-level** roles (`scope = 'ORGANIZATION'`): the built-in org roles we ship
+plus this org's own custom roles. One row per role-permission; the API groups by role.
 
 ```sql
 SELECT r.role_id,
@@ -417,12 +421,9 @@ SELECT r.role_id,
 FROM role r
 LEFT JOIN role_permission rp ON rp.role_id = r.role_id
 LEFT JOIN permission p       ON p.permission_id = rp.permission_id
-WHERE r.is_managed = TRUE                     -- built-in roles
-   OR r.organization_id = :organization_id    -- the org's own custom roles
-   OR r.store_id IN (                          -- custom roles of stores under the org
-        SELECT store_id FROM store
-        WHERE organization_id = :organization_id
-      )
+WHERE r.scope = 'ORGANIZATION'                 -- org-level roles only
+  AND (r.is_managed = TRUE                      -- built-in org roles
+       OR r.organization_id = :organization_id) -- this org's own custom roles
 ORDER BY r.is_managed DESC, r.name;
 ```
 

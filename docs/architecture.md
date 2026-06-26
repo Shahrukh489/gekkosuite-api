@@ -17,6 +17,9 @@ We serve small and mid-size businesses running a multi-store POS. A typical orga
 ## What is the user login flow?
 
 
+## How do we ensure a store admin can never assign an organization admin roles?
+
+
 ## How does each store keep its own products separate from other stores?
 
 Every product belongs to exactly one store. We record this with a `store_id` on every product row, and a store only ever loads products with its own `store_id`. So one store can never see or change another store's products.
@@ -78,26 +81,28 @@ Because each record points at a real store or a real organization (a proper data
 
 Besides the built-in roles we ship (like Root Admin and Cashier), customers can create their own roles. A custom role can belong to a whole **organization** (every store in the org can use it) or to a single **store** (only that store uses it). It is visible only to its owner — no other org or store sees it.
 
-All roles live in one `Role` table — built-in, org-wide, and store-only roles together. A few fields tell us who owns each role:
+All roles live in one `Role` table — built-in and custom, org-level and store-level together. A few fields describe each role, and two of them mean different things:
 
-- **`is_managed`** — `true` means we built and maintain it; `false` means a customer created it.
-- **`organization_id`** — set when the role belongs to a whole organization.
-- **`store_id`** — set when the role belongs to a single store.
-- **`scope`** — a plain label for the level: `GLOBAL`, `ORGANIZATION`, or `STORE`. It's just a readable shorthand for the rule below (the owner fields are the real source of truth), kept in sync automatically so screens can filter on it easily.
+- **`is_managed`** — *who owns it.* `true` means we built and maintain it; `false` means a customer created it.
+- **`scope`** — *what level it's for.* Either `STORE` or `ORGANIZATION`. This is also the **only level the role can be granted at**: a `STORE` role can only go to a store user, an `ORGANIZATION` role only to an org user.
+- **`organization_id`** / **`store_id`** — the owner, set only on *custom* roles. A built-in role has neither (we own it); a custom role has exactly the one that matches its scope.
+- **`created_user_id`** — the user who created it (empty for built-in roles we ship).
 
-A built-in role has neither owner field set (`scope = GLOBAL`). A custom role has exactly one of them set — that says whether it's an org-wide role (`scope = ORGANIZATION`) or a store-only role (`scope = STORE`).
+`is_managed` and `scope` are independent: a role we ship can be either a store role or an org role. For example a built-in "Cashier" is `is_managed = true, scope = STORE`, while a built-in "Org Owner" is `is_managed = true, scope = ORGANIZATION`.
 
 ```
 Role
- name           is_managed  organization_id  store_id   meaning
- ------------   ----------  ---------------  --------   --------------------------------
- RootAdmin      true        (empty)          (empty)    built-in, shipped by us
- Cashier        true        (empty)          (empty)    built-in
- NightManager   false       org_1            (empty)    custom, used across all of org_1
- WeekendOpener  false       (empty)          StoreA     custom, used only at Store A
+ name           is_managed  scope         organization_id  store_id   meaning
+ ------------   ----------  ------------  ---------------  --------   --------------------------------
+ OrgOwner       true        ORGANIZATION  (empty)          (empty)    built-in, org-level
+ Cashier        true        STORE         (empty)          (empty)    built-in, store-level
+ NightManager   false       ORGANIZATION  org_1            (empty)    custom, used across all of org_1
+ WeekendOpener  false       STORE         (empty)          StoreA     custom, used only at Store A
 ```
 
-To make a custom role, the owner creates a `Role` row (`is_managed = false`) with their `organization_id` *or* their `store_id` filled in, then chooses its permissions. Names only need to be unique within the owner, so two different orgs (or stores) can each have a "Manager" role without clashing.
+To make a custom role, the owner creates a `Role` row (`is_managed = false`) with a `scope` and the matching owner field (`organization_id` for an org role, `store_id` for a store role), then chooses its permissions. Names only need to be unique within the owner, so two different orgs (or stores) can each have a "Manager" role without clashing.
+
+**Why scope matters for safety.** Because each role carries the level it's for, a store admin's "assign role" screen only lists `scope = STORE` roles, and an org admin's only lists `scope = ORGANIZATION` roles. So a store admin can never hand a store user an organization-level role — the org roles simply never appear, and the server rejects them if attempted directly.
 
 
 ## What happens to existing users when a built-in role's permissions change?
