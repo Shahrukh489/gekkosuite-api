@@ -2,7 +2,7 @@
 
 ## Auth / RBAC
 - User(user_id, email, name, phone, password_hash)
-- Membership(membership_id, user_id, role_id, resource_id)   -- resource_id = the org_id or store_id this grant applies to (the "where"); never null
+- User_Role(user_id, role_id, resource_type, resource_id)   -- key (user_id, role_id); resource_type: ORG | STORE; resource_id = the org_id or store_id this grant applies to (the "where"); never null. (resource_type, resource_id) is a polymorphic reference — integrity enforced in the app / by a trigger, not a single DB foreign key (see "Alternate design" in architecture.md)
 - Role(role_id, name, organization_id, is_managed, description)   -- is_managed=true: global, we manage it (organization_id null); is_managed=false: custom, owned by an organization (custom roles are org-level only); unique (name, organization_id)
 - Permission(permission_id, name, subject, action)
 - Role_Permission(role_id, permission_id)
