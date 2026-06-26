@@ -60,36 +60,54 @@ CREATE TABLE role_permission (
     PRIMARY KEY (role_id, permission_id)
 );
 
--- Optional ABAC conditions on a role's permission (e.g. "Cashier may refund, but only up to
--- $500"). These are CUSTOMER data — empty by default (we ship no conditions); a customer adds
--- them to tune limits. Zero or more per role-permission; no rows = unconditional (pure RBAC).
--- Because the condition hangs off (role, permission) — not the permission alone — the SAME
--- permission can carry DIFFERENT limits per role (Cashier refund <= 500, Manager refund <= 5000).
---
--- TENANT-SCOPED (required, because roles are global/managed — a condition with no tenant would
--- change a shared role for every org):
---   organization_id  NOT NULL  -- the org this override belongs to
---   store_id         NULL      -- NULL = applies to all the org's stores;
---                                 set = applies to that one store only (an override)
+-- ===========================================================================================
+-- ABAC conditions (STRETCH GOAL — maybe MVP). Let customers put limits on a role's permission,
+-- e.g. "Cashier may refund, but only up to $500." Two tables: a fixed MENU we ship
+-- (permission_condition) and the customer's chosen VALUES (role_permission_condition).
+-- ===========================================================================================
+
+-- The MENU: which conditions a permission is allowed to have. WE define these (fixed reference
+-- data). Each row is one tunable check: a `field` + an `operator`, plus a display label.
+--   field    = the name to check on the action's DTO/entity (the SAME name; that's the mapping —
+--              field 'amount' reads dto.amount at evaluation time).
+--   operator = how to compare (<=, >=, ==, ...).
+-- WHO edits values: ONLY org admins (permission `role_condition:edit`, held only by org roles).
+-- They set a store's limits, scoped via store_id. Store admins do NOT edit limits -> no
+-- self-escalation is possible. If a store wants a higher cap, the store admin asks the org admin.
+-- No CHECK/min/max constraints: org admins are trusted to set any value, and WE author these
+-- menu rows, so the inputs are already controlled. See auth.md.
+CREATE TABLE permission_condition (
+    permission_condition_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    permission_id BIGINT NOT NULL REFERENCES permission (permission_id),
+    field         TEXT NOT NULL,   -- DTO/entity field to check, e.g. 'amount', 'age_days'
+    operator      TEXT NOT NULL,   -- how to compare, e.g. '<='
+    label         TEXT NOT NULL,   -- UI display, e.g. 'Refund cap'
+    UNIQUE (permission_id, field, operator)
+);
+
+-- The customer's chosen VALUES. CUSTOMER data — empty by default (we ship none). Points at an
+-- allowed menu entry (permission_condition_id), so a customer can only ever set a value for a
+-- condition we permit — they can't invent a field/operator (the FK enforces the allowlist).
+-- TENANT-SCOPED (required — roles are global/managed; an unscoped row would change a shared role
+-- for every org):
+--   organization_id NOT NULL  -- the owning org
+--   store_id        NULL      -- NULL = all the org's stores; set = this store only (override)
 -- Resolution is MOST-SPECIFIC-WINS for a user acting at store S in org O:
---   1. row (role, perm, org=O, store=S)   -- store-specific override
---   2. else row (role, perm, org=O, store=NULL)  -- org-wide setting
+--   1. row (role, condition, org=O, store=S)        -- store-specific override
+--   2. else row (role, condition, org=O, store=NULL) -- org-wide setting
 --   3. else unconditional
---
--- type/value are a CLOSED, typed menu (each `type` maps to a named evaluator in code) — never
--- free-form expressions: 'max_amount' -> target.amount <= value, 'max_age_days' -> target age
--- <= value, etc. Enforced ONLY in the can() function, server-side, at decision time: a grant
--- is allowed only if the user holds the permission (RBAC) AND every applicable condition passes
--- against the target (ABAC). Any condition fails -> deny.
 CREATE TABLE role_permission_condition (
     role_permission_condition_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),  -- the owning tenant
-    store_id        BIGINT REFERENCES store (store_id),   -- NULL = whole org; set = this store only
-    role_id         BIGINT NOT NULL,
-    permission_id   BIGINT NOT NULL,
-    type            TEXT NOT NULL,   -- closed menu: 'max_amount', 'max_age_days', 'own_records_only', ...
-    value           TEXT,            -- the parameter for the type (e.g. '500'); NULL for valueless types
-    FOREIGN KEY (role_id, permission_id) REFERENCES role_permission (role_id, permission_id)
+    organization_id         BIGINT NOT NULL REFERENCES organization (organization_id),
+    store_id                BIGINT REFERENCES store (store_id),   -- NULL = whole org; set = one store
+    role_id                 BIGINT NOT NULL REFERENCES role (role_id),
+    permission_condition_id BIGINT NOT NULL REFERENCES permission_condition (permission_condition_id),
+    value                   NUMERIC NOT NULL,   -- the customer's setting, e.g. 500 (within min/max)
+    -- one value per (tenant-place, role, condition)
+    UNIQUE (organization_id, store_id, role_id, permission_condition_id)
+    -- Note: this doesn't enforce that the role actually holds the menu entry's permission
+    -- (a cap on a permission the role lacks is harmless — RBAC denies first). The UI should
+    -- only offer conditions for permissions the role has; value must be within the menu's min/max.
 );
 
 -- A user belongs to a place (a store OR the org), independent of any role.
@@ -362,8 +380,10 @@ CREATE INDEX ON role            (organization_id);  -- an org's custom roles (NU
 -- store_membership_detail / organization_membership_detail: membership_id is the PK,
 -- already indexed; no extra index needed
 CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
-CREATE INDEX ON role_permission_condition (organization_id, role_id, permission_id);   -- a tenant's conditions for a role-permission
-CREATE INDEX ON role_permission_condition (store_id);   -- store-specific overrides
+CREATE INDEX ON permission_condition       (permission_id);   -- the menu for a permission (UI)
+CREATE INDEX ON role_permission_condition  (organization_id, role_id);   -- a tenant's conditions for a role (enforcement lookup)
+CREATE INDEX ON role_permission_condition  (permission_condition_id);
+CREATE INDEX ON role_permission_condition  (store_id);   -- store-specific overrides
 
 -- Organization
 CREATE INDEX ON store        (organization_id, region);   -- group an org's stores by region

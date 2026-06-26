@@ -9,15 +9,15 @@ have to claw them back later.
 isn't "build arbitrary roles" — it's "make *our* cashiers' refund cap $300, not $500." That's a
 **condition tweak on a managed role** (`role_permission_condition`), not a new role. Letting
 customers edit conditions on the roles we ship — gated by the **`role_condition:edit`**
-permission (put on Store Admin / Org roles, never on Cashier) — delivers the 95% need with
-almost none of the custom-role risk:
+permission (held by **org admins only**) — delivers the 95% need with almost none of the
+custom-role risk:
 - It **can't escalate** — editing a condition only changes a *limit* on a permission the role
   already holds; it can never add a permission or cross scope. So the whole assignment-escalation
   / subset-rule problem set below does **not** apply.
+- **No self-escalation** — only org admins edit limits, always scoped down to a store; a store
+  admin can't raise their own cap (they ask the org admin).
 - It's a **tiny surface** — edit a `value` on a condition row. No role authoring, no permission
   picker, no lifecycle.
-- Optional guardrail: give each condition a min/max the editor can move *within*, so even a
-  Store Admin can't set a nonsense $1,000,000 cap.
 
 If this covers the demand, full custom roles may never be needed. The items below only matter
 if we still ship full custom roles.
