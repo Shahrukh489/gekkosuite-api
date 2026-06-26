@@ -16,6 +16,8 @@ We serve small and mid-size businesses running a multi-store POS. A typical orga
 
 ## What is the user login flow?
 
+## How to create a user in a store but not in the organization level?
+
 
 ## How do we ensure a store admin can never assign an organization admin roles?
 

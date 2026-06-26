@@ -138,7 +138,20 @@ CREATE TABLE organization (
 CREATE TABLE store (
     store_id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
-    plan_id         BIGINT REFERENCES plan (plan_id)   -- each store is billed on its own plan
+    plan_id         BIGINT REFERENCES plan (plan_id),   -- each store is billed on its own plan
+    region          TEXT,                               -- grouping label, e.g. 'NorthWest'
+    sub_region      TEXT                                -- finer grouping, e.g. 'Seattle-Metro'
+    -- region/sub_region are descriptive tags for filtering and reports, NOT places you can
+    -- grant roles at. If a region ever needs to OWN access (a real district manager role)
+    -- it graduates to its own entity; until then it's just a label on the store.
+);
+
+-- Free-form labels on a store (e.g. 'flagship', 'airport', 'pilot-program'). Many tags
+-- per store. Kept separate from region/sub_region so a store can carry any number of them.
+CREATE TABLE store_tag (
+    store_id BIGINT NOT NULL REFERENCES store (store_id),
+    tag      TEXT   NOT NULL,
+    PRIMARY KEY (store_id, tag)   -- a store can't have the same tag twice
 );
 
 CREATE TABLE product (
@@ -206,6 +219,8 @@ CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
 
 -- Organization
 CREATE INDEX ON store        (plan_id);
+CREATE INDEX ON store        (organization_id, region);   -- group an org's stores by region
+CREATE INDEX ON store_tag    (tag);                       -- find stores by tag (store_id covered by PK)
 CREATE INDEX ON organization (owner_user_id);
 CREATE INDEX ON plan_feature (feature_id);         -- plan_id covered by PK
 
