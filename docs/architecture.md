@@ -14,6 +14,9 @@ We serve small and mid-size businesses running a multi-store POS. A typical orga
 
 # FAQ
 
+## What is the user login flow?
+
+
 ## How does each store keep its own products separate from other stores?
 
 Every product belongs to exactly one store. We record this with a `store_id` on every product row, and a store only ever loads products with its own `store_id`. So one store can never see or change another store's products.
@@ -51,9 +54,14 @@ We store this with a few small pieces:
 
 - A **user** is one account (one login).
 - A **role** is a named set of permissions, like "Cashier" or "Manager."
-- A **user-role** record connects a user to a role *at one place* — for example, "John is a Manager at Store B." Each record names the place with one of two fields: `store_id` for a store, or `organization_id` for the organization. Exactly one is filled in — that tells us both the place and whether it's a store or the org.
+Access has two layers, like an IAM user:
 
-A person can have several of these records — one per place they work — so they can be a Cashier at one store and a Manager at another. When the user logs in, we gather all of these and produce one simple list of where they can go and what they can do at each place:
+- A **membership** record says a user *belongs to one place* — for example, "John is at Store B." It names the place with one of two fields: `store_id` for a store, or `organization_id` for the organization. Exactly one is filled in — that tells us both the place and whether it's a store or the org. A membership carries no role on its own.
+- A **membership-role** record grants a *role on a membership* — "John, at Store B, is a Manager." A membership can have several roles, or none.
+
+Keeping these separate means a user can belong to a place with **no roles** (still listed there, just no access), and removing a role simply deletes that one membership-role record — the membership, the user's other roles, and the account all stay.
+
+A person can have several memberships — one per place they work — so they can be a Cashier at one store and a Manager at another. When the user logs in, we gather all their memberships and the roles on each, and produce one simple list of where they can go and what they can do at each place:
 
 ```
 John's access
@@ -70,13 +78,14 @@ Because each record points at a real store or a real organization (a proper data
 
 Besides the built-in roles we ship (like Root Admin and Cashier), customers can create their own roles. A custom role can belong to a whole **organization** (every store in the org can use it) or to a single **store** (only that store uses it). It is visible only to its owner — no other org or store sees it.
 
-All roles live in one `Role` table. A few fields tell us who owns each role:
+All roles live in one `Role` table — built-in, org-wide, and store-only roles together. A few fields tell us who owns each role:
 
 - **`is_managed`** — `true` means we built and maintain it; `false` means a customer created it.
 - **`organization_id`** — set when the role belongs to a whole organization.
 - **`store_id`** — set when the role belongs to a single store.
+- **`scope`** — a plain label for the level: `GLOBAL`, `ORGANIZATION`, or `STORE`. It's just a readable shorthand for the rule below (the owner fields are the real source of truth), kept in sync automatically so screens can filter on it easily.
 
-A built-in role has neither owner field set. A custom role has exactly one of them set — that says whether it's an org-wide role or a store-only role.
+A built-in role has neither owner field set (`scope = GLOBAL`). A custom role has exactly one of them set — that says whether it's an org-wide role (`scope = ORGANIZATION`) or a store-only role (`scope = STORE`).
 
 ```
 Role
@@ -114,23 +123,26 @@ Role
 Org_1 assigns its members to `RoleAdmin`. The built-in Root Admin keeps working unchanged for every other org.
 
 
-## How does an organization get the features in its plan?
+## How to ensure a store admin does not assign a organization level role to a user?
 
-An organization is on one **plan** (like "Pro"), and each plan includes a set of **features** (like reports or multi-store). The org gets its features *through its plan* — features aren't attached to the org directly.
+## How does a store get the features in its plan?
+
+Billing is **per store**, so each **store** is on one **plan** (like "Pro"), and each plan includes a set of **features** (like reports or multi-store). The store gets its features *through its plan*. The organization itself has no plan — it's just the container; the bill is the sum of its stores' plans, and different stores can be on different plans.
 
 ```
-Organization → Plan → Features
+Store → Plan → Features
 
-org_1 is on the "Pro" plan
-Pro includes: multi_store, reports, returns
-So org_1 has: multi_store, reports, returns
+StoreA is on the "Pro" plan, StoreB is on "Basic"
+Pro includes:   multi_store, reports, returns
+Basic includes: returns
+So StoreA has multi_store, reports, returns — StoreB has only returns
 ```
 
-To check a feature ("can org_1 use reports?"), we look at whether its plan includes that feature.
+To check a feature ("can StoreA use reports?"), we look at whether its plan includes that feature.
 
-**One plan per org** — an organization has exactly one plan at a time.
+**One plan per store** — a store has exactly one plan at a time.
 
-**New features spread automatically.** Because features are read through the plan, adding a feature to a plan instantly gives it to **every org on that plan** — no per-org updates. For example, adding "AI Analytics" to the Pro plan means every organization on Pro now has it, automatically. Removing a feature works the same way in reverse.
+**New features spread automatically.** Because features are read through the plan, adding a feature to a plan instantly gives it to **every store on that plan** — no per-store updates. For example, adding "AI Analytics" to the Pro plan means every store on Pro now has it, automatically. Removing a feature works the same way in reverse.
 
 
 ## (Optional) Can products, users, and orders be created at the org level, or only inside a store?
