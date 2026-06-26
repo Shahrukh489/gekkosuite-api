@@ -2,8 +2,8 @@
 
 ## Auth / RBAC
 - User(user_id, email, name, phone, password_hash)
-- User_Role(user_id, role_id, resource_type, resource_id)   -- key (user_id, role_id); resource_type: ORG | STORE; resource_id = the org_id or store_id this grant applies to (the "where"); never null. (resource_type, resource_id) is a polymorphic reference — integrity enforced in the app / by a trigger, not a single DB foreign key (see "Alternate design" in architecture.md)
-- Role(role_id, name, organization_id, is_managed, description)   -- is_managed=true: global, we manage it (organization_id null); is_managed=false: custom, owned by an organization (custom roles are org-level only); unique (name, organization_id)
+- User_Role(user_id, role_id, organization_id, store_id)   -- grants a user a role at one place; exactly one of organization_id / store_id is set (the "where"). Both are real foreign keys, so integrity is DB-enforced. unique (user_id, role_id, organization_id, store_id)
+- Role(role_id, name, organization_id, store_id, is_managed, description)   -- is_managed=true: built-in/global, we manage it (organization_id & store_id null). Custom roles set exactly one owner: organization_id (org-level custom role) OR store_id (store-level custom role). Both owner columns are real foreign keys. unique (name, organization_id, store_id)
 - Permission(permission_id, name, subject, action)
 - Role_Permission(role_id, permission_id)
 

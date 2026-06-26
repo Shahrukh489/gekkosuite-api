@@ -14,164 +14,137 @@ We serve small and mid-size businesses running a multi-store POS. A typical orga
 
 # FAQ
 
-### How will each store keep its own product without conflicts in other stores?
+### How does each store keep its own products separate from other stores?
 
-Every product row carries a `store_id`. That column is the isolation — a product belongs to exactly one store, and every query filters by `store_id`.
+Every product belongs to exactly one store. We record this with a `store_id` on every product row, and a store only ever loads products with its own `store_id`. So one store can never see or change another store's products.
+
+If two stores happen to sell the same item with the same SKU, each store still gets its own separate row — with its own price and stock:
 
 ```
 Store_Product
- store_product_id  store_id  sku       name
- ----------------  --------  --------  ------
- 101               StoreA    SKU-123   Coke
- 102               StoreB    SKU-123   Coke
+ store_id   sku       name   price
+ --------   --------  -----  -----
+ StoreA     SKU-123   Coke   1.50
+ StoreB     SKU-123   Coke   1.75
 ```
 
-The same SKU in two stores is just two separate rows — no conflict. Store A only ever sees `store_id = StoreA`. They never collide because the unique key is `store_product_id` (per row), not the SKU.
+Within a single store, the same SKU can't be listed twice. Across stores it's fine — they're independent.
 
-SKU is unique **within** a store via a unique index on `(store_id, sku)`: a store can't list the same SKU twice, but other stores still can.
 
-### How will an organization owner see products, users, roles, orders, returns across all stores?
+### How does an organization owner see everything across all stores?
 
-There is no org-level copy of this data, so the owner sees it by **federated read**: we first find the org's stores, then read each thing (products, orders, returns, customers) for those stores and combine the results. 
+We don't keep a separate org-wide copy of the data. Instead, the owner's view is built on demand in two steps:
 
 1. Find the stores that belong to the organization.
-2. Read the products / orders / returns / customers for those stores, and merge them into one list.
+2. Read the products, orders, returns, and customers for those stores, and combine them into one list.
 
-The same two steps work for every kind of record. At ~100 stores this is fast. If it ever slows down, we can keep a pre-built read copy (a search index or summary table) to speed it up — the real data still lives in each store.
+This works because every store knows which org it belongs to, and every record (a product, an order, etc.) knows which store it belongs to.
 
-### How do we know what access a user has?
+At ~100 stores this is fast. If it ever gets slow, we can keep a pre-built copy of the data for quick reading (a search index or summary table), while the real records still live in each store.
 
-**Short answer:** at login we look up everywhere the user belongs (their stores and their org) and what they can do at each, and return a single list of "place → permissions."
 
-A user's access is always a **place** (a store or the org) plus **what they can do there**. The `User_Role` table records this: each row links a user to a role at one place. A role has permissions attached to it. Putting it all together we get a user with a role that has permissions for a place.
+### How do we know what a user can do, and where?
 
-It looks like this:
+A user's access always has two parts: a **place** (a store, or the organization) and **what they can do there**.
+
+We store this with a few small pieces:
+
+- A **user** is one account (one login).
+- A **role** is a named set of permissions, like "Cashier" or "Manager."
+- A **user-role** record connects a user to a role *at one place* — for example, "John is a Manager at Store B." Each record names the place with one of two fields: `store_id` for a store, or `organization_id` for the organization. Exactly one is filled in — that tells us both the place and whether it's a store or the org.
+
+A person can have several of these records — one per place they work — so they can be a Cashier at one store and a Manager at another. When the user logs in, we gather all of these and produce one simple list of where they can go and what they can do at each place:
 
 ```
 John's access
- place     kind    name            can do
- -------   -----   -------------   -----------------------------------
- org_1     ORG     Acme Inc         organization:read
- StoreA    STORE   Acme Seattle     store:read, store:sell
- StoreB    STORE   Acme Portland    store:read, store:sell, store:refund
+ place    type    name             can do
+ ------   -----   --------------   ----------------------------------
+ org_1    ORG     Acme Inc         organization:read
+ StoreA   STORE   Acme Seattle     store:read, store:sell
+ StoreB   STORE   Acme Portland    store:read, store:sell, store:refund
 ```
 
+Because each record points at a real store or a real organization (a proper database link), a record can never refer to a place that doesn't exist, and deleting a place automatically removes its access records.
 
-**A note on integrity.** A `User_Role` row points at *either* an organization or a store depending on its resource type. A database can't make one link rule cover two different tables, so it won't on its own stop a row from pointing at a place that was deleted (a "dangling reference"). We handle this the way large systems do  and guard it in the application: check the place exists when a row is created, remove a place's rows when the place is deleted, and run an occasional sweep to catch any strays. With only two resource types this is cheap and enough. If strict database-enforced integrity ever becomes a hard requirement, see **Alternate design: BusinessUnit** below.
+### How does an organization or store create its own custom roles?
 
-The place is **always filled in** — an org-level grant points at the org itself — so there's no confusing "empty means nowhere" case. And we don't need to store the level separately: the permission name already implies it (`store:…` vs `organization:…`).
+Besides the built-in roles we ship (like Root Admin and Cashier), customers can create their own roles. A custom role can belong to a whole **organization** (every store in the org can use it) or to a single **store** (only that store uses it). It is visible only to its owner — no other org or store sees it.
 
-With this loaded, the app answers any "is this allowed?" question by checking an action **and** a place together:
+All roles live in one `Role` table. A few fields tell us who owns each role:
 
-- Can John refund at Store B? → yes (he's Manager there).
-- Can John refund at Store A? → no (he's only a Cashier there).
-- Can John read the organization? → yes (granted at the org).
+- **`is_managed`** — `true` means we built and maintain it; `false` means a customer created it.
+- **`organization_id`** — set when the role belongs to a whole organization.
+- **`store_id`** — set when the role belongs to a single store.
 
-Because the place is always part of the check, a permission earned at one store (or the org) can never leak somewhere it wasn't granted.
-
-### How do we allow an organization admin to create custom roles?
-
-Custom roles are created at the **organization level only**. The `Role` table holds both the global roles we ship and custom roles orgs create. Two columns tell them apart: **`is_managed`** (true = we own/manage it) and **`organization_id`** (null for managed/global roles, the owning org for custom ones). Managed and custom roles are the same entity distinguished by these owner fields — not separate tables.
+A built-in role has neither owner field set. A custom role has exactly one of them set — that says whether it's an org-wide role or a store-only role.
 
 ```
 Role
- role_id  name           is_managed  organization_id
- -------  -------------  ----------  ----------------
- 1        RootAdmin      true        null               <- global, shipped by us
- 4        Cashier        true        null               <- global
- 50       NightManager   false       org_1              <- custom, made by org_1's admin
+ name           is_managed  organization_id  store_id   meaning
+ ------------   ----------  ---------------  --------   --------------------------------
+ RootAdmin      true        (empty)          (empty)    built-in, shipped by us
+ Cashier        true        (empty)          (empty)    built-in
+ NightManager   false       org_1            (empty)    custom, used across all of org_1
+ WeekendOpener  false       (empty)          StoreA     custom, used only at Store A
 ```
 
-Creating a custom role = inserting a `Role` row with `is_managed = false` and `organization_id` set to that admin's organization, then attaching permissions via `Role_Permission`. Custom roles are invisible to other orgs (filtered by `organization_id`). Role names are unique per owner via `(name, organization_id)`;
+To make a custom role, the owner creates a `Role` row (`is_managed = false`) with their `organization_id` *or* their `store_id` filled in, then chooses its permissions. Names only need to be unique within the owner, so two different orgs (or stores) can each have a "Manager" role without clashing.
 
-**Example — org_1 wants its own version of the global Root Admin.** It does *not* edit the global role. It creates its own role (`is_managed = false`, `organization_id = org_1`) and assigns its members to that instead:
+
+### What happens to existing users when a built-in role's permissions change?
+
+Users don't keep their own copy of permissions — they point at a role, and the role points at its permissions. So if we change a built-in (managed) role, **everyone who has that role gets the change immediately**, in every organization. There's nothing to re-apply.
+
+This is convenient, but it means an org can't freely edit a built-in role without affecting everyone. So we give them two things:
+
+1. **A heads-up.** When an admin assigns a built-in role, the app notes that we manage it and its permissions may change over time.
+
+2. **A "Clone" option.** An admin can copy a built-in role's permissions into a new custom role of their own. They assign the copy instead — now they can edit it freely, and our future changes to the built-in role won't touch it.
+
+**Example.** Org_1 wants its own Root Admin it fully controls. It clones, rather than editing the shared built-in one:
 
 ```
 Role
- role_id  name         is_managed  organization_id
- -------  -----------  ----------  ----------------
- 1        RootAdmin    true        null               <- global, untouched, still shared by everyone else
- 60       RoleAdmin    false       org_1              <- org_1's custom role with its own permissions
-
-Role_Permission
- role_id  permission         -- subject:action
- -------  ----------------
- 1        ...                <- global Root Admin's permissions (unchanged)
- 60       store:manage       <- org_1's chosen permissions for RoleAdmin
- 60       organization:read
+ name        is_managed  organization_id   meaning
+ ---------   ----------  ----------------  ------------------------------
+ RootAdmin   true        (empty)           built-in, still shared, untouched
+ RoleAdmin   false       org_1             org_1's own copy, edits freely
 ```
 
-Now org_1's members point at role 60 (`RoleAdmin`). Their permissions are fully their own, and the global `RootAdmin` (role 1) is unaffected for every other organization.
+Org_1 assigns its members to `RoleAdmin`. The built-in Root Admin keeps working unchanged for every other org.
 
-### If a user has a Managed role, what happens when we update the permissions of that role?
 
-Permissions link to the role through `Role_Permission` (not copied onto users), so updating a **managed** role (`is_managed = true`) instantly applies to every existing user who has that role, across all orgs — there's nothing to propagate. The next permission check sees the new rules.
+### How does an organization get the features in its plan?
 
-```
-Managed Role "RootAdmin" --< Role_Permission >-- Permissions
-        ^                                            ^
-   existing users               we edit here = everyone updates at once
-   point at this role
-```
-
-Two product decisions follow from this:
-
-1. **Warn at assignment time.** When an admin assigns a managed role, the UI tells them this role is managed by us and its permissions may change in the future (and those changes will apply to their users automatically).
-
-2. **Offer "Clone".** Give a UI action to clone a managed role's permissions into a new custom role (`is_managed = false`, their `organization_id`). The org assigns the clone instead, so it's frozen from our updates and they can edit it freely. The clone shadows the managed role of the same name (resolved via `(name, organization_id)`), leaving the managed role untouched for every other org.
-
-### How does an organization get features for their plan?
-
-The chain is **Organization → Plan → Features**. The org points at a plan (`Organization.plan_id`), and the plan is linked to its features via `Plan_Feature`. Features aren't attached to the org directly — you always go through the plan.
+An organization is on one **plan** (like "Pro"), and each plan includes a set of **features** (like reports or multi-store). The org gets its features *through its plan* — features aren't attached to the org directly.
 
 ```
-Organization.plan_id ──> Plan ──< Plan_Feature >── Feature
+Organization → Plan → Features
 
-org_1 (plan_id = Pro)
-   Pro --< Plan_Feature >-- [multi_store, reports, returns]
-   => org_1 has: multi_store, reports, returns
+org_1 is on the "Pro" plan
+Pro includes: multi_store, reports, returns
+So org_1 has: multi_store, reports, returns
 ```
 
-A feature check ("can org_1 use reports?") = does the org's plan include that feature in `Plan_Feature`.
+To check a feature ("can org_1 use reports?"), we look at whether its plan includes that feature.
 
-**One plan per org.** `plan_id` lives on the `Organization` row, so each org has exactly one plan at a time. (If we ever need plan history or multiple plans, we'd reintroduce a separate `Organization_Plan` table.)
+**One plan per org** — an organization has exactly one plan at a time.
 
-**Adding features is easy and propagates automatically.** Because features are read through the plan (not copied onto each org), adding a feature to a plan instantly gives it to **every org on that plan** — no per-org updates. For example, adding "AI Analytics" to the Pro plan means every organization on the Pro plan now has AI Analytics, automatically. Removing a feature from a plan removes it for all those orgs the same way.
+**New features spread automatically.** Because features are read through the plan, adding a feature to a plan instantly gives it to **every org on that plan** — no per-org updates. For example, adding "AI Analytics" to the Pro plan means every organization on Pro now has it, automatically. Removing a feature works the same way in reverse.
 
-### (Optional) Can we add products, users and orders to store at root org level or must be logged into store to do?
-(**pending**)
 
-### (Optional) How can one store search other store products in read-only?
+### (Optional) Can products, users, and orders be created at the org level, or only inside a store?
 
-Same federated-read approach as the org-wide owner view above, but limited to products and **gated by permission**. A store still owns its own products; "search other stores" just finds the sibling stores in the same org and reads their products — it never writes to them.
+*(pending — product decision)*
 
-Two things keep it safe: the user must hold a cross-store read permission (such as `product:read_cross_store`), and the search only ever reads other stores, never changes them. If it ever gets slow, the same pre-built read copy from the federated-read answer can speed it up.
 
-# Alternate design: BusinessUnit (strong foreign keys)
+### (Optional) Can one store search another store's products, read-only?
 
-The main design keeps `Organization` and `Store` as two separate, cleanly-shaped tables, and `User_Role` points at one or the other with a **polymorphic** `(resource_type, resource_id)`. The tradeoff (noted above) is that this reference can't be a single database foreign key, so we guard against dangling references in the application.
+Yes, if the user is allowed to. It uses the same two-step approach as the org-wide owner view: find the sibling stores in the same org, then read their products. It only ever **reads** other stores — it never changes them, and each store still fully owns its own products.
 
-If database-enforced integrity ever becomes a hard requirement, the alternative is a **single unified table** — call it `BusinessUnit` — where both organizations and stores live as rows:
+Two things keep it safe:
 
-```
-BusinessUnit(business_unit_id, type, parent_id, name, plan_id, manager, country, region, city, state, zip_code, ...)
-   type:      ORG | STORE
-   parent_id: the org a store belongs to (null for an org)
+- The user must have a cross-store read permission (such as `product:read_cross_store`).
+- The search is read-only by design — it can look at other stores but never edit them.
 
-User_Role(user_id, role_id, business_unit_id)   -- business_unit_id is a REAL foreign key to BusinessUnit
-```
-
-**What this buys you**
-
-- **A real foreign key.** `User_Role.business_unit_id` references one table, so the database guarantees every grant points at a place that exists, and deleting a place automatically cleans up its grants. No dangling references, ever — no app-side validation or triggers needed.
-- **One uniform reference everywhere** (audits, grants, queries), which is the most index- and shard-friendly shape if you grow to thousands of orgs.
-
-**What it costs**
-
-- **One table with many nulls.** An org row and a store row need different columns — `plan_id` only applies to orgs; `manager`, `region` only to stores. In one table those become nullable columns that are empty for half the rows (an org row has a null `manager`; a store row has a null `plan_id`). The table's shape no longer cleanly describes either thing.
-- The database can't enforce "an ORG must have a plan_id and a STORE must have a manager" without conditional `CHECK` constraints, so some validation moves back into the app anyway.
-- Every store-only or org-only query gains a `WHERE type = 'STORE'` / `'ORG'` filter.
-
-A common refinement is to keep `BusinessUnit` for the **shared** fields only (`business_unit_id, type, parent_id, name`) and put the type-specific columns in detail tables (`Organization`, `Store`) keyed by `business_unit_id`. That removes the nulls and keeps the real foreign key — at the price of an extra join to fetch details.
-
-**Why the main design doesn't use this:** we only ever have two unit types (org and store) and the sole downside of the polymorphic approach is dangling references, which a small write-time validation (and optional trigger) fully handles. The `BusinessUnit` table trades that cheap, contained cost for either a null-filled table or an extra join on every read — complexity we don't need at our scale. It's documented here as the path to take **if** strict DB-level integrity or a deeper unit hierarchy (e.g. regions) ever becomes a real requirement.
+If it ever gets slow, the same pre-built read copy mentioned in the owner-view answer can speed it up.
