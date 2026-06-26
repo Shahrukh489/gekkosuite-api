@@ -21,7 +21,7 @@ Every product belongs to exactly one store. We record this with a `store_id` on 
 If two stores happen to sell the same item with the same SKU, each store still gets its own separate row — with its own price and stock:
 
 ```
-Store_Product
+product
  store_id   sku       name   price
  --------   --------  -----  -----
  StoreA     SKU-123   Coke   1.50
