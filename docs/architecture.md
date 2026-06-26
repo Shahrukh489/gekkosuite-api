@@ -19,6 +19,29 @@ We serve small and mid-size businesses running a multi-store POS. A typical orga
 
 ## How do we ensure a store admin can never assign an organization admin roles?
 
+Every role carries a `scope` (`STORE` or `ORGANIZATION`) — the level it's meant for, and the only level it can be granted at. Two layers keep a store admin from handing out an org role:
+
+1. **The UI hides them.** A store's "assign role" screen only lists `scope = STORE` roles, so org roles never even appear as an option.
+
+2. **The write path rejects them — this is the real guard.** Hiding a role in the UI isn't security; someone could still call the API directly. So when a role is granted, the server checks the role's `scope` against the place before writing the `membership_role` row:
+
+   - granting at a **store** → the role must be `scope = STORE`
+   - granting at an **organization** → the role must be `scope = ORGANIZATION`
+
+   If they don't match, the request is rejected — no row is written. So a store admin calling the grant endpoint with an org role's id gets turned away, regardless of what the UI showed.
+
+```
+grant request: give role R to membership M
+
+  M is a STORE membership, R.scope = STORE          -> allowed
+  M is a STORE membership, R.scope = ORGANIZATION    -> REJECTED
+  M is an ORG membership,  R.scope = ORGANIZATION     -> allowed
+  M is an ORG membership,  R.scope = STORE            -> REJECTED
+```
+
+The rule is simple: **the role's scope must equal the membership's place type.** The UI filter is the convenience; the write-path check is the enforcement.
+
+
 
 ## How does each store keep its own products separate from other stores?
 
@@ -102,7 +125,14 @@ Role
 
 To make a custom role, the owner creates a `Role` row (`is_managed = false`) with a `scope` and the matching owner field (`organization_id` for an org role, `store_id` for a store role), then chooses its permissions. Names only need to be unique within the owner, so two different orgs (or stores) can each have a "Manager" role without clashing.
 
-**Why scope matters for safety.** Because each role carries the level it's for, a store admin's "assign role" screen only lists `scope = STORE` roles, and an org admin's only lists `scope = ORGANIZATION` roles. So a store admin can never hand a store user an organization-level role — the org roles simply never appear, and the server rejects them if attempted directly.
+**Scope is mandatory and decides which permissions a role may hold.** Every permission also carries a `scope` (`STORE` or `ORGANIZATION`). When a role is created or edited, the server checks each permission against the role: a `STORE` role may only hold `STORE` permissions, an `ORGANIZATION` role only `ORGANIZATION` permissions. So a store role physically can't be given an `organization:*` permission — the save is rejected. This matters most for *custom* roles, which customers build themselves: it stops them from accidentally putting an org-level power into a store role.
+
+**Why scope matters for safety.** Two write-path checks close the loop:
+
+1. **Building a role** — each permission's scope must equal the role's scope (so an org permission can't get into a store role).
+2. **Granting a role** — the role's scope must equal the place it's granted at (so a store user can't be given an org role).
+
+Together, a store admin can never hand a store user organization-level power: the org permission can't be in a store role, and an org role can't be granted at a store. The UI also hides mismatched options for convenience, but the write-path checks are the real enforcement — the server rejects a bad request even if it bypasses the UI.
 
 
 ## What happens to existing users when a built-in role's permissions change?

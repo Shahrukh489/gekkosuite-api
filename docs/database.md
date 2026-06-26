@@ -37,6 +37,10 @@ CREATE TABLE permission (
     permission_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     subject       TEXT NOT NULL,   -- e.g. store, organization
     action        TEXT NOT NULL,   -- e.g. refund, edit
+    scope         TEXT NOT NULL CHECK (scope IN ('ORGANIZATION', 'STORE')),
+    -- the level this permission applies at. A role may only hold permissions whose
+    -- scope matches the role's scope (enforced on the write path when a role is
+    -- created/edited), so e.g. a STORE role can never contain an ORGANIZATION permission.
     UNIQUE (subject, action)
 );
 
@@ -79,6 +83,17 @@ CREATE TABLE membership_role (
     membership_id BIGINT NOT NULL REFERENCES membership (membership_id),
     role_id       BIGINT NOT NULL REFERENCES role (role_id),
     PRIMARY KEY (membership_id, role_id)   -- same role can't be granted twice here
+);
+
+-- Level-specific membership fields live in side tables, so the shared `membership`
+-- table stays free of nulls. A store membership has exactly one row here; an org
+-- membership has none (its place is org, not store). One row per membership, so
+-- membership_id is both the PK and the FK. When org memberships grow their own fields,
+-- add `organization_membership_detail` the same way.
+CREATE TABLE store_membership_detail (
+    membership_id BIGINT PRIMARY KEY REFERENCES membership (membership_id),
+    store_pin     TEXT
+    -- ...other store-only member fields go here
 );
 
 ```
@@ -176,6 +191,7 @@ the other column.
 CREATE INDEX ON store           (organization_id);
 CREATE INDEX ON membership      (user_id);
 CREATE INDEX ON membership_role (role_id);          -- membership_id covered by PK
+-- store_membership_detail: membership_id is the PK, already indexed; no extra index needed
 CREATE INDEX ON role            (organization_id);
 CREATE INDEX ON role            (store_id);
 CREATE INDEX ON role            (created_user_id);
@@ -245,6 +261,7 @@ erDiagram
     membership }o--|| store : "at"
     membership ||--o{ membership_role : "has"
     role       ||--o{ membership_role : "granted by"
+    membership ||--o| store_membership_detail : "store-only fields"
 ```
 
 
@@ -342,17 +359,22 @@ two roles at the store returns two rows; the API groups them into one user with 
 list. A user who belongs to the store but has no roles still appears (one row, role
 columns NULL) — the LEFT JOIN to `membership_role` keeps role-less members visible.
 
+Because this is a store screen, it joins the store-only detail (`store_pin`); the org
+detail table is never involved.
+
 ```sql
 SELECT u.user_id,
        u.name,
        u.email,
        u.phone,
+       smd.store_pin,
        r.role_id,
        r.name AS role_name
 FROM membership m
-JOIN "user" u                 ON u.user_id = m.user_id
-LEFT JOIN membership_role mr  ON mr.membership_id = m.membership_id
-LEFT JOIN role r              ON r.role_id = mr.role_id
+JOIN "user" u                       ON u.user_id = m.user_id
+LEFT JOIN store_membership_detail smd ON smd.membership_id = m.membership_id
+LEFT JOIN membership_role mr        ON mr.membership_id = m.membership_id
+LEFT JOIN role r                    ON r.role_id = mr.role_id
 WHERE m.store_id = :store_id
 ORDER BY u.name;
 ```
