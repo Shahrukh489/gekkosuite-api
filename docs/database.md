@@ -206,14 +206,160 @@ erDiagram
 
 # Queries
 
-## Get all the products for every store in an organization
+Each query returns flat joined rows with all the columns a screen needs. The API layer
+groups/combines these rows (e.g. collapsing a user's many roles into one object), so the
+SQL stays plain joins — no aggregation here.
 
-## Get all the permissions for a user
+Bind parameters: `:organization_id`, `:store_id`, `:user_id`, `:order_id`.
 
-## Get all the users in a store
+These examples use descriptive columns (`name`, `email`, `phone`, `price`, etc.) that
+are added to the tables later — the schema above lists keys only.
 
-## Get all the users in an organization 
 
-## Get all the roles for a store (custom and managed)
+## Products for every store in an organization
 
-## Get all the roles for an organization (custom and managed)
+Each product with its price/stock and which store it's in.
+
+```sql
+SELECT p.product_id,
+       p.name,
+       p.sku,
+       p.price,
+       p.quantity,
+       s.store_id,
+       s.name AS store_name
+FROM product p
+JOIN store s ON s.store_id = p.store_id
+WHERE s.organization_id = :organization_id
+ORDER BY s.name, p.name;
+```
+
+
+## A user's full access (everything the app loads at login)
+
+One row per permission, tagged with the place it applies to (a store or the org) and
+that place's name. The API groups these by place to build the per-place permission lists.
+
+```sql
+SELECT ur.organization_id,
+       o.name AS organization_name,
+       ur.store_id,
+       s.name AS store_name,
+       p.subject,
+       p.action
+FROM user_role ur
+JOIN role_permission rp ON rp.role_id = ur.role_id
+JOIN permission p       ON p.permission_id = rp.permission_id
+LEFT JOIN organization o ON o.organization_id = ur.organization_id
+LEFT JOIN store s        ON s.store_id        = ur.store_id
+WHERE ur.user_id = :user_id;
+```
+
+
+## Users in a store (with their info and roles)
+
+For a store's "staff" screen. One row per user-role, with the user's details. A user with
+two roles at the store returns two rows; the API groups them into one user with a role
+list.
+
+```sql
+SELECT u.user_id,
+       u.name,
+       u.email,
+       u.phone,
+       r.role_id,
+       r.name AS role_name
+FROM "user" u
+JOIN user_role ur ON ur.user_id = u.user_id
+JOIN role r       ON r.role_id  = ur.role_id
+WHERE ur.store_id = :store_id
+ORDER BY u.name;
+```
+
+
+## Users in an organization (with info, and where they work)
+
+Every person in the org — at the org level, or at any store under it — one row per grant
+with the user's details, the role, and the place. The API groups by user.
+
+```sql
+SELECT u.user_id,
+       u.name,
+       u.email,
+       u.phone,
+       r.name AS role_name,
+       ur.organization_id,
+       o.name AS organization_name,
+       ur.store_id,
+       s.name AS store_name
+FROM "user" u
+JOIN user_role ur        ON ur.user_id = u.user_id
+JOIN role r              ON r.role_id  = ur.role_id
+LEFT JOIN organization o ON o.organization_id = ur.organization_id
+LEFT JOIN store s        ON s.store_id        = ur.store_id
+WHERE ur.organization_id = :organization_id
+   OR s.organization_id   = :organization_id
+ORDER BY u.name;
+```
+
+
+## Roles available to a store (with their permissions)
+
+The built-in (managed) roles plus this store's own custom roles. One row per
+role-permission; the API groups by role.
+
+```sql
+SELECT r.role_id,
+       r.name,
+       r.is_managed,
+       p.subject,
+       p.action
+FROM role r
+LEFT JOIN role_permission rp ON rp.role_id = r.role_id
+LEFT JOIN permission p       ON p.permission_id = rp.permission_id
+WHERE r.is_managed = TRUE          -- built-in roles
+   OR r.store_id   = :store_id     -- this store's custom roles
+ORDER BY r.is_managed DESC, r.name;
+```
+
+
+## Roles available to an organization (with their permissions)
+
+The built-in roles plus the org's own custom roles. One row per role-permission; the API
+groups by role.
+
+```sql
+SELECT r.role_id,
+       r.name,
+       r.is_managed,
+       p.subject,
+       p.action
+FROM role r
+LEFT JOIN role_permission rp ON rp.role_id = r.role_id
+LEFT JOIN permission p       ON p.permission_id = rp.permission_id
+WHERE r.is_managed      = TRUE                -- built-in roles
+   OR r.organization_id = :organization_id    -- this org's custom roles
+ORDER BY r.is_managed DESC, r.name;
+```
+
+
+## An order with its line items (receipt / order detail)
+
+The order, who placed it, and one row per line item. The API groups the lines under the
+order and sums the total.
+
+```sql
+SELECT so.order_id,
+       so.status,
+       c.customer_id,
+       c.name AS customer_name,
+       p.product_id,
+       p.name AS product_name,
+       sop.quantity,
+       sop.unit_price
+FROM sales_order so
+LEFT JOIN customer c         ON c.customer_id = so.customer_id
+JOIN sales_order_product sop ON sop.order_id = so.order_id
+JOIN product p               ON p.product_id = sop.product_id
+WHERE so.order_id = :order_id;
+```
