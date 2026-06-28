@@ -24,20 +24,36 @@ We serve **tightly-coupled single companies** — one business that owns and run
 
 # Features
 
-**Organization** — central management; org-level users only. Reaches every store in the org.
-- Perform any action on any of its stores (an org role reaches all stores).
-- Make purchase orders (buy inventory from suppliers) and record expenses — each optionally attributed to a store.
-- Manage suppliers.
-- Create and manage users (org and store users) and create/manage stores.
-- Holds the plan; every store inherits its features.
-- Only org users can make org-level updates — store users can never reach the org.
+The features across the application, split by **who can do what** — the organization (central
+management, org-level users) and the store (the selling unit, store users). Each row is a single
+capability and what it lets that side do.
 
-**Store** — the selling unit; store users are scoped to the store(s) they belong to.
-- Sell, and process returns/refunds.
-- Manage its own products (each store's own SKUs, stock, and price).
-- Manage its own customers.
-- View its own reports and the purchases/expenses attributed to it.
-- A store user only ever acts on their own store's data — never another store's, never the org's.
+**Organization** — org-level users only; reaches every store in the org.
+
+| Feature | What it allows |
+|---|---|
+| Act on any store | Perform any store action on any of its stores — an org role reaches all of them. |
+| Manage store products | View and edit any store's products (its SKUs, stock, price). |
+| Manage store customers | View and edit any store's customers. |
+| Cross-store reports | View aggregate reports rolled up across all stores (sales, inventory, performance); the org Dashboard is the company-wide overview. |
+| Purchase orders | Buy inventory from suppliers; each purchase optionally attributed to a store. |
+| Expenses | Record non-inventory spending; each expense optionally attributed to a store. |
+| Suppliers | Create and manage the org's suppliers. |
+| Users | Create and manage users (both org and store users). |
+| Stores | Create and manage stores. |
+| Plan | Hold the org's plan; every store inherits its features. |
+| Org-level updates | Only org users can make org-level changes — store users can never reach the org. |
+
+**Store** — store users, scoped to the store(s) they belong to.
+
+| Feature | What it allows |
+|---|---|
+| Sell | Ring up sales at the store. |
+| Returns & refunds | Process returns and refunds for the store's own orders. |
+| Products | Manage the store's own products (its SKUs, stock, price). |
+| Customers | Manage the store's own customers. |
+| Reports | View the store's own reports, and the purchases/expenses attributed to it. |
+| Store-only scope | A store user only ever acts on their own store's data — never another store's, never the org's. |
 
 
 # Documentation map
