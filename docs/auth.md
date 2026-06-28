@@ -60,17 +60,18 @@ The login is the `user` row, carrying a `user_type` (`ORGANIZATION` or `STORE`).
 You can dial access down by how permanent you want it — without ever deleting the person. The account always stays.
 
 **How it works**
-Three levels:
+Four levels, from narrowest to widest:
 
 - **Take away one role** — they still belong at the place, just with less (or no) ability there.
-- **Suspend (temporary)** — switch their access off but keep everything, so you can switch it back on. Good for "on leave" or a temporary block.
+- **Suspend at one place (temporary)** — switch their access off at a single store but keep everything, so you can switch it back on. Good for "moved off this store for now."
+- **Disable the whole account (temporary)** — one switch turns the person off *everywhere* at once, across all their stores, without touching any individual place. Good for "on leave" or an immediate company-wide block.
 - **Remove from a place (permanent)** — they no longer belong there. The record is kept for history.
 
 **Example**
-A cashier goes on leave → *suspend* them. They quit → *remove* them from the store. You gave a cashier refund rights by mistake → just *take away that role*.
+A cashier goes on leave → *disable their account* (off everywhere). They're just pulled from one store → *suspend at that place*. They quit → *remove* them from the store. You gave a cashier refund rights by mistake → just *take away that role*.
 
 **Under the hood**
-Take-away = delete the `membership_assignment` (or let `expires_at` end it). Suspend = `membership.is_active = false`. Remove = soft-delete the membership (`deleted_at`). The `user` row is never touched.
+Take-away = delete the `membership_assignment` (or let `expires_at` end it). Suspend one place = `membership.is_active = false`. Disable the account = `user.is_active = false` (the kill switch above all memberships — effective access needs both `user.is_active` and the place's `membership.is_active`). Remove = soft-delete the membership (`deleted_at`). The `user` row itself is never deleted.
 
 
 ## What is a role, and where do roles come from?
@@ -184,9 +185,11 @@ Every entry points at a real store or organization, so it can never reference a 
 
 This is the authentication and authorization flow each request must go through to verify if a user has permission to make the API request.
 
-## 1. JWT Token Validation Middleware — Authentication
+The flow is two layers: **authenticate** (who are you?) then **authorize** (may you do this here?). There is no separate "tenancy" middleware that inspects target headers — the tenant (the organization) comes from the token, the target store comes from the route, and the org-boundary is baked directly into the one authorization query.
 
-This middleware only validates that the JWT token is valid and not expired or tampered with. It is the first check: if the token is invalid then nothing about it can be trusted and we should not proceed further — the user is NOT authenticated. Return **401**.
+## 1. Authentication — validate the JWT, load identity, build context
+
+A middleware validates the JWT and, on success, **reads the user row** to load the account facts we need for every request, then builds the request **context**. If the token is invalid, nothing about it can be trusted; stop here and return **401**.
 
 **Validation Process**:
 - **Signature is valid** (signed by us, not tampered).
@@ -196,104 +199,85 @@ This middleware only validates that the JWT token is valid and not expired or ta
 - **Real revocation / short-lived tokens + refresh** — without it, a fired or suspended user's token keeps working until it expires, so `is_active = false` / `deleted_at` have no effect until then. For a money app this is mandatory, not optional.
 - TBD more checks like claim validation and other industry practices
 
-## 2. Tenancy Validation Middleware — Authorization (boundary)
+After the token checks out, **read `user_type` and `is_active` from the `user` row** — one DB read per request, right here. These are deliberately read **fresh from the DB, never trusted from the token**: a user whose type or account status changed is judged on what's true *now*. They're stamped into the context so the authorization step reuses them (one read, not two).
 
-This middleware validates that the **target** organization or store the user wants to act on is inside the user's own organization. To name the target, exactly **one** of the following headers must be present — if both (or neither) are present, return **400**:
-
-- **`X-Target-Store-Id`** — a store target.
-- **`X-Target-Organization-Id`** — the org target.
-
-Important: this is **not** checking whether the user can perform the requested action (e.g. create a product) — only that the target belongs to their organization. It's an early guardrail against acting on a target in a *different* organization. Whether the user can actually do the action is checked per-endpoint in step 3.
-
-**Validation Process**:
-
-- If **`X-Target-Organization-Id`** is present, it must equal the `organization_id` in the user's JWT token — a user can never act on another organization.
-  - `jwt_token.organization_id == X-Target-Organization-Id`  → else **403**
-- If **`X-Target-Store-Id`** is present, the store must belong to the user's org (from the token) — a user can never act on a store in a different organization.
-  - `store(X-Target-Store-Id).organization_id == jwt_token.organization_id`  → else **403** (or 404 if the store doesn't exist)
-
-Once validated, the middleware saves these values on a request **context** that the rest of the code reads. Nothing downstream re-reads the raw headers — a header is something the client *claimed*; the context is something we *verified*.
+The context holds only **verified identity** — who the user is, their org (their immutable home org, the tenant), and the freshly-read account facts. It carries **no target**: the thing being acted on comes from the route, not from a header the client set.
 
 ```
 context = {
-  userId,                 // from the token
-  organizationId,         // from the token (the boundary)
-  targetTenantType,       // ORG | STORE  (which header was present + the route)
-  targetTenantId          // the validated org or store id
+  userId,            // from the token
+  organizationId,    // from the token — the tenant boundary, never client input
+  userType,          // ORGANIZATION | STORE — read FRESH from the user row
+  isActive           // account kill switch — read FRESH from the user row
 }
 ```
 
-```
-request →
-  M1 authn:    JWT signature valid + not expired?                        → no → 401
-  M2 tenancy:  exactly one target header present?                        → no → 400
-               validate target is inside the org:
-                 X-Target-Organization-Id == token.organization_id?      → no → 403
-                 store(X-Target-Store-Id).organization_id
-                                          == token.organization_id?      → no → 403 (or 404 if missing)
-               stamp context = { userId, organizationId, targetTenantType, targetTenantId }
-  M3 authz:    read user_type fresh from DB
-               store user targeting the org?                              → yes → 403
-               a live membership (at the target the user's type allows)
-                 whose role holds the required permission?                → no → 403
-               resource named by id belongs to the target?               → no → 404
-  → action runs
-```
+## 2. Authorization — may this user do this action, here?
 
-## 3. Endpoint Authorization — can the user do this action here?
+Each endpoint declares the one permission it needs, and store-scoped endpoints carry the store in their **path** (`/stores/{storeId}/...`). The organization is never in the path — it's the tenant, taken from the token. Org-level endpoints (e.g. `/organization/products`) carry no place id; the org is implied.
 
-Once we have confirmed the user is authenticated (step 1) and that the target organization or store is inside the user's organization (step 2), the endpoint does the final check: **is this user authorized to perform this specific action on this target?** Each endpoint declares the one permission it needs, and we verify the user holds it at the target.
+- `POST /organization/products`      → permission `product:create` (org action)
+- `POST /stores/{storeId}/refunds`   → permission `order:refund`   (store action, `storeId` from the path)
 
-- API: `POST /products`, Permission: `product:create`
-- API: `POST /refunds`, Permission: `order:refund`
+There's no central middleware guessing which routes have a `storeId` — the endpoint that has one is the one that knows it's store-scoped, so the check lives with it (via a shared guard/helper the route declares). The endpoint hands the authorization the user's identity (from context), the required permission, and the `storeId` from its path if it has one.
 
-**Authorization Process**:
+**Error convention:** anything outside the user's organization — a store in another org, or a resource not in the acted-on place — returns **404, never 403**, so existence isn't leaked. 403 is reserved for "this is yours, but you lack the permission."
 
-**Membership + permission check.** The user's **type** decides the whole shape of this check, so we branch on it first. (Type is read fresh from the database on each request — never trusted from the token — so a user whose access changed is judged on what's true *now*.)
-
-- **Organization user** — they belong to the organization and reach every store in it. M2 already proved the target (store *or* org) is inside their organization, so there's nothing more to locate: just confirm their org membership holds a role with the required permission.
-- **Store user** — they only act on stores they're a member of, and can never touch the organization. If the target *is* the organization → **403** immediately (impossible by type). Otherwise, confirm they have a membership at *that* store holding a role with the required permission.
-
-Because type already pins the org-vs-store level, the old "does this org membership reach the target store?" lookup disappears — an org user's reach is implied by their type plus M2.
-
-In SQL, this means walking `membership → membership_assignment → role → role_permission → permission` as one joined row:
+**Early guards (defense in depth).** Before the main query, two cheap checks short-circuit using the facts already in context. Each is *also* guaranteed structurally — they're kept as explicit runtime checks anyway, so a single misconfiguration can't open a hole:
 
 ```
-Read user.user_type FRESH from the DB.
+if context.isActive = false                          →  403   -- kill switch: off everywhere
+if context.userType = STORE AND requiredPermission.is_elevated
+                                                     →  403   -- store users can't do org-only actions
+```
 
-if user_type = STORE AND context.targetTenantType = ORG  →  403   -- impossible by type
+The second guard is the clean version of "a store user can't act on the org": an org-only action requires an **elevated** permission, and a store user can never hold one — so we reject it up front, by the permission's own `is_elevated` flag (declared on the endpoint), rather than by guessing "is this an org route." Structurally it's already impossible (a store role can't contain an elevated permission), but checking it explicitly is one more runtime guard.
 
+`requiredPermission.is_elevated` is read off the permission the route already declares — `is_elevated` is a static property of each permission in the catalog, so this is a constant the endpoint exposes, **not an extra DB lookup**.
+
+**The single authorization query.** Then one query answers the rest — does the user hold a live role with the required permission, reaching this place, **and is that place inside their org** — with the boundary baked in so it can never be skipped:
+
+```
 Does a row exist in:
   membership → membership_assignment → role → role_permission → permission
 
 where:
     membership.user_id = context.userId
     AND permission     = requiredPermission        -- the role has the permission
+    AND role.user_type = context.userType          -- role's type matches the user's (runtime re-check)
 
-    -- the membership is live (not removed, not suspended) and the role hasn't expired
+    -- account live AND membership live (not removed, not suspended) AND role not expired
     AND membership.deleted_at IS NULL
     AND membership.is_active  = true
     AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
 
     -- the membership is at the place the user's type allows
-    AND ( user_type = ORGANIZATION  →  membership.organization_id = context.organizationId
-          user_type = STORE         →  membership.store_id        = context.targetTenantId )
+    AND ( context.userType = ORGANIZATION  →  membership.organization_id = context.organizationId
+          context.userType = STORE         →  membership.store_id        = {storeId from the path}
+                                              -- the store must be inside the caller's org: this is the
+                                              -- tenant boundary, baked into the access query itself
+                                              AND store(storeId).organization_id = context.organizationId )
 ```
-No matching row → **403 Deny** (deny by default).
+No matching row → **403 Deny** (deny by default). A `storeId` in another org produces no row (its `organization_id` won't match the token's), so a foreign store is **denied by the same query** — there is no separate boundary step to forget.
 
-(The `role.user_type` match is now implied — a user only holds roles of their own type — but the assignment write-path enforces it, so it stays a backstop, not a runtime branch.)
+Why this is enough, per user type:
+- **Store user** — the `membership.store_id = {storeId}` join already requires they're a member of *that* store, and the `store.organization_id = token.org` clause requires the store be in their org. Both in one query.
+- **Organization user** — they reach every store in their org. We only need their org membership to hold the permission; the store they're acting on is theirs as long as it's in their org, which is exactly what the action's own query enforces next (see resource scoping).
 
-It all has to come from **one** membership-role-permission chain, not a mix — an expired Cashier role that could refund doesn't lend its permission to a separate, still-active Stocker role that can't. (Walking the chain as one joined row guarantees this: the live membership, the unexpired assignment, and the permission must all sit on the *same* row, so a dead role can't lend its permission to a living one.)
+The `role.user_type = context.userType` clause is the runtime version of the type↔role rule: a user only holds roles of their own type (enforced on the assignment write-path), but re-asserting it here means a store user can never authorize against an org role, and vice versa, even if a bad row slipped past the write-path guard.
 
+It all has to come from **one** membership-role-permission chain, not a mix — an expired Cashier role that could refund doesn't lend its permission to a separate, still-active Stocker role that can't. Walking the chain as one joined row guarantees this: the live membership, the unexpired assignment, and the permission must all sit on the *same* row.
 
-**2. Resource ownership check.** If the action names a specific resource by id (the order to refund, the product to edit), load that resource and check it belongs to the target:
+### Resource scoping (IDOR) — handled by the query, not a separate check
+
+When an action names a specific resource by id (the order to refund, the product to edit), we **don't** load it and then compare its tenant. Instead, every such query is **scoped to the place in the path**, so a foreign resource is simply never found:
 
 ```
-load the resource by id
-if resource's store/org != the target  →  404
+UPDATE / SELECT ... WHERE order_id = {orderId} AND store_id = {storeId}
+  → no row → 404
 ```
 
-Having `order:refund` at Store A does **not** let you refund a Store-B order. Without this check, a user could touch another store's data just by passing its id — the most common multi-tenant breach. Return **404** (not 403) for anything outside the target, so you don't reveal that it exists.
+An order belonging to another store doesn't match `store_id = {storeId}`, so it returns **404** with no special handling — the isolation is the `WHERE` clause, not a thing a developer has to remember to add after loading. For an **organization** action, the same idea scopes to the org (`... AND organization_id = context.organizationId`), and an org user acting on a store resource scopes by that store's id from the path. This makes cross-store/cross-org access (the most common multi-tenant breach) structurally impossible: you can't fetch what your `WHERE` clause excludes.
 
 This is as important as the permission check — **every endpoint that takes a resource id must do it.**
 

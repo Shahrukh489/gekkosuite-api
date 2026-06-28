@@ -29,8 +29,9 @@ store. The organization sits at the top, with each store the user can reach belo
   └─ 🏪 Store C
 ```
 
-This maps directly to tenancy (`auth.md`): selecting the **organization** sends
-`X-Target-Organization-Id`; selecting a **store** sends `X-Target-Store-Id`. Switching context
+This maps directly to the API (`auth.md`): selecting a **store** routes calls under
+`/stores/{storeId}/…`; selecting the **organization** routes them under the org-level paths. The
+organization itself always comes from the user's token, never the URL. Switching context
 re-scopes every tab's data to that place.
 
 What the switcher shows depends on the user:
@@ -96,7 +97,7 @@ Just their store (no switcher if it's one store), and only the tabs their role a
 Yes. Same store, but the manager's role has more permissions, so they see more tabs (e.g. Products, Expenses, Users) and more actions inside them (refund, edit price). One UI, role decides the rest.
 
 **An org owner wants to work in one store — how?**
-They pick that store in the switcher. The context flips to the store (the app sends `X-Target-Store-Id`) and shows the store tabs. Their org role reaches every store, so they have full access there.
+They pick that store in the switcher. The app routes calls under `/stores/{storeId}/…` and shows the store tabs. Their org role reaches every store, so they have full access there.
 
 **How does the owner see the whole business?**
 They pick **Organization** in the switcher → the org tabs (Dashboard rollup, Products catalog, Customers, Suppliers, Billing, Stores, Users). The org Dashboard is the cross-store overview.

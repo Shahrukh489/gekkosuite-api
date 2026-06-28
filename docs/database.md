@@ -26,10 +26,19 @@ CREATE TABLE user_type (
 -- It gates which memberships and roles a user may hold (user_type must equal role.user_type).
 -- IMMUTABLE in MVP: there is no path to change it. Promote/demote (changing user_type) is a
 -- deliberate post-MVP feature (see post-mvp.md).
+--
+-- is_active is an ACCOUNT-LEVEL kill switch, one level ABOVE membership.is_active:
+--   user.is_active       = false -> the whole account is off; ALL their memberships are
+--                                   effectively suspended at once (a single switch to disable a
+--                                   person everywhere, e.g. offboarding, without touching each
+--                                   membership). Access resolution must check this first.
+--   membership.is_active = false -> suspends access at ONE place only.
+-- So effective access at a place requires BOTH user.is_active AND that membership.is_active.
 CREATE TABLE "user" (
     user_id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id    BIGINT NOT NULL REFERENCES organization (organization_id),  -- home org (set once, immutable)
     user_type          TEXT NOT NULL REFERENCES user_type (user_type),  -- ORGANIZATION | STORE, set at creation, immutable
+    is_active          BOOLEAN NOT NULL DEFAULT TRUE,   -- account kill switch; false = all memberships suspended
     created_by_user_id BIGINT REFERENCES "user" (user_id),     -- the org admin who created this account
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -158,14 +167,23 @@ CREATE TABLE membership (
     CHECK ((organization_id IS NOT NULL) <> (store_id IS NOT NULL))
 );
 
--- one LIVE membership per user per place. Soft-deleted rows (deleted_at set) are excluded,
--- so removing then re-adding a user at the same place doesn't collide with the old tombstone.
+-- Membership cardinality (the org-vs-store asymmetry):
+--   STORE user  -> MANY store memberships (one per store they belong to).
+--   ORG   user  -> EXACTLY ONE org membership, ever (an org member belongs to one org, and
+--                  that org is their immutable home org; org reach already covers all stores,
+--                  so there's never a second org membership).
+-- Soft-deleted rows (deleted_at set) are excluded from both, so removing then re-adding a user
+-- at the same place doesn't collide with the old tombstone.
+
+-- at most one LIVE membership per user per store
 CREATE UNIQUE INDEX membership_store_uq
     ON membership (user_id, store_id)
     WHERE store_id IS NOT NULL AND deleted_at IS NULL;
 
+-- at most one LIVE org membership per user, PERIOD (keyed on user_id alone, not user+org) — this
+-- enforces the "an org user belongs to exactly one organization" rule without splitting the table.
 CREATE UNIQUE INDEX membership_org_uq
-    ON membership (user_id, organization_id)
+    ON membership (user_id)
     WHERE organization_id IS NOT NULL AND deleted_at IS NULL;
 
 -- A role assigned to a membership. Zero or more per membership.
