@@ -25,3 +25,7 @@ Organization makes purchases and expenses:
 2. Stores dont have access to spend money to buy stuff not approved by organization, if they want a purchases they raise a ticket
 3. Gives org admin full contorl of where his money is going and he controls spending, stores make money on his behalf, but he spends to support them
 
+
+These design decisions keep stores really easy and simple to run by store admins, they just manage inventory, there customers, sale orders and returns. All the work relateed to purchases, users, expenses, and other tasks that affect the organzation are handled by organization users.
+
+
