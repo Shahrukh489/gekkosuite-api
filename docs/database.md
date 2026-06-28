@@ -277,11 +277,61 @@ CREATE TABLE customer (
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
 
+-- @TODO: decide on this if needed because it will limit showing only customers in a store in UI 
+CREATE TABLE customer_store (
+    customer_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    store_id,
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
+);
+
 -- Supplier is an ORG-level vendor record, visible to every store. No per-store terms.
 CREATE TABLE supplier (
     supplier_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
+
+-- A store buying inventory from an org supplier (inventory-IN, the counterpart to sales_order).
+-- Spends the org's funds against the store's delegated purchase_balance: on creation we insert
+-- this + its lines AND decrement store.purchase_balance in one transaction, rejecting the
+-- purchase if its total exceeds the balance (when the balance isn't NULL = unlimited).
+CREATE TABLE purchase_order (
+    purchase_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    store_id          BIGINT NOT NULL REFERENCES store (store_id),       -- the store that ordered
+    supplier_id       BIGINT NOT NULL REFERENCES supplier (supplier_id), -- the org supplier bought from
+    total             NUMERIC(12, 2) NOT NULL,   -- order total (what's deducted from purchase_balance)
+    status            TEXT NOT NULL,             -- e.g. ordered / received / cancelled
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE purchase_order_product (
+    purchase_order_id BIGINT NOT NULL REFERENCES purchase_order (purchase_order_id),
+    product_id        BIGINT NOT NULL REFERENCES product (product_id),
+    quantity          INTEGER NOT NULL,
+    unit_cost         NUMERIC(12, 2) NOT NULL,   -- cost per unit at purchase time
+    PRIMARY KEY (purchase_order_id, product_id)
+);
+
+
+
+-- Non-inventory spending (furniture, computers, utilities, SaaS, accountant fees, etc.) —
+-- money OUT that is NOT resold and does NOT touch stock, so it's separate from purchase_order.
+-- No product lines: just a category and amount. An expense belongs to EITHER a store OR the
+-- org directly:
+--   store_id set   -> a store expense (location accounting; depletes that store's expense_balance)
+--   store_id NULL  -> an ORG-level expense (HQ overhead: the POS subscription, accountant,
+--                     company-wide software) — no store, so no per-store balance is depleted.
+-- organization_id is always set so org-level expenses (store_id NULL) still have an owner.
+CREATE TABLE expense (
+    expense_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),  -- always the owning org
+    store_id        BIGINT REFERENCES store (store_id),       -- set = store expense; NULL = org-level expense
+    supplier_id     BIGINT REFERENCES supplier (supplier_id), -- the vendor (Amazon, Staples, ...); optional
+    category        TEXT NOT NULL,             -- e.g. 'furniture', 'equipment', 'utilities', 'software'
+    amount          NUMERIC(12, 2) NOT NULL,   -- store expense: deducted from the store's expense_balance
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- when store_id is set, its store must belong to organization_id (enforced on the write path)
+);
+
 ```
 
 ## Store transactions (sales, returns, purchases, expenses)
@@ -316,46 +366,6 @@ CREATE TABLE sales_order_return_product (
     product_id BIGINT NOT NULL REFERENCES product (product_id),
     quantity   INTEGER NOT NULL,
     PRIMARY KEY (return_id, product_id)
-);
-
--- A store buying inventory from an org supplier (inventory-IN, the counterpart to sales_order).
--- Spends the org's funds against the store's delegated purchase_balance: on creation we insert
--- this + its lines AND decrement store.purchase_balance in one transaction, rejecting the
--- purchase if its total exceeds the balance (when the balance isn't NULL = unlimited).
-CREATE TABLE purchase_order (
-    purchase_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id          BIGINT NOT NULL REFERENCES store (store_id),       -- the store that ordered
-    supplier_id       BIGINT NOT NULL REFERENCES supplier (supplier_id), -- the org supplier bought from
-    total             NUMERIC(12, 2) NOT NULL,   -- order total (what's deducted from purchase_balance)
-    status            TEXT NOT NULL,             -- e.g. ordered / received / cancelled
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE purchase_order_product (
-    purchase_order_id BIGINT NOT NULL REFERENCES purchase_order (purchase_order_id),
-    product_id        BIGINT NOT NULL REFERENCES product (product_id),
-    quantity          INTEGER NOT NULL,
-    unit_cost         NUMERIC(12, 2) NOT NULL,   -- cost per unit at purchase time
-    PRIMARY KEY (purchase_order_id, product_id)
-);
-
--- Non-inventory spending (furniture, computers, utilities, SaaS, accountant fees, etc.) —
--- money OUT that is NOT resold and does NOT touch stock, so it's separate from purchase_order.
--- No product lines: just a category and amount. An expense belongs to EITHER a store OR the
--- org directly:
---   store_id set   -> a store expense (location accounting; depletes that store's expense_balance)
---   store_id NULL  -> an ORG-level expense (HQ overhead: the POS subscription, accountant,
---                     company-wide software) — no store, so no per-store balance is depleted.
--- organization_id is always set so org-level expenses (store_id NULL) still have an owner.
-CREATE TABLE expense (
-    expense_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),  -- always the owning org
-    store_id        BIGINT REFERENCES store (store_id),       -- set = store expense; NULL = org-level expense
-    supplier_id     BIGINT REFERENCES supplier (supplier_id), -- the vendor (Amazon, Staples, ...); optional
-    category        TEXT NOT NULL,             -- e.g. 'furniture', 'equipment', 'utilities', 'software'
-    amount          NUMERIC(12, 2) NOT NULL,   -- store expense: deducted from the store's expense_balance
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-    -- when store_id is set, its store must belong to organization_id (enforced on the write path)
 );
 ```
 

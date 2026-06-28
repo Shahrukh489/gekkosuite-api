@@ -5,7 +5,7 @@ How people sign in, how they get access to stores and the organization, and how 
 
 ## The model in one picture
 
-Access is a chain of small pieces. Read it left to right:
+ Read it left to right:
 
 ```
 user  ──<  membership  ──<  membership_assignment  >──  role  ──<  role_permission  >──  permission
@@ -15,11 +15,11 @@ user  ──<  membership  ──<  membership_assignment  >──  role  ──
            the org)                                      STORE/ORG)
 ```
 
-- **user** — one login per person (global identity).
+- **user** — one login per person (organization identity).
 - **membership** — the user belongs at a place (a store, or the org).
 - **membership_assignment** — a role given to that membership (optionally with an expiry).
 - **role** — a named bundle of permissions we ship.
-- **permission** — one allowed action, like `product:read` (scope-free; the role's `scope` sets the level).
+- **permission** — one allowed action, like `product:read` 
 
 So: a user belongs *somewhere* (membership), is given *roles* there (membership_assignment → role), and each role is a set of *permissions*. The rest of this doc explains each link.
 
@@ -28,139 +28,160 @@ So: a user belongs *somewhere* (membership), is given *roles* there (membership_
 
 ## How is a user created and given access?
 
-A user's **identity** and their **access** are separate: the `user` row is just the login (one per person, global to the system); what they can do comes entirely from memberships and roles. So a brand-new user exists but can do nothing until access is granted.
+**In short**
+A person's login and what they can do are two separate things. Creating a user just makes the login — they can't do anything until you give them access to a place and a role there.
 
-An **org admin** creates and sets up users — they need the `user:create` permission (in their org-scoped role). The flow is three steps:
+**How it works**
+An org admin sets up a user in three steps:
 
-1. **Create the user** — insert the `user` row (the login). It records `organization_id` (their home org), `created_by_user_id`, and `created_at`. Store-level users can't create accounts.
-2. **Add a membership** — give the user a place: a **store membership** (`store_id`) or an **organization membership** (`organization_id`). This says *where* they belong. A membership has no role on its own.
-3. **Attach a role** — add a `membership_assignment` on that membership. This says *what* they can do there (and, optionally, until when via `expires_at`).
+1. **Create the user** — make their login (the account).
+2. **Give them a membersh** — add them to a store, or to the organization itself.
+3. **Give them a role** — choose what they can do at that place.
 
-A user can have several memberships (one per place they work) and several roles per membership, so they can be a Cashier at one store and a Manager at another.
+A person can be added to several places, with a different role at each.
 
-The `user.organization_id` is the **home org**, set once and never changed — so even if every membership is later removed, you still know which org the account belongs to.
+**Example**
+Maria is hired at the Seattle store as a Cashier, then later helps run the Portland store. She has one login, added to both stores — a Cashier role in Seattle and a Manager role in Portland.
+
+**Good to know**
+- Only an org admin can create users (it needs the `user:create` permission, which only the Org Admin role has).
+- Every user belongs to one **home organization**, set when they're created and never changed — so even if you later remove all their access, you still know which company they came from.
+
+**Under the hood**
+The login is the `user` row. A place is a `membership` (a `store_id` or `organization_id`). A role at that place is a `membership_assignment`, which can optionally carry an `expires_at`.
 
 
-## How do I revoke or suspend a user's access?
+## How do I revoke or suspend someone's access?
 
-There are three levels, depending on how permanent you want it:
+**In short**
+You can dial access down by how permanent you want it — without ever deleting the person. The account always stays.
 
-- **Take away one role** — remove the `membership_assignment`. The user still belongs at the place, just with less (or no) access there. (Or set `expires_at` to auto-end it at a chosen time.)
-- **Suspend at a place (temporary)** — set the membership's `is_active = false`. Access is switched off but the row stays, so you can flip it back on. Use this for "on leave" / "temporarily blocked."
-- **Remove from a place (permanent)** — soft-delete the membership (`deleted_at`). Access is gone; the row is kept for history.
+**How it works**
+Three levels:
 
-In all three the **`user` account itself remains** — you're changing access, not deleting the person. (`is_active` = reversible off-switch; `deleted_at` = removed-but-kept-for-history. Both stop access; the difference is intent.)
+- **Take away one role** — they still belong at the place, just with less (or no) ability there.
+- **Suspend (temporary)** — switch their access off but keep everything, so you can switch it back on. Good for "on leave" or a temporary block.
+- **Remove from a place (permanent)** — they no longer belong there. The record is kept for history.
+
+**Example**
+A cashier goes on leave → *suspend* them. They quit → *remove* them from the store. You gave a cashier refund rights by mistake → just *take away that role*.
+
+**Under the hood**
+Take-away = delete the `membership_assignment` (or let `expires_at` end it). Suspend = `membership.is_active = false`. Remove = soft-delete the membership (`deleted_at`). The `user` row is never touched.
 
 
 ## What is a role, and where do roles come from?
 
-A **role** is a named set of permissions, like "Cashier" or "Org Owner." Roles are built and maintained by us and shipped with the system. Customers assign these roles to their users; they don't author roles themselves.
+**In short**
+A role is a named bundle of things a person is allowed to do (like "Cashier" or "Org Admin"). We build and ship the roles; customers assign them — they don't create their own (yet).
 
-A **permission** is a single allowed action, named **`resource:action`** (e.g. `product:read`, `order:refund`, `role:assign`):
+**How it works**
+- A **permission** is one allowed action — e.g. read a product, refund an order, assign a role.
+- A **role** is a set of permissions.
+- Every role is either a **store role** or an **org role**. That's its level, and it sets how far the role reaches (see *How far does a role reach?* below).
 
-- **`resource`** — what's acted on: `product`, `order`, `role`, `store`, `user`, etc.
-- **`action`** — the verb: `read`, `create`, `refund`, `assign`, etc.
+**Good to know**
+- Some actions only make sense organization-wide (like creating a store, or creating users) — those can only go in **org roles**, never store roles.
+- We don't do "allow everything" — a role lists its permissions explicitly, so a new feature reaches nobody until it's deliberately added to a role.
 
-Permissions are **scope-free** — `product:edit` says nothing about org vs. store. The **level lives on the role**, not on the permission. Each role has a **`scope`** of `STORE` or `ORGANIZATION`:
+**Under the hood**
+Permissions are named `resource:action` (e.g. `product:read`, `order:refund`). They're scope-free; the role carries the `scope` (`STORE` or `ORGANIZATION`). Each permission also has an eligibility `scope` controlling which role level may hold it (org-only permissions can't be put in store roles).
 
-- A **store role** (`scope = STORE`) — its permissions reach the one store it's granted at.
-- An **org role** (`scope = ORGANIZATION`) — its permissions reach the **whole org and all its stores**.
 
-So the *same* permission has different reach depending on the role that holds it. `product:edit` in a Cashier (store) role edits that one store's products; the same `product:edit` in an Org Admin (org) role edits any store's products in the org.
+## What happens to existing users when we update a managed role?
 
-This is the same idea as Kubernetes (`ClusterRole` vs `Role`) and Azure (a role applied at a scope): generic permissions, with the level kept separate. The one difference: those systems pick the level when the role is *assigned*, so one role can be used at any level. We bake the level into the **role** itself — a role is born `STORE` or `ORG`. We don't need their flexibility (we only have two levels and no nesting), and it matches how roles are actually used: a "Cashier" is always a store role.
+**In short**
+The change applies to everyone with that role, immediately — there's nothing to re-assign.
 
-**Some permissions are org-only.** Things like `store:create` or `user:create` only make sense org-wide. Each permission carries a **`scope`** that says which role scopes may hold it:
+**How it works**
+Users don't carry their own copy of a role's permissions; their access is read fresh on every request from the role itself. So editing a role updates everyone who holds it at once.
 
-- `scope = STORE` — may go in **store roles and org roles** (e.g. `order:sell`, `customer:add`).
-- `scope = ORGANIZATION` — may go in **org roles only** (e.g. `store:create`, `user:create`).
-
-This just controls **which roles a permission is allowed in** — a store role can never hold an `ORGANIZATION` permission. Our shipped roles already follow this. It matters most later, when custom roles let an org admin pick permissions: the picker only offers `STORE` permissions for a store role, and the server rejects an `ORGANIZATION` permission added to one.
-
-Permissions are **explicit, never wildcards** — a role lists exactly the permissions it has. We don't grant `*` / "everything," so a new permission added later reaches nobody until it's deliberately added to a role.
-
-Because users point at a role and the role points at its permissions (nobody keeps their own copy), changing a role's permissions takes effect immediately for everyone who has that role.
-
+**Good to know**
+Custom roles (an org cloning a shipped role or building its own) are planned for after MVP.
 
 
 ## How do users get roles at a store or the organization?
 
-Roles attach to a **membership** — "give role R to this user at this place" — by adding a `membership_assignment` on the user's membership. A user can hold several roles at a place, or none, and an assignment can optionally **expire** (`expires_at`) for temp/seasonal staff. **Only an org admin assigns roles** (store users don't assign).
+**In short**
+You attach a role to a person *at a specific place* — "give Maria the Manager role at the Portland store."
 
-**No privilege escalation via assignment.** An admin must not be able to grant more power than they hold. The rule: **you can only grant a role whose permissions are a subset of your own** — so you can't hand out (or self-assign) a role stronger than yours, and you can't bootstrap to full power by granting yourself `role:assign`/owner. This is checked at grant time, server-side, against your *effective* permissions. (Full design in `post-mvp.md`; it becomes load-bearing the moment role assignment is delegated or custom roles ship.)
+**How it works**
+An org admin assigns the role; it lands on the person's membership at that place. One person can hold several roles at a place, or none. A role can also be set to **expire** automatically — handy for temporary or seasonal staff.
 
+**Good to know**
+Assigning roles needs the `role:assign` permission, which today only the Org Admin role has.
 
-## How do we ensure a store user can never get organization access?
-
-It's structural — there's no special guard to bypass:
-
-- An **org role** (`scope = ORGANIZATION`) can only be granted on an **organization membership**; a **store role** (`scope = STORE`) only on a **store membership**. The role's scope must match the membership's place.
-- **Only an org admin assigns roles**, and a user only has an organization membership if an org admin gave them one.
-- So "can this user have an org role?" is answered by the `membership` table: **does the user have a row with `organization_id` set?** If not, there's no org membership to attach an org role to, and the UI never offers one. A pure store user has no organization membership → no org role → no org access.
-
-In short: org access requires an org membership, only org admins create those, so a store-only user can never reach the org.
+**Under the hood**
+A grant is a `membership_assignment` (membership + role), optionally with `expires_at`.
 
 
-## How do permissions reach? (blast radius)
+## Can a store user ever gain organization-level access?
 
-A role's **scope** decides how far its permissions reach:
+**In short**
+No — and it's not a rule that can be forgotten or bypassed; it's how the system is built.
 
-- A **store role** reaches **only the one store** its membership is at.
-- An **org role** reaches the **org itself and every store under it** — so its permissions apply at any of the org's stores.
+**How it works**
+An org role can only be attached to someone who belongs at the **organization**. A user only belongs at the organization if an org admin put them there by giving them a membership. So a store-only user has no organization membership, and hence can never do any organization level operations.
 
-So the *same* permission reaches differently depending on the role's scope. `order:refund` in a store role refunds at that one store; `order:refund` in an org role refunds at any store in the org. An org admin can act across all stores not because of special permissions, but because his role is org-scoped — org scope is a superset of store reach.
-
-Permissions are explicit, never wildcards: a role lists exactly what it can do, and a new permission reaches nobody until it's added to a role.
-
-## Who is the owner (root)?
-
-The person who signs up and onboards the organization is the org's **owner** — recorded as `organization.owner_user_id`. The owner holds the most powerful role (Organization Admin) and their access **cannot be stripped by anyone else**.
-
-For that "cannot be stripped" guarantee to be real, it must be **enforced**, not just stated. The chosen mechanism:
-
-- The owner is identified by `organization.owner_user_id` (a column, not a grant).
-- The server **refuses to delete or deactivate the owner's org-admin `membership_assignment`** while they are the `owner_user_id` — any such request is rejected. (The owner's power lives in being the owner; the assignment just makes it concrete and can't be removed out from under them.)
-- The **only** way the owner changes is a deliberate **ownership transfer**: the current owner updates `organization.owner_user_id` to another user (who must already be an org admin). This is a privileged, audited action only the current owner can perform.
-
-So no admin — not even another Organization Admin — can revoke the owner's access or seize ownership; only the owner can hand it over.
+**Example**
+A cashier who only belongs to Store A can never be given "Org Admin," because they're not a member of the organization — only of the store.
 
 
-## How do we know what a user can do, and where?
+## How far does a role reach? (store vs org)
 
-A user's access always has two parts: a **place** (a store, or the organization) and **what they can do there**. When the user logs in, we gather all their memberships and the roles on each, and produce one simple list of where they can go and what they can do at each place:
+**In short**
+A store role acts on **one store**. An org role acts on the **whole organization and every store in it**.
 
+**How it works**
+The *same* permission reaches differently depending on the role that holds it. `order:refund` in a Cashier (store) role refunds at that one store; the same `order:refund` in an Org Admin (org) role refunds at *any* store in the company. An org admin can act everywhere not because of special permissions, but because their role is org-level — org reach simply includes all the stores.
+
+**Example**
+- Store Manager at Seattle with `product:edit` → can edit Seattle's products only.
+- Org Admin with `product:edit` → can edit any store's products.
+
+
+## Who is the owner, and can their access be taken away?
+
+**In short**
+The person who signs up and creates the organization is its **owner**. They have full access, and **no one else can take it from them.**
+
+**How it works**
+The owner is marked on the organization itself, not given as an ordinary grant — so it can't be deleted out from under them. The system refuses any attempt to remove the owner's admin access while they're still the owner.
+
+The only way ownership changes is a deliberate **transfer**: the current owner hands it to someone else (who must already be an org admin). No other admin can revoke the owner's access or seize ownership.
+
+**Example**
+A disgruntled co-admin tries to remove the founder's access → the request is rejected. The founder later sells the business → they transfer ownership to the new owner, which is recorded and audited.
+
+**Under the hood**
+The owner is `organization.owner_user_id` (a column, not a `membership_assignment`). Transfer = updating that column; it's a privileged, audited action only the current owner can do.
+
+
+## How do we know everything a user can do, and where?
+
+**In short**
+At login we gather all the places a user belongs and the roles at each, and turn it into one simple list: where they can go, and what they can do there.
+
+**Example**
 ```
-John's access
- place    type    name             can do
- ------   -----   --------------   ----------------------------------
- org_1    ORG     Acme Inc         store:create, user:create, product:edit (all stores)
- StoreA   STORE   Acme Seattle     product:read, order:sell
- StoreB   STORE   Acme Portland    product:read, order:sell, order:refund
+Maria's access
+ place        type    can do
+ ----------   -----   -------------------------------------------
+ Acme Inc     ORG     manage stores, manage users, edit any product
+ Seattle      STORE   read products, sell
+ Portland     STORE   read products, sell, refund
 ```
 
-Because each record points at a real store or a real organization (a proper database link), a record can never refer to a place that doesn't exist, and deleting a place automatically removes its access records.
+**Good to know**
+Every entry points at a real store or organization, so it can never reference a place that doesn't exist — and deleting a place automatically clears the access tied to it.
 
-
-## How does login work, and how is it hardened?
-
-A user logs in with credentials; on success we issue the JWT the rest of the flow trusts. **Issuing the token is where the most common breaches happen**, so this path must be hardened (most of these are server/endpoint concerns, not schema):
-
-- **Password storage** — hash with a slow, salted algorithm (**argon2id** or **bcrypt**); never plaintext/MD5/SHA-1. Store in a `password_hash` column on `user`.
-- **Rate limiting** — throttle login attempts per account and per IP, to blunt credential stuffing and brute force.
-- **Account lockout / backoff** — temporary lockout or escalating delay after repeated failures.
-- **MFA** — at least for **org admins and the owner** (they control users, roles, funds). Strongly recommended for everyone.
-- **Password reset** — single-use, expiring, signed reset tokens; treat reset as its own attack surface (don't reveal whether an email exists).
-- **Token lifetime** — keep access tokens short-lived with a refresh token, so revocation/suspension takes effect quickly (see M1's revocation note).
-- **Login auditing** — record successes and failures (who, when, IP) for forensics.
-
-These are the **authentication** controls; everything after login (M1–M3 below) is about *trusting and using* the token, not issuing it.
 
 
 # API Authentication and Authorization Flow
 
 This is the authentication and authorization flow each request must go through to verify if a user has permission to make the API request.
 
-### 1. JWT Token Validation Middleware — Authentication
+## 1. JWT Token Validation Middleware — Authentication
 
 This middleware only validates that the JWT token is valid and not expired or tampered with. It is the first check: if the token is invalid then nothing about it can be trusted and we should not proceed further — the user is NOT authenticated. Return **401**.
 
@@ -170,9 +191,9 @@ This middleware only validates that the JWT token is valid and not expired or ta
 - **Pin the expected algorithm** and **reject `alg: none`** — never let the token choose its own algorithm (blocks the `none` bypass and RS256→HS256 confusion attacks).
 - **Strong, rotated signing key** — a leaked key means every token is forgeable.
 - **Real revocation / short-lived tokens + refresh** — without it, a fired or suspended user's token keeps working until it expires, so `is_active = false` / `deleted_at` have no effect until then. For a money app this is mandatory, not optional.
+- TBD more checks like claim validation and other industry practices
 
-
-### 2. Tenancy Validation Middleware — Authorization (boundary)
+## 2. Tenancy Validation Middleware — Authorization (boundary)
 
 This middleware validates that the **target** organization or store the user wants to act on is inside the user's own organization. To name the target, exactly **one** of the following headers must be present — if both (or neither) are present, return **400**:
 
@@ -211,83 +232,97 @@ request →
   → endpoint (authorization happens — step 3 below)
 ```
 
-### 3. Endpoint Authorization — can the user do this action here?
+## 3. Endpoint Authorization — can the user do this action here?
 
 Once we have confirmed the user is authenticated (step 1) and that the target organization or store is inside the user's organization (step 2), the endpoint does the final check: **is this user authorized to perform this specific action on this target?** Each endpoint declares the one permission it needs, and we verify the user holds it at the target.
 
 - API: `POST /products`, Permission: `product:create`
 - API: `POST /refunds`, Permission: `order:refund`
 
-The target was already resolved in step 2 into the context (`context.targetTenantType` = ORG | STORE, `context.targetTenantId` = the validated id), so every endpoint runs the same shared check — the rules never differ per endpoint.
+**Authorization Process**:
 
-**Authorization Process** (in order):
+**Membership + permission check.** For a user to perform an action on the target, he needs the permission the endpoint requires, held through a membership at the target:
 
-**1. Membership + permission check.** The question is simple: **does the user have access here, with the permission this action needs?** We answer it by looking for one valid grant for the user at the target.
+- **If the target is a store** — he needs a membership in that store **OR** a membership in the store's organization, with a role that has the permission.
+- **If the target is the organization** — he needs a membership in the organization, with a role that has the permission.
 
-A grant counts only if the user reaches the target:
-
-- **Direct** — they're a member of the target itself (the org, or that store).
-- **Inherited** — if the target is a **store**, being a member of the **org** also counts (an org role reaches every store). If the target is the **org**, only an org membership counts — a store user can't reach org actions.
-
-A grant counts only if it's still alive — the membership isn't deleted or suspended, and the role assignment hasn't expired.
-
-**One important rule:** all of this must be true on the **same grant**. It's not enough that the user has *some* live access and *separately* has *some* role with the permission — the live membership, the unexpired assignment, and the role with the permission must be one connected chain. (Otherwise: an expired Cashier role still carrying `order:refund`, plus a separate still-active Stocker role, could wrongly combine to allow a refund.)
+For the org-membership case, "the store's organization" isn't taken from the request — we read it from the store row itself (`store.organization_id`) and require the user's org membership to match it. So a user with an org membership in Org A can act on a store only if that store actually belongs to Org A.
 
 In SQL, this means walking `membership → membership_assignment → role → role_permission → permission` as one joined row:
 
 ```
-EXISTS one joined chain
-   membership → membership_assignment → role → role_permission → permission
+Does a row exist in:
+  membership → membership_assignment → role → role_permission → permission
+
 where:
     membership.user_id = context.userId
+    AND membership.role.permission = requiredPermission        -- the role has the permission
 
-    -- the membership reaches the target
-    AND (
-          (context.targetTenantType = STORE AND membership.store_id        = context.targetTenantId)
-       OR (context.targetTenantType = ORG   AND membership.organization_id = context.targetTenantId)
-       OR (context.targetTenantType = STORE AND membership.organization_id = context.organizationId) -- org reaches its stores
-        )
-
-    -- the membership is alive (not deleted, not suspended)
-    AND membership.deleted_at IS NULL AND membership.is_active = true
-
-    -- this role assignment hasn't expired
+    -- the membership is live (not removed, not suspended) and the role hasn't expired
+    AND membership.deleted_at IS NULL
+    AND membership.is_active  = true
     AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
 
-    -- safety: a store membership only counts store roles, an org membership only org roles
-    AND (
-          (membership.store_id        IS NOT NULL AND role.scope = 'STORE')
-       OR (membership.organization_id IS NOT NULL AND role.scope = 'ORGANIZATION')
-        )
+    AND membership reaches the target:
+          context.targetTenantType is a store  →  ( membership.store_id = context.targetTenantId
+                                OR membership.organization_id = (
+                                     SELECT organization_id FROM store
+                                     WHERE store.id = context.targetTenantId
+                                   ) )
+                                -- store target: a store role at that store, or an org role from the store's own org
+                                AND role.scope IN ('STORE', 'ORGANIZATION')
 
-    -- THIS role contains the required permission
-    AND permission = requiredPermission
+          context.targetTenantType is the org  →  membership.organization_id = context.targetTenantId
+                                -- org target: only an org-scoped role can act on the org
+                                AND role.scope = 'ORGANIZATION'
 ```
 No matching row → **403 Deny** (deny by default).
 
-**2. Resource ownership check.** If the action names a specific resource by id (the order to refund, the product to edit), **load that resource and verify it belongs to the target tenant** before acting:
+
+ @TODO: - sal review what this means
+It all has to come from **one** membership-role-permission chain, not a mix — an expired Cashier role that could refund doesn't lend its permission to a separate, still-active Stocker role that can't.
+
+> **Note:** the store→org lookup assumes the target store still exists. The `store` table has no soft-delete today, so a store is either present or gone; if soft-delete is ever added to `store`, this lookup must also filter out removed stores.
+
+
+**2. Resource ownership check.** If the action names a specific resource by id (the order to refund, the product to edit), load that resource and check it belongs to the target:
 
 ```
 load the resource by id
-if resource.store_id / resource.organization_id != context.targetTenantId  →  404
+if resource's store/org != the target  →  404
 ```
 
-Having `order:refund` at Store A does **not** let you refund a Store-B order. Without this check, a user could touch another store's data just by passing its id — the most common multi-tenant breach. Return **404** (not 403) for anything outside the tenant, so you don't reveal that it exists.
+Having `order:refund` at Store A does **not** let you refund a Store-B order. Without this check, a user could touch another store's data just by passing its id — the most common multi-tenant breach. Return **404** (not 403) for anything outside the target, so you don't reveal that it exists.
 
 This is as important as the permission check — **every endpoint that takes a resource id must do it.**
-
-```
-endpoint authz (required permission declared by the route):
-  1. membership: a LIVE membership at the target (context.targetTenantId) (direct),
-                 OR an org membership if targetTenantType = STORE (inherited),
-                 whose role contains the required permission?            → none → 403
-  2. IDOR:       resource(id).tenant == context.targetTenantId?         → no   → 404
-```
-
 
 
 # Audit 
 
+
+
 # Managed Roles and Permissions
 
 - TODO
+
+
+
+# Vulnerabilities to Review
+
+Open items from the auth-flow review. The three already fixed in the SQL above (membership liveness filters, `role.scope` match, store-existence note) are not repeated here.
+
+**Vulnerabilities**
+- There's no privilege-escalation guard on role assignment — nothing here stops an admin granting a role more powerful than their own (the subset rule lives only in `post-mvp.md`).
+- The owner-protection rule (`organization.owner_user_id` can't be stripped) is stated but no step in the flow actually checks it before a `membership_assignment` is deleted.
+
+**Weaknesses**
+- Authentication itself (login) is unspecified: no password-hashing choice, login rate limiting, account lockout, or MFA for admins handling money.
+- Token revocation is required but the mechanism (deny-list vs. short TTL + refresh) isn't decided, so a fired user's token lifetime is undefined.
+- "Return 404 not 403 so existence isn't leaked" is stated only for the IDOR check, not as a global convention, so other endpoints may still leak via 403.
+- `organization_id` immutability is trusted by M1 but never spec'd as DB-enforced, so the tenant boundary rests on an unguaranteed assumption.
+
+**Missing**
+- The Audit section is an empty stub — no security-relevant events (role grant/revoke, user create, owner transfer, refunds) are logged anywhere.
+- The Managed Roles and Permissions section is `TODO` — the seed roles and full permission catalog are undefined.
+- No concurrency/locking note for money actions (refunds, balance deplete) that this flow gates, so double-spend under simultaneous requests is unaddressed.
+- No rate limiting on sensitive write endpoints (refunds, user creation) beyond the missing login throttle.
