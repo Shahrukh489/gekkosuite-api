@@ -9,16 +9,18 @@ How people sign in, how they get access to stores and the organization, and how 
 
 ```
 user  ──<  membership  ──<  membership_assignment  >──  role  ──<  role_permission  >──  permission
-(login)    (belongs at        (a role assigned          (bundle of   (the role's          (resource:
-           one place:          on that membership,       perms +      permissions)         action,
-           a store or          optionally expiring)      a scope:                          scope-free)
-           the org)                                      STORE/ORG)
+(login +   (belongs at        (a role assigned          (bundle of   (the role's          (resource:
+ type:      one place:         on that membership,       perms +      permissions)         action,
+ ORG/STORE) a store or         optionally expiring)      a type:                           scope-free,
+            the org)                                     ORG/STORE)                         is_elevated)
 ```
 
-- **user** — one login per person (organization identity).
-- **membership** — the user belongs at a place (a store, or the org).
+The **type** (ORGANIZATION or STORE) runs through the chain: a user's type, the membership's place, and the role's type all line up — a store user gets store roles, an org user gets org roles. Permissions don't have a type; instead an elevated permission can only sit in an org role, while a normal one fits either.
+
+- **user** — one login per person (organization identity), with a fixed `user_type`.
+- **membership** — the user belongs at a place (a store, or the org), matching their type.
 - **membership_assignment** — a role given to that membership (optionally with an expiry).
-- **role** — a named bundle of permissions we ship.
+- **role** — a named bundle of permissions we ship, tagged ORGANIZATION or STORE.
 - **permission** — one allowed action, like `product:read` 
 
 So: a user belongs *somewhere* (membership), is given *roles* there (membership_assignment → role), and each role is a set of *permissions*. The rest of this doc explains each link.
@@ -34,21 +36,22 @@ A person's login and what they can do are two separate things. Creating a user j
 **How it works**
 An org admin sets up a user in three steps:
 
-1. **Create the user** — make their login (the account).
-2. **Give them a membersh** — add them to a store, or to the organization itself.
-3. **Give them a role** — choose what they can do at that place.
+1. **Create the user** — make their login, and decide its **type**: an *organization* user (runs the company, reaches every store) or a *store* user (an employee at one or more stores). This is fixed at creation.
+2. **Give them a membership** — add them to a place that matches their type: a store user goes to store(s); an organization user goes to the organization itself.
+3. **Give them a role** — choose what they can do at that place. The role must match the user's type too — store users get store roles, organization users get organization roles.
 
-A person can be added to several places, with a different role at each.
+A store user can be added to several stores, with a different role at each. An organization user belongs to the organization once and reaches all of its stores from there.
 
 **Example**
-Maria is hired at the Seattle store as a Cashier, then later helps run the Portland store. She has one login, added to both stores — a Cashier role in Seattle and a Manager role in Portland.
+Maria is a *store* user, hired at the Seattle store as a Cashier, then later helps run the Portland store. She has one login, added to both stores — a Cashier role in Seattle and a Manager role in Portland.
 
 **Good to know**
 - Only an org admin can create users (it needs the `user:create` permission, which only the Org Admin role has).
+- A user's **type** is decided at creation and can't be changed in this version — there's no "promote a store employee to run the company" yet (that's planned for after MVP). To switch someone, create them as a new user of the right type.
 - Every user belongs to one **home organization**, set when they're created and never changed — so even if you later remove all their access, you still know which company they came from.
 
 **Under the hood**
-The login is the `user` row. A place is a `membership` (a `store_id` or `organization_id`). A role at that place is a `membership_assignment`, which can optionally carry an `expires_at`.
+The login is the `user` row, carrying a `user_type` (`ORGANIZATION` or `STORE`). A place is a `membership` (a `store_id` or `organization_id`) — its kind must match the user's type. A role at that place is a `membership_assignment`, which can optionally carry an `expires_at`. The role's own `user_type` must equal the user's.
 
 
 ## How do I revoke or suspend someone's access?
@@ -85,7 +88,7 @@ A role is a named bundle of things a person is allowed to do (like "Cashier" or 
 - We don't do "allow everything" — a role lists its permissions explicitly, so a new feature reaches nobody until it's deliberately added to a role.
 
 **Under the hood**
-Permissions are named `resource:action` (e.g. `product:read`, `order:refund`). They're scope-free; the role carries the `scope` (`STORE` or `ORGANIZATION`). Each permission also has an eligibility `scope` controlling which role level may hold it (org-only permissions can't be put in store roles).
+Permissions are named `resource:action` (e.g. `product:read`, `order:refund`) and are scope-free in name. The org-vs-store level lives in a shared `user_type` lookup that `user` and `role` reference: the role carries a `user_type` (`STORE` or `ORGANIZATION`) — its level. A permission instead carries an `is_elevated` flag — a one-way gate: a non-elevated permission can go in store *or* org roles, while an elevated one (like `store:create`, `user:create`) can only go in org roles. So a store role can never hold an org-only power.
 
 
 ## What happens to existing users when we update a managed role?
@@ -229,7 +232,12 @@ request →
                  store(X-Target-Store-Id).organization_id
                                           == token.organization_id?      → no → 403 (or 404 if missing)
                stamp context = { userId, organizationId, targetTenantType, targetTenantId }
-  → endpoint (authorization happens — step 3 below)
+  M3 authz:    read user_type fresh from DB
+               store user targeting the org?                              → yes → 403
+               a live membership (at the target the user's type allows)
+                 whose role holds the required permission?                → no → 403
+               resource named by id belongs to the target?               → no → 404
+  → action runs
 ```
 
 ## 3. Endpoint Authorization — can the user do this action here?
@@ -241,48 +249,41 @@ Once we have confirmed the user is authenticated (step 1) and that the target or
 
 **Authorization Process**:
 
-**Membership + permission check.** For a user to perform an action on the target, he needs the permission the endpoint requires, held through a membership at the target:
+**Membership + permission check.** The user's **type** decides the whole shape of this check, so we branch on it first. (Type is read fresh from the database on each request — never trusted from the token — so a user whose access changed is judged on what's true *now*.)
 
-- **If the target is a store** — he needs a membership in that store **OR** a membership in the store's organization, with a role that has the permission.
-- **If the target is the organization** — he needs a membership in the organization, with a role that has the permission.
+- **Organization user** — they belong to the organization and reach every store in it. M2 already proved the target (store *or* org) is inside their organization, so there's nothing more to locate: just confirm their org membership holds a role with the required permission.
+- **Store user** — they only act on stores they're a member of, and can never touch the organization. If the target *is* the organization → **403** immediately (impossible by type). Otherwise, confirm they have a membership at *that* store holding a role with the required permission.
 
-For the org-membership case, "the store's organization" isn't taken from the request — we read it from the store row itself (`store.organization_id`) and require the user's org membership to match it. So a user with an org membership in Org A can act on a store only if that store actually belongs to Org A.
+Because type already pins the org-vs-store level, the old "does this org membership reach the target store?" lookup disappears — an org user's reach is implied by their type plus M2.
 
 In SQL, this means walking `membership → membership_assignment → role → role_permission → permission` as one joined row:
 
 ```
+Read user.user_type FRESH from the DB.
+
+if user_type = STORE AND context.targetTenantType = ORG  →  403   -- impossible by type
+
 Does a row exist in:
   membership → membership_assignment → role → role_permission → permission
 
 where:
     membership.user_id = context.userId
-    AND membership.role.permission = requiredPermission        -- the role has the permission
+    AND permission     = requiredPermission        -- the role has the permission
 
     -- the membership is live (not removed, not suspended) and the role hasn't expired
     AND membership.deleted_at IS NULL
     AND membership.is_active  = true
     AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
 
-    AND membership reaches the target:
-          context.targetTenantType is a store  →  ( membership.store_id = context.targetTenantId
-                                OR membership.organization_id = (
-                                     SELECT organization_id FROM store
-                                     WHERE store.id = context.targetTenantId
-                                   ) )
-                                -- store target: a store role at that store, or an org role from the store's own org
-                                AND role.scope IN ('STORE', 'ORGANIZATION')
-
-          context.targetTenantType is the org  →  membership.organization_id = context.targetTenantId
-                                -- org target: only an org-scoped role can act on the org
-                                AND role.scope = 'ORGANIZATION'
+    -- the membership is at the place the user's type allows
+    AND ( user_type = ORGANIZATION  →  membership.organization_id = context.organizationId
+          user_type = STORE         →  membership.store_id        = context.targetTenantId )
 ```
 No matching row → **403 Deny** (deny by default).
 
+(The `role.user_type` match is now implied — a user only holds roles of their own type — but the assignment write-path enforces it, so it stays a backstop, not a runtime branch.)
 
- @TODO: - sal review what this means
-It all has to come from **one** membership-role-permission chain, not a mix — an expired Cashier role that could refund doesn't lend its permission to a separate, still-active Stocker role that can't.
-
-> **Note:** the store→org lookup assumes the target store still exists. The `store` table has no soft-delete today, so a store is either present or gone; if soft-delete is ever added to `store`, this lookup must also filter out removed stores.
+It all has to come from **one** membership-role-permission chain, not a mix — an expired Cashier role that could refund doesn't lend its permission to a separate, still-active Stocker role that can't. (Walking the chain as one joined row guarantees this: the live membership, the unexpired assignment, and the permission must all sit on the *same* row, so a dead role can't lend its permission to a living one.)
 
 
 **2. Resource ownership check.** If the action names a specific resource by id (the order to refund, the product to edit), load that resource and check it belongs to the target:
@@ -309,7 +310,7 @@ This is as important as the permission check — **every endpoint that takes a r
 
 # Vulnerabilities to Review
 
-Open items from the auth-flow review. The three already fixed in the SQL above (membership liveness filters, `role.scope` match, store-existence note) are not repeated here.
+Open items from the auth-flow review. Items already handled in the SQL above (membership liveness filters, the `user_type` gate replacing the old `role.scope` match, store-existence note) are not repeated here.
 
 **Vulnerabilities**
 - There's no privilege-escalation guard on role assignment — nothing here stops an admin granting a role more powerful than their own (the subset rule lives only in `post-mvp.md`).

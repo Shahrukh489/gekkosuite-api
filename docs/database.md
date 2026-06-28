@@ -8,12 +8,28 @@ Note: `user` is a reserved word in Postgres, so the table name is quoted as `"us
 ## Auth / RBAC
 
 ```sql
+-- The canonical org/store axis. ONE lookup table that user, role, and permission all point at,
+-- so the two values ('ORGANIZATION', 'STORE') live in a single place instead of being repeated
+-- as independent CHECK constraints that could drift. The whole authz model lines up through
+-- these FKs: a user's type == the role's type == the permission's type along one grant chain.
+CREATE TABLE user_type (
+    user_type TEXT PRIMARY KEY CHECK (user_type IN ('ORGANIZATION', 'STORE'))
+);
+
 -- `user` is the GLOBAL identity table for the whole system (one login per person), not an
 -- org-owned table. Provenance fields record where the account originated, so even after
 -- every membership is removed we still know the user's home org and who created them.
+--
+-- user_type is the STRUCTURAL org-vs-store distinction, set at creation:
+--   ORGANIZATION -> owns/runs the company; one org membership, reaches all the org's stores.
+--   STORE        -> an employee; one or more store memberships, can never reach the org.
+-- It gates which memberships and roles a user may hold (user_type must equal role.user_type).
+-- IMMUTABLE in MVP: there is no path to change it. Promote/demote (changing user_type) is a
+-- deliberate post-MVP feature (see post-mvp.md).
 CREATE TABLE "user" (
     user_id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id    BIGINT NOT NULL REFERENCES organization (organization_id),  -- home org (set once, immutable)
+    user_type          TEXT NOT NULL REFERENCES user_type (user_type),  -- ORGANIZATION | STORE, set at creation, immutable
     created_by_user_id BIGINT REFERENCES "user" (user_id),     -- the org admin who created this account
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -22,13 +38,15 @@ CREATE TABLE "user" (
 -- The columns below pre-lay the infrastructure for org-owned CUSTOM roles (post-MVP):
 --   is_managed      = TRUE for the roles we ship; FALSE for a customer's custom role.
 --   organization_id = the owning org for a custom role; NULL for managed (we own those).
---   scope           = the level the role applies at (ORGANIZATION or STORE).
+--   user_type       = the level the role applies at (ORGANIZATION or STORE), via the shared
+--                     user_type lookup. A role is only assignable to a user of the same type
+--                     (user.user_type == role.user_type) — see auth.md.
 -- Custom roles are org-owned only — there are no store-owned custom roles (no store_id).
 CREATE TABLE role (
     role_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     is_managed      BOOLEAN NOT NULL DEFAULT TRUE,
     organization_id BIGINT REFERENCES organization (organization_id),   -- NULL for managed roles
-    scope           TEXT NOT NULL CHECK (scope IN ('ORGANIZATION', 'STORE')),
+    user_type       TEXT NOT NULL REFERENCES user_type (user_type),     -- ORGANIZATION | STORE
     -- managed roles are ours (no owning org); custom roles belong to one org
     CHECK (
         (is_managed = TRUE  AND organization_id IS NULL)
@@ -38,22 +56,26 @@ CREATE TABLE role (
 
 -- A permission is resource:action (e.g. product:read, order:refund, role:assign), explicit
 -- and never a wildcard. The REACH (one store vs all the org's stores) comes from the ROLE
--- that holds it (role.scope) and the membership it's granted at, NOT from the permission.
---   resource = what's acted on: product, order, role, store, user, ...
---   action   = the verb: read, create, refund, assign, ...
---   scope    = which role scopes may HOLD this permission (an eligibility guard, NOT the level
---              it operates at):
---                STORE        -> can go in store roles AND org roles
---                ORGANIZATION -> can go in org roles ONLY (e.g. store:create, user:create)
---              This stops a (future custom) store-scoped role from holding an org-only power.
+-- that holds it (role.user_type) and the membership it's granted at, NOT from the permission.
+--   resource    = what's acted on: product, order, role, store, user, ...
+--   action      = the verb: read, create, refund, assign, ...
+--   is_elevated = an eligibility guard on which role types may HOLD this permission (NOT the
+--                 level it operates at):
+--                   FALSE -> can go in store roles AND org roles (the default).
+--                   TRUE  -> can go in ORGANIZATION roles ONLY (e.g. store:create, user:create).
+--                 A one-way gate: elevated permissions are org-only; non-elevated apply to both.
+--                 This stops a (future custom) store-typed role from holding an org-only power.
 CREATE TABLE permission (
     permission_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     resource      TEXT NOT NULL,   -- e.g. product, order, role
     action        TEXT NOT NULL,   -- e.g. read, create, refund, assign
-    scope         TEXT NOT NULL CHECK (scope IN ('ORGANIZATION', 'STORE')),
+    is_elevated   BOOLEAN NOT NULL DEFAULT FALSE,   -- TRUE = org roles only
     UNIQUE (resource, action)
 );
 
+-- An elevated permission (is_elevated = TRUE) may only attach to an ORGANIZATION role.
+-- Enforced on the write path (cross-table: permission.is_elevated vs role.user_type) when a
+-- permission is added to a role. Non-elevated permissions attach to either type.
 CREATE TABLE role_permission (
     role_id       BIGINT NOT NULL REFERENCES role (role_id),
     permission_id BIGINT NOT NULL REFERENCES permission (permission_id),
@@ -114,6 +136,11 @@ CREATE TABLE role_permission_condition (
 -- Like an IAM user: the membership exists on its own; roles are layered on top.
 -- Removing all of a user's roles at a place leaves this row intact, so the user
 -- still belongs there with no access.
+--
+-- The place must MATCH the user's type (enforced on the write path, since it's a cross-table
+-- rule the DB CHECK can't span): an ORGANIZATION user only gets organization_id memberships;
+-- a STORE user only gets store_id memberships. So an org user has one org membership (reaching
+-- all the org's stores), a store user has one or more store memberships.
 CREATE TABLE membership (
     membership_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id         BIGINT NOT NULL REFERENCES "user" (user_id),
@@ -147,6 +174,9 @@ CREATE UNIQUE INDEX membership_org_uq
 --   NULL = never expires. Once expires_at has passed the assignment grants nothing — access
 --   resolution filters expires_at IS NULL OR expires_at > now() (same family as the
 --   membership.deleted_at / is_active filters).
+-- A role is only assignable to a membership whose user has the SAME type as the role
+-- (user.user_type == role.user_type) — enforced on the write path (cross-table rule). So a
+-- STORE user can only ever receive STORE roles, an ORGANIZATION user only ORGANIZATION roles.
 CREATE TABLE membership_assignment (
     membership_id BIGINT NOT NULL REFERENCES membership (membership_id),
     role_id       BIGINT NOT NULL REFERENCES role (role_id),

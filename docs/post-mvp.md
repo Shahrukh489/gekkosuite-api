@@ -103,6 +103,36 @@ A **Store Admin cannot edit limits** — if a store manager wants a higher cap f
   separate elevated-role flag. Build this when delegation / custom roles ship.
 
 
+# Changing a user's type (promote / demote)
+
+In MVP `user.user_type` is **immutable** — set at creation, no change path. To move someone
+between organization and store, you create a new user of the right type. This section is the
+deferred feature that makes the type changeable in place.
+
+**The feature:** an org admin can flip a user between `STORE` and `ORGANIZATION`.
+
+- **Gated by a dedicated permission `user:set_type`** — held only by org-level roles. Changing
+  a user from STORE to ORGANIZATION grants company-wide reach, so this permission is as powerful
+  as `role:assign` to the Org Admin role and must be treated that way.
+- **Audited** — every type change is a security-relevant event (it grants or removes org-wide
+  reach), logged with who/when/old→new (see the Audit section in `auth.md`).
+- **Owner can't be demoted** — a user who is `organization.owner_user_id` cannot be changed to
+  STORE; the system refuses it (you'd be demoting the company owner to an employee).
+- **Mismatched memberships are cleared on change** — because memberships must match the user's
+  type, flipping the type soft-deletes the now-invalid memberships (a promoted store user's
+  store memberships are cleared; the admin then adds the org membership). The UI must show a
+  **warning** before the change, listing what access will be removed, so it's never a surprise.
+
+
+# Store admins create store users
+
+In MVP only an org admin can create users (`user:create`, on the Org Admin role only). Post-MVP,
+a store admin can be given `user:create` too — but **restricted to creating `STORE`-type users**
+(never organization users). This lets a store run its own hiring without ever being able to mint
+someone with company-wide reach. The restriction is part of the create path: a store-level holder
+of `user:create` may only set `user_type = STORE`.
+
+
 ## Workflow / event engine
 
 A future event-driven engine (org-admin-configurable from the UI): **event → condition → action**.

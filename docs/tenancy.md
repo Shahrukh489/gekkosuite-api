@@ -12,6 +12,17 @@ How the organization and its stores relate: who owns what, what's shared org-wid
 
 So the org is the umbrella that holds everything shared; each store is an independent selling unit on top of it.
 
+
+## The organization is the tenant
+
+The **organization — not the store — is the tenant**: the unit of isolation. One org is one self-contained world, and nothing crosses between orgs. A user is born into exactly one org (`user.organization_id`, set once and never changed), the login token carries that org id, and it is the hard boundary every request is checked against — you can never act on anything outside your own org.
+
+A **store is not a tenant.** It's a **resource the org owns**, like the product catalog, customers, suppliers, and orders. What makes a store a little special is that it's the one resource you can also **scope a person's access to** — you can be a member "at" a store. But that's an access scope *inside* the tenant, not a tenant of its own.
+
+This is why a user having access to several stores doesn't break isolation: those stores are all resources inside the *same* org. Reaching many stores is ordinary access *within* one tenant — not access *across* tenants. Isolation is only ever about org-to-org; everything a user does among the stores and data of their own org is normal in-tenant authorization (see `auth.md`).
+
+So the picture is: **one org = one isolated tenant; stores and all other entities are resources it owns; a store is the resource you can also scope membership to.** A person's reach within that tenant is set by their `user_type` — an organization user acts across the whole org, a store user is scoped to specific stores.
+
 ```mermaid
 flowchart TB
     ORG["Organization<br/>(the business)"]
