@@ -1,11 +1,13 @@
-@TODO: users have type now so add that in here
-
 # UI Design
 
-One app, one set of screens. The **store switcher** sets the *context* (organization vs a store),
-and the user's **permissions** decide which tabs and actions show. There is no separate "org app"
-and "store app" — the same tabs are reused; the data inside and the available actions change with
-context and role.
+One app, one set of screens. The user's **type** (organization or store) sets which world they're in,
+the **store switcher** sets the *context* (the organization, or a specific store), and the user's
+**permissions** decide which tabs and actions show. There is no separate "org app" and "store app" —
+the same tabs are reused; the data inside and the available actions change with context and role.
+
+A **store user** only ever works in store context (they have no organization entry). An **organization
+user** can work in the organization context *and* drop into any store. So the switcher's shape follows
+the user's type — see below.
 
 # Topbar
 - Notifications
@@ -31,17 +33,17 @@ store. The organization sits at the top, with each store the user can reach belo
   └─ 🏪 Store C
 ```
 
- @TODO: this cant always be correct because /customers is not store level, should I put under /organizations/customers? 
-This maps directly to the API (`auth.md`): selecting a **store** routes calls under
-`/stores/{storeId}/…`; selecting the **organization** routes them under the org-level paths. The
-organization itself always comes from the user's token, never the URL. Switching context
-re-scopes every tab's data to that place.
+This maps directly to the API (`auth.md`): selecting a **store** routes its tabs under
+`/stores/{storeId}/…` (products, customers, and sales are store-owned, so they're all store paths);
+selecting the **organization** routes its tabs under the org-level paths (suppliers, purchases,
+expenses, stores, users). The organization itself always comes from the user's token, never the URL.
+Switching context re-scopes every tab's data to that place.
 
-What the switcher shows depends on the user:
-- **Store-only user** (e.g. a cashier) — no Organization entry, only the store(s) they belong to.
-  If it's a single store, the switcher can be hidden — they land straight in it.
-- **Org user** (owner/admin) — the Organization entry plus every store (an org role reaches all).
-- **Multi-store user** — the stores they're a member of.
+What the switcher shows depends on the user's **type**:
+- **Store user** (e.g. a cashier) — no Organization entry, only the store(s) they belong to. If it's
+  a single store, the switcher can be hidden — they land straight in it. A multi-store store user
+  (e.g. Cashier at one, Manager at another) sees each store they're a member of.
+- **Organization user** (owner/admin) — the Organization entry plus every store (an org role reaches all).
 
 
 # Tabs (flat)

@@ -14,14 +14,30 @@ So each store is an independent selling unit, and the organization sits above it
 
 
 
-## Who this is for (the niche)
+# Who this is for (the niche)
 
 We serve **tightly-coupled single companies** — one business that owns and runs all its stores — **not franchise systems** where each location is an independent business. A typical org has up to max 50-100 stores. The users are **non-technical**, so the design is deliberately simple over flexible:
 
 - One organization owns many stores; org-level users handle suppliers, purchasing, expenses, and managing stores and users.
 - **Each store owns its own products and customers** — isolation is the default, so stores stay in their own domain.
 - **Spending is centralized**: the organization buys inventory and pays expenses (each optionally attributed to a store), so a store is purely a selling front.
-- Org-wide sharing of products/customers (one catalog or customer base across stores) is a planned post-MVP setting.
+
+# Features
+
+**Organization** — central management; org-level users only. Reaches every store in the org.
+- Perform any action on any of its stores (an org role reaches all stores).
+- Make purchase orders (buy inventory from suppliers) and record expenses — each optionally attributed to a store.
+- Manage suppliers.
+- Create and manage users (org and store users) and create/manage stores.
+- Holds the plan; every store inherits its features.
+- Only org users can make org-level updates — store users can never reach the org.
+
+**Store** — the selling unit; store users are scoped to the store(s) they belong to.
+- Sell, and process returns/refunds.
+- Manage its own products (each store's own SKUs, stock, and price).
+- Manage its own customers.
+- View its own reports and the purchases/expenses attributed to it.
+- A store user only ever acts on their own store's data — never another store's, never the org's.
 
 
 # Documentation map
@@ -33,4 +49,3 @@ The detail lives in focused docs:
 - **`plans.md`** — plans, features, and billing.
 - **`database.md`** — the database schema (tables, indexes).
 - **`post-mvp.md`** — deferred features and the rationale.
-- **`to-be-decided.md`** — open design questions not yet resolved.

@@ -62,7 +62,6 @@ Four levels, from narrowest to widest:
 **Example**
 A cashier goes on leave → *disable their account* (off everywhere). They're just pulled from one store → *suspend at that place*. They quit → *remove* them from the store. You gave a cashier refund rights by mistake → just *take away that role*.
 
- @TODO: make more clear
 **Under the hood**
 Take-away = delete the `membership_assignment` (or let `expires_at` end it). Suspend one place = `membership.is_active = false`. Disable the account = `user.is_active = false` (the kill switch above all memberships — effective access needs both `user.is_active` and the place's `membership.is_active`). Remove = soft-delete the membership (`deleted_at`). The `user` row itself is never deleted.
 
@@ -132,10 +131,6 @@ The *same* permission reaches differently depending on the role that holds it. `
 **Example**
 - Store Manager at Seattle with `product:edit` → can edit Seattle's products only.
 - Org Admin with `product:edit` → can edit any store's products.
-
-
-@TODO: a gap could be that a read-only organization user always wants to be store admin.
-do we need to allow that? I lean against it, if they want to see other store stuff give them that stores access
 
 ## Who is the owner, and can their access be taken away?
 
@@ -321,8 +316,3 @@ Open items from the auth-flow review.
 - Token revocation is required but the mechanism (deny-list vs. short TTL + refresh) isn't decided, so a fired user's token lifetime is undefined.
 - `organization_id` immutability is trusted at authentication but never spec'd as DB-enforced, so the tenant boundary rests on an unguaranteed assumption.
 
-**Missing**
-- The Audit section is an empty stub — no security-relevant events (role grant/revoke, user create, owner transfer, refunds, purchases) are logged anywhere.
-- The Managed Roles and Permissions section is `TODO` — the seed roles and full permission catalog are undefined.
-- No concurrency/locking note for stock-affecting money actions (sales depleting stock, refunds restoring it) so double-spend under simultaneous requests is unaddressed.
-- No rate limiting on sensitive write endpoints (refunds, user creation) beyond the missing login throttle.
