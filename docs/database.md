@@ -269,16 +269,7 @@ CREATE TABLE store (
     store_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id  BIGINT NOT NULL REFERENCES organization (organization_id),
     region           TEXT,                               -- grouping label, e.g. 'NorthWest'
-    sub_region       TEXT,                               -- finer grouping, e.g. 'Seattle-Metro'
-    purchase_balance NUMERIC(12, 2),                     -- delegated inventory-buying allowance; NULL = unlimited
-    expense_balance  NUMERIC(12, 2)                      -- delegated expense-spending allowance; NULL = unlimited
-    -- The org is the single source of funds; a store has no account of its own. These two are
-    -- how much spending power the org admin delegates to this store, each DEPLETING independently:
-    --   purchase_balance -> inventory buys (purchase_order); each PO decrements it.
-    --   expense_balance  -> non-inventory spend (expense, e.g. furniture); each expense decrements it.
-    -- A purchase/expense is rejected if its total exceeds the matching balance (when not NULL).
-    -- On success, the record is inserted AND the matching balance decremented in one transaction.
-    -- The owner "tops up" by raising the number. NULL = no limit.
+    sub_region       TEXT                                -- finer grouping, e.g. 'Seattle-Metro'
     -- region/sub_region are descriptive tags for filtering and reports, NOT places you can
     -- grant roles at. If a region ever needs to OWN access (a real district manager role)
     -- it graduates to its own entity; until then it's just a label on the store.
@@ -293,114 +284,103 @@ CREATE TABLE store_tag (
 );
 ```
 
-## Org-level entities (catalog, customers, suppliers)
+## Store-owned entities (products, customers)
 
-These belong to the organization and are visible to every store — not per-store. Each store
-sets its own stock/price for catalog products via `product_store`.
+Products and customers belong to **one store** — not shared across the org. Each store keeps its
+own product list and its own customers; other stores don't see them. This is the deliberate MVP
+choice: stores stay in their own domain, isolation is the default. (Org-wide sharing — one catalog /
+one customer base, with org approval — is a planned post-MVP setting; see `post-mvp.md`.)
 
 ```sql
--- Product is an ORG-level identity (one catalog for the whole org), deduped on SKU — one
--- 'Coke SKU-123' shared across all stores. Each store sets its own quantity and price via
--- product_store. This fits a tightly-coupled single company: one catalog, per-store stock.
-CREATE TABLE product (
-    product_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
-    sku             TEXT,
-    UNIQUE (organization_id, sku)   -- sku is unique within the org (the dedup key)
+-- A product belongs to ONE store: its identity (sku, name), its price, and its stock all live
+-- here. Store A's 'Coke' and Store B's 'Coke' are separate records. No org-level catalog.
+-- Replaces the old org `product` + per-store `product_store` split.
+CREATE TABLE store_product (
+    store_product_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    store_id         BIGINT NOT NULL REFERENCES store (store_id),
+    sku              TEXT,
+    quantity         INTEGER NOT NULL DEFAULT 0,   -- this store's stock
+    price            NUMERIC(12, 2),               -- this store's price
+    UNIQUE (store_id, sku)   -- sku unique within the store
 );
 
--- A store's stock and price for a product. One row per (product, store) the store carries.
-CREATE TABLE product_store (
-    product_id BIGINT NOT NULL REFERENCES product (product_id),
-    store_id   BIGINT NOT NULL REFERENCES store (store_id),
-    quantity   INTEGER NOT NULL DEFAULT 0,   -- this store's own stock (independent per store)
-    price      NUMERIC(12, 2),               -- this store's own price
-    PRIMARY KEY (product_id, store_id)
-);
-
--- Customer is an ORG-level identity: one account per person for the whole org, visible to
--- every store. Walk into any store, use the same account. No per-store customer data.
+-- A customer belongs to ONE store. Same person shopping at two stores = two customer records
+-- (until org-wide sharing ships post-MVP). organization_id is denormalized for the tenant
+-- boundary / RLS, but the OWNER is the store.
 CREATE TABLE customer (
     customer_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
+    store_id        BIGINT NOT NULL REFERENCES store (store_id),
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)  -- the store's org (boundary/RLS)
 );
 
--- @TODO: decide on this if needed because it will limit showing only customers in a store in UI 
-CREATE TABLE customer_store (
-    customer_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
-);
-
--- Supplier is an ORG-level vendor record, visible to every store. No per-store terms.
+-- Supplier is an ORG-level vendor record. Procurement is centralized: only ORG users deal with
+-- suppliers and create purchases (see purchase_order). Stores don't buy — they only sell.
 CREATE TABLE supplier (
     supplier_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
 
--- A store buying inventory from an org supplier (inventory-IN, the counterpart to sales_order).
--- Spends the org's funds against the store's delegated purchase_balance: on creation we insert
--- this + its lines AND decrement store.purchase_balance in one transaction, rejecting the
--- purchase if its total exceeds the balance (when the balance isn't NULL = unlimited).
+-- Procurement is an ORG action: the organization buys inventory from a supplier. Only org users
+-- create purchases; stores don't buy. No store_id — the purchase belongs to the org, not a store.
+-- (How purchased stock then reaches a store's store_product is an OPEN question — see
+-- to-be-decided.md, "Inventory distribution".)
 CREATE TABLE purchase_order (
     purchase_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id          BIGINT NOT NULL REFERENCES store (store_id),       -- the store that ordered
-    supplier_id       BIGINT NOT NULL REFERENCES supplier (supplier_id), -- the org supplier bought from
-    total             NUMERIC(12, 2) NOT NULL,   -- order total (what's deducted from purchase_balance)
+    organization_id   BIGINT NOT NULL REFERENCES organization (organization_id), -- the org that bought
+    supplier_id       BIGINT NOT NULL REFERENCES supplier (supplier_id),         -- the supplier bought from
+    total             NUMERIC(12, 2) NOT NULL,   -- order total
     status            TEXT NOT NULL,             -- e.g. ordered / received / cancelled
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Lines on an org purchase. Products are store-owned now (store_product), so a line can't simply
+-- point at a store's product — what these reference (an org item list? free-text? the destination
+-- store's product?) is an OPEN question tied to inventory distribution (see to-be-decided.md).
 CREATE TABLE purchase_order_product (
     purchase_order_id BIGINT NOT NULL REFERENCES purchase_order (purchase_order_id),
-    product_id        BIGINT NOT NULL REFERENCES product (product_id),
+    -- product reference: TBD (see to-be-decided.md, "Inventory distribution")
     quantity          INTEGER NOT NULL,
     unit_cost         NUMERIC(12, 2) NOT NULL,   -- cost per unit at purchase time
-    PRIMARY KEY (purchase_order_id, product_id)
+    PRIMARY KEY (purchase_order_id)   -- TODO: composite once the product reference is decided
 );
 
 
 
 -- Non-inventory spending (furniture, computers, utilities, SaaS, accountant fees, etc.) —
--- money OUT that is NOT resold and does NOT touch stock, so it's separate from purchase_order.
--- No product lines: just a category and amount. An expense belongs to EITHER a store OR the
--- org directly:
---   store_id set   -> a store expense (location accounting; depletes that store's expense_balance)
---   store_id NULL  -> an ORG-level expense (HQ overhead: the POS subscription, accountant,
---                     company-wide software) — no store, so no per-store balance is depleted.
--- organization_id is always set so org-level expenses (store_id NULL) still have an owner.
+-- money OUT that is NOT resold and does NOT touch stock. Like procurement, spending is
+-- centralized: an expense is an ORG-level record created by ORG users only. Stores don't spend —
+-- they only sell. (No store_id, no per-store expense_balance.)
 CREATE TABLE expense (
     expense_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),  -- always the owning org
-    store_id        BIGINT REFERENCES store (store_id),       -- set = store expense; NULL = org-level expense
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),  -- the owning org
     supplier_id     BIGINT REFERENCES supplier (supplier_id), -- the vendor (Amazon, Staples, ...); optional
     category        TEXT NOT NULL,             -- e.g. 'furniture', 'equipment', 'utilities', 'software'
-    amount          NUMERIC(12, 2) NOT NULL,   -- store expense: deducted from the store's expense_balance
+    amount          NUMERIC(12, 2) NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-    -- when store_id is set, its store must belong to organization_id (enforced on the write path)
 );
 
 ```
 
-## Store transactions (sales, returns, purchases, expenses)
+## Store transactions (sales, returns)
 
-These happen at a store (the business unit). They reference the org-level catalog/customers/
-suppliers above, but the transaction itself belongs to a store.
+Selling happens at a store. Sales reference the store's own products (`store_product`) and its own
+customers, and the transaction belongs to the store. (Purchases and expenses are org-level — see
+above — because procurement and spending are centralized.)
 
 ```sql
 CREATE TABLE sales_order (
     order_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     store_id    BIGINT NOT NULL REFERENCES store (store_id),
-    customer_id BIGINT REFERENCES customer (customer_id),
+    customer_id BIGINT REFERENCES customer (customer_id),   -- the store's own customer
     status      TEXT NOT NULL   -- e.g. open / paid / refunded
 );
 
 CREATE TABLE sales_order_product (
-    order_id   BIGINT NOT NULL REFERENCES sales_order (order_id),
-    product_id BIGINT NOT NULL REFERENCES product (product_id),
-    quantity   INTEGER NOT NULL,
-    unit_price NUMERIC(12, 2) NOT NULL,   -- snapshots the price at sale time
-    PRIMARY KEY (order_id, product_id)
+    order_id         BIGINT NOT NULL REFERENCES sales_order (order_id),
+    store_product_id BIGINT NOT NULL REFERENCES store_product (store_product_id),  -- the store's product
+    quantity         INTEGER NOT NULL,
+    unit_price       NUMERIC(12, 2) NOT NULL,   -- snapshots the price at sale time
+    PRIMARY KEY (order_id, store_product_id)
 );
 
 CREATE TABLE sales_order_return (
@@ -410,10 +390,10 @@ CREATE TABLE sales_order_return (
 );
 
 CREATE TABLE sales_order_return_product (
-    return_id  BIGINT NOT NULL REFERENCES sales_order_return (return_id),
-    product_id BIGINT NOT NULL REFERENCES product (product_id),
-    quantity   INTEGER NOT NULL,
-    PRIMARY KEY (return_id, product_id)
+    return_id        BIGINT NOT NULL REFERENCES sales_order_return (return_id),
+    store_product_id BIGINT NOT NULL REFERENCES store_product (store_product_id),
+    quantity         INTEGER NOT NULL,
+    PRIMARY KEY (return_id, store_product_id)
 );
 ```
 
@@ -451,30 +431,28 @@ CREATE INDEX ON organization (plan_id);
 CREATE INDEX ON organization (default_store_id);
 CREATE INDEX ON plan_feature (feature_id);         -- plan_id covered by PK
 
--- Org-level identities (customers, suppliers, product catalog)
-CREATE INDEX ON customer (organization_id);
+-- Org-level entities (suppliers; org-level money: purchases, expenses)
 CREATE INDEX ON supplier (organization_id);
-CREATE INDEX ON product  (organization_id);
+CREATE INDEX ON purchase_order (organization_id);
+CREATE INDEX ON purchase_order (supplier_id);
+CREATE INDEX ON expense        (organization_id);
+CREATE INDEX ON expense        (supplier_id);
 
--- Store data (the big tables — these matter most)
-CREATE INDEX ON product_store          (store_id);     -- a store's catalog (product_id covered by PK)
+-- Store-owned entities (products, customers) + store sales (the big tables — these matter most)
+CREATE INDEX ON store_product          (store_id);     -- a store's own products
+CREATE INDEX ON customer               (store_id);     -- a store's own customers
+CREATE INDEX ON customer               (organization_id);
 CREATE INDEX ON sales_order            (store_id);
 CREATE INDEX ON sales_order            (customer_id);
-CREATE INDEX ON sales_order_product    (product_id);   -- order_id covered by PK
+CREATE INDEX ON sales_order_product    (store_product_id);   -- order_id covered by PK
 CREATE INDEX ON sales_order_return         (store_id);
 CREATE INDEX ON sales_order_return         (order_id);
-CREATE INDEX ON sales_order_return_product (product_id);   -- return_id covered by PK
-CREATE INDEX ON purchase_order             (store_id);
-CREATE INDEX ON purchase_order             (supplier_id);
-CREATE INDEX ON purchase_order_product     (product_id);   -- purchase_order_id covered by PK
-CREATE INDEX ON expense                    (organization_id);   -- org-level expenses (store_id NULL)
-CREATE INDEX ON expense                    (store_id);
-CREATE INDEX ON expense                    (supplier_id);
+CREATE INDEX ON sales_order_return_product (store_product_id);   -- return_id covered by PK
 
 -- Composite indexes for the common sorted lists (list newest-first / alphabetical)
-CREATE INDEX ON product        (organization_id, sku);    -- the org catalog, by SKU
+CREATE INDEX ON store_product   (store_id, sku);         -- a store's products, by SKU
 CREATE INDEX ON sales_order     (store_id, order_id DESC);
-CREATE INDEX ON purchase_order  (store_id, purchase_order_id DESC);   -- a store's purchases, newest first
+CREATE INDEX ON purchase_order  (organization_id, purchase_order_id DESC);   -- an org's purchases, newest first
 ```
 
 ## Row-Level Security (tenant isolation floor)

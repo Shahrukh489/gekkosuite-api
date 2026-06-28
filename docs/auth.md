@@ -210,8 +210,6 @@ context = {
   isActive           // account kill switch — read FRESH from the user row
 }
 ```
- @TODO what if the route is /customers shuld we put under /organiozatino/customers?if so how will store 
- role work on these routes?
 
 ## 2. Authorization — may this user do this action, here?
 
