@@ -132,6 +132,25 @@ a store admin can be given `user:create` too — but **restricted to creating `S
 someone with company-wide reach. The restriction is part of the create path: a store-level holder
 of `user:create` may only set `user_type = STORE`.
 
+This is **not** a separate-tenant feature — it's the ordinary create-user flow (see `auth.md`),
+just scoped to the inviting store admin. It stays inside the one org tenant; a store is still a
+resource, not a tenant. Key decisions for when it's built:
+
+- **Forced `user_type = STORE`** — a store admin can never create an organization user (that's the
+  escalation hole this closes). Enforced on the create path, not trusted from the request.
+- **Membership locked to the inviter's own store** — the new membership's `store_id` must be a
+  store the inviter holds `role:assign` at, not an arbitrary id from the request (same principle
+  as the IDOR check: the target store is validated, never trusted).
+- **Role subset (escalation) guard** — they can only grant a STORE role whose permissions are a
+  subset of their own effective permissions (the rule under *Custom Roles* above).
+- **Invite by email → find-or-link** — if the person is already a user in the org, don't create a
+  second login; add a new store membership to the existing user (the multi-store case). Only
+  create a fresh `user` row when no match exists. Same shape as the customer dedup workflow.
+- **Don't leak the person's other stores** — because Store A can't see Store B's users, the
+  find-or-link must match by email/identity without revealing whether or where that person already
+  works in the org. The inviting store admin learns only "added to your store," never their other
+  memberships.
+
 
 ## Workflow / event engine
 
