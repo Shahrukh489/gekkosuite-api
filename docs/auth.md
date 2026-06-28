@@ -26,8 +26,6 @@ So: a user belongs *somewhere* (membership), is given *roles* there (membership_
 
 # FAQ
 
-
-
 ## How is a user created and given access?
 
 A user's **identity** and their **access** are separate: the `user` row is just the login (one per person, global to the system); what they can do comes entirely from memberships and roles. So a brand-new user exists but can do nothing until access is granted.
@@ -70,14 +68,14 @@ Permissions are **scope-free** — `product:edit` says nothing about org vs. sto
 
 So the *same* permission has different reach depending on the role that holds it. `product:edit` in a Cashier (store) role edits that one store's products; the same `product:edit` in an Org Admin (org) role edits any store's products in the org.
 
-This is the same family as Kubernetes (`ClusterRole` vs namespaced `Role`) and Azure (a role applied at a scope) — generic permissions, with the *level* set separately. We differ in one way, on purpose: those systems set the scope at **assignment** time (the same role can be attached at any level), whereas we fix the scope **on the role** itself — a role is born `STORE` or `ORG` and can only be granted at that kind of place. We don't need their flexibility: we have just two fixed levels (store and org) and no deeper nesting, so baking the level into the role is simpler and matches how the roles are actually used ("Cashier" is inherently a store role).
+This is the same idea as Kubernetes (`ClusterRole` vs `Role`) and Azure (a role applied at a scope): generic permissions, with the level kept separate. The one difference: those systems pick the level when the role is *assigned*, so one role can be used at any level. We bake the level into the **role** itself — a role is born `STORE` or `ORG`. We don't need their flexibility (we only have two levels and no nesting), and it matches how roles are actually used: a "Cashier" is always a store role.
 
 **Some permissions are org-only.** Things like `store:create` or `user:create` only make sense org-wide. Each permission carries a **`scope`** that says which role scopes may hold it:
 
 - `scope = STORE` — may go in **store roles and org roles** (e.g. `order:sell`, `customer:add`).
 - `scope = ORGANIZATION` — may go in **org roles only** (e.g. `store:create`, `user:create`).
 
-This is an **eligibility guard**, not the level the permission operates at: a store role can never be given an `ORGANIZATION`-scoped permission. For our managed (shipped) roles we already honor this; it becomes load-bearing once **custom** roles let an org admin pick permissions — the picker only offers `STORE`-scoped permissions for a store-scoped role, and the write path rejects an `ORGANIZATION` permission in a store role.
+This just controls **which roles a permission is allowed in** — a store role can never hold an `ORGANIZATION` permission. Our shipped roles already follow this. It matters most later, when custom roles let an org admin pick permissions: the picker only offers `STORE` permissions for a store role, and the server rejects an `ORGANIZATION` permission added to one.
 
 Permissions are **explicit, never wildcards** — a role lists exactly the permissions it has. We don't grant `*` / "everything," so a new permission added later reaches nobody until it's deliberately added to a role.
 
@@ -190,7 +188,7 @@ Important: this is **not** checking whether the user can perform the requested a
 - If **`X-Target-Store-Id`** is present, the store must belong to the user's org (from the token) — a user can never act on a store in a different organization.
   - `store(X-Target-Store-Id).organization_id == jwt_token.organization_id`  → else **403** (or 404 if the store doesn't exist)
 
-After validating, the middleware stamps the resolved, **validated** values onto a request context that every downstream handler reads — handlers never re-read the raw headers (a header is an untrusted *claim*; the context is a *verified fact*):
+Once validated, the middleware saves these values on a request **context** that the rest of the code reads. Nothing downstream re-reads the raw headers — a header is something the client *claimed*; the context is something we *verified*.
 
 ```
 context = {
@@ -224,48 +222,59 @@ The target was already resolved in step 2 into the context (`context.targetTenan
 
 **Authorization Process** (in order):
 
-**1. Membership + permission check.** Find a **live** role the user holds that reaches the target tenant and contains the required permission. The target is explicit, so this is one uniform question — "does the user have a live membership *here* with a role that contains the permission?" — plus the blast-radius rule:
+**1. Membership + permission check.** The question is simple: **does the user have access here, with the permission this action needs?** We answer it by looking for one valid grant for the user at the target.
 
-- **Direct** — a membership **at the target tenant** (the org if `targetTenantType = ORG`, or that store if `STORE`).
-- **Inherited** — if the target is a **STORE**, an **org** membership also reaches it (an org role applies to every store in the org). If the target is the **ORG**, only an org membership counts — a store-only user can never reach an org action.
+A grant counts only if the user reaches the target:
 
-One query down the chain `membership → membership_assignment → role → role_permission → permission`, filtered to live grants:
+- **Direct** — they're a member of the target itself (the org, or that store).
+- **Inherited** — if the target is a **store**, being a member of the **org** also counts (an org role reaches every store). If the target is the **org**, only an org membership counts — a store user can't reach org actions.
+
+A grant counts only if it's still alive — the membership isn't deleted or suspended, and the role assignment hasn't expired.
+
+**One important rule:** all of this must be true on the **same grant**. It's not enough that the user has *some* live access and *separately* has *some* role with the permission — the live membership, the unexpired assignment, and the role with the permission must be one connected chain. (Otherwise: an expired Cashier role still carrying `order:refund`, plus a separate still-active Stocker role, could wrongly combine to allow a refund.)
+
+In SQL, this means walking `membership → membership_assignment → role → role_permission → permission` as one joined row:
 
 ```
-EXISTS a row where:
+EXISTS one joined chain
+   membership → membership_assignment → role → role_permission → permission
+where:
     membership.user_id = context.userId
+
+    -- the membership reaches the target
     AND (
-          -- direct: a membership at the exact target tenant
           (context.targetTenantType = STORE AND membership.store_id        = context.targetTenantId)
        OR (context.targetTenantType = ORG   AND membership.organization_id = context.targetTenantId)
-          -- inherited: an org membership reaches a STORE target (blast radius)
-       OR (context.targetTenantType = STORE AND membership.organization_id = context.organizationId)
+       OR (context.targetTenantType = STORE AND membership.organization_id = context.organizationId) -- org reaches its stores
         )
-    AND membership.deleted_at IS NULL AND membership.is_active = true   -- live membership
-    AND (membership_assignment.expires_at IS NULL
-         OR membership_assignment.expires_at > now())                  -- unexpired assignment
-    AND the role contains the required permission
-        (role → role_permission → permission = requiredPermission)
+
+    -- the membership is alive (not deleted, not suspended)
+    AND membership.deleted_at IS NULL AND membership.is_active = true
+
+    -- this role assignment hasn't expired
+    AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
+
+    -- safety: a store membership only counts store roles, an org membership only org roles
+    AND (
+          (membership.store_id        IS NOT NULL AND role.scope = 'STORE')
+       OR (membership.organization_id IS NOT NULL AND role.scope = 'ORGANIZATION')
+        )
+
+    -- THIS role contains the required permission
+    AND permission = requiredPermission
 ```
 No matching row → **403 Deny** (deny by default).
 
-**2. Resource ownership check (IDOR — mandatory, not optional).** If the action names a specific resource by id (the order to refund, the product to edit), **load that resource and verify it belongs to the target tenant** before acting:
+**2. Resource ownership check.** If the action names a specific resource by id (the order to refund, the product to edit), **load that resource and verify it belongs to the target tenant** before acting:
 
 ```
 load the resource by id
 if resource.store_id / resource.organization_id != context.targetTenantId  →  404
 ```
 
-A valid `order:refund` at Store A does **not** let you refund a Store-B order — without this check, a user can act on another tenant's data through an id they were never authorized for (the #1 multi-tenant breach). Return **404** (not 403) for resources outside the tenant, so existence isn't leaked. This step is co-equal with the permission check — every endpoint that takes a resource id must do it.
+Having `order:refund` at Store A does **not** let you refund a Store-B order. Without this check, a user could touch another store's data just by passing its id — the most common multi-tenant breach. Return **404** (not 403) for anything outside the tenant, so you don't reveal that it exists.
 
-**3. Conditions (ABAC gate — stretch goal).** If the matched role-permission has conditions (limits like "refund up to $500"), evaluate each against the resource:
-
-```
-for each condition:  if NOT ( resource[field]  operator  value )  →  403 Deny
-```
-No conditions → skip (pure RBAC). A referenced field missing at runtime → **fail closed** (deny).
-
-**4. Allow.** All gates passed — the action proceeds.
+This is as important as the permission check — **every endpoint that takes a resource id must do it.**
 
 ```
 endpoint authz (required permission declared by the route):
@@ -273,82 +282,12 @@ endpoint authz (required permission declared by the route):
                  OR an org membership if targetTenantType = STORE (inherited),
                  whose role contains the required permission?            → none → 403
   2. IDOR:       resource(id).tenant == context.targetTenantId?         → no   → 404
-  3. conditions: all conditions on that role-permission pass vs target?  → fail → 403
-  4.                                                                     → ALLOW
 ```
 
-**The things that must be right:**
-- **Inherited org access for STORE targets only** — an org admin often has *no* store membership; their org role reaches the store. But an **ORG target requires an org membership** — a store-only user can't reach org actions. Get this asymmetry right.
-- **Filter live grants** (`deleted_at IS NULL`, `is_active`, unexpired) — a removed, suspended, or expired grant must never count. Keep this in one shared resolver so no endpoint forgets it.
-- **Never skip the IDOR step (2)** — the permission check proves "can do X in this tenant," not "can do X to *this specific record*." A request can name a resource id from another tenant; only step 2 catches it.
 
 
-# Security gaps & hardening (must-do before launch)
+# Audit 
 
-The flow above (authn → tenancy → authz) is structurally sound, but a sound flow is not a secure
-system — each layer must assume the one before it can fail. "Cannot be hacked" is not a real goal;
-**defense in depth** is. These are the gaps that are genuinely exploitable as written, worst first.
+# Managed Roles and Permissions
 
-## Critical — exploitable today
-
-- [ ] **IDOR on the target object — the #1 multi-tenant breach.** Authz proves "can do
-      `order:refund` *in this store*", but NOT that *this specific order* belongs to this store.
-      Attack: a Store-A cashier with refund rights sends `{ order_id: <a Store-B order> }` — token
-      valid, tenancy passes, authz passes, and they refunded another store's order. **Every
-      endpoint that takes a resource id must load it and verify its `store_id`/`organization_id`
-      matches `context.targetTenantId` — co-equal with the permission check, not a side note.** Return
-      **404** (not 403) for resources outside the caller's tenant (403 confirms it exists).
-      (Now also documented as step 2 of the Endpoint Authorization process above.)
-
-## Medium
-
-- [ ] **Tenant-scoped error convention.** Cross-tenant or not-found → **404, never 403** —
-      a 403 confirms the resource exists. Apply this uniformly so errors don't leak existence.
-- [ ] **`organization_id` must be DB-immutable.** M1 trusts the token's `organization_id`
-      *because* `user.organization_id` never changes. There must be **no update path** for it
-      (enforce in the app/DB) — if it could be changed, the whole token-trust boundary breaks.
-- [ ] **Audit security-relevant events.** Role grant/revoke, user create, **ownership
-      transfer**, condition edits, and balance changes must be audited (who, when, what).
-      See the audit-log TODO in `database.md`.
-- [ ] **Privilege-escalation guard on assignment.** Enforce the subset rule (can only grant
-      ≤ your own permissions); see the role-assignment section and `post-mvp.md`.
-
-## Middleware & authz flow gaps (from review — to verify)
-
-Found while auditing the three checks (M1 authn, M2 tenancy, M3 authorization). Listed worst first.
-
-**High**
-- [ ] **Route ↔ header type agreement dropped from M2.** The design says `/orgs/...` routes
-      require `X-Target-Organization-Id` and `/stores/...` require `X-Target-Store-Id` (mismatch
-      → 400). The current M2 only checks "exactly one header present" — it no longer enforces the
-      header matches the route's tenant type, so a `/orgs/...` route could be hit with a store
-      header and resolve a store target. Re-add the route-type check; let the **route** decide
-      the expected `targetTenantType` and reject a mismatched header.
-- [ ] **Live-grant filter must bind to the SAME assignment that grants the permission.** In the
-      authz `EXISTS` query, `is_active`/`deleted_at` are on `membership` and `expires_at` is on
-      `membership_assignment`. The unexpired-assignment filter must apply to the *specific*
-      assignment whose role contains the required permission — not merely "the user has some
-      unexpired assignment AND (separately) some role with the permission." Otherwise an expired
-      assignment's permission could pass via a different live assignment. Make the join explicit
-      (assignment → role → permission all on one row).
-
-**Medium**
-- [ ] **M1: required claims not stated.** Spec that the token must contain well-formed `userId`
-      and `organizationId` (and only those are trusted); missing/garbage → 401.
-- [ ] **Re-verify `role.scope` vs target at authz time (defense in depth).** Scope-matches-place
-      is enforced at assignment time; the authz query trusts that invariant. Optionally also
-      require `role.scope` consistent with the membership's place, so a bad row (bug/migration/
-      direct write) can't leak an org role onto a store membership.
-
-**Low / clarity**
-- [ ] **M1:** also reject not-yet-valid tokens (`nbf`) and allow small clock skew on expiry.
-- [ ] **M2:** if stores have a lifecycle, check the target store is active/not-deleted (else 404),
-      not just that it belongs to the org.
-- [ ] **Conditions step target:** for create actions there's no loaded resource — clarify
-      conditions evaluate against the loaded resource *or* the request payload.
-- [ ] **(Note)** the earlier fail-fast "early membership gate" in tenancy was folded into the
-      step-3 membership check. Functionally fine; the defense-in-depth fast-deny on org targets
-      is gone — re-add to M2 if wanted.
-
-## Non-negotiable summary
-1. IDOR check on every resource id (load → verify matches `context.targetTenantId` → 404 if not).
+- TODO
