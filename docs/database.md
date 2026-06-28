@@ -476,3 +476,53 @@ CREATE INDEX ON product        (organization_id, sku);    -- the org catalog, by
 CREATE INDEX ON sales_order     (store_id, order_id DESC);
 CREATE INDEX ON purchase_order  (store_id, purchase_order_id DESC);   -- a store's purchases, newest first
 ```
+
+## Row-Level Security (tenant isolation floor)
+
+The application already scopes every query by `organization_id` / `store_id` (see `auth.md`). RLS is
+the **floor below that**: even if a hand-written query forgets its tenant filter, the database itself
+refuses to return rows from another tenant. App scoping is the first line; RLS is the can't-be-wrong
+backstop, so a single sloppy query can't cause a cross-tenant leak.
+
+How it works: each request, after auth, sets the verified tenant from the request context onto the DB
+session, and a policy on every tenant-scoped table filters to it automatically.
+
+```sql
+-- 1. The app connects as a NON-superuser, NON-owner role. Superusers and table owners BYPASS RLS,
+--    so the app role must be neither, or the whole mechanism is silently skipped.
+--    (Run migrations/admin as a separate privileged role; the request path uses this one.)
+CREATE ROLE app_user LOGIN;
+
+-- 2. Per request (inside the request's transaction), set the verified tenant from the context.
+--    SET LOCAL = transaction-scoped, so it resets at commit/rollback and CANNOT leak across a
+--    pooled connection to the next request (the classic RLS footgun). Never set from client input.
+--    SET LOCAL app.current_org   = <context.organizationId>;
+--    SET LOCAL app.current_store = <context.storeId or NULL>;
+
+-- 3. Enable + FORCE RLS on every tenant-scoped table, then a policy filtering to the session tenant.
+--    FORCE so even the table owner is subject to it. Example for an org-scoped and a store-scoped table:
+
+ALTER TABLE customer ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customer FORCE  ROW LEVEL SECURITY;
+CREATE POLICY customer_tenant ON customer
+    USING (organization_id = current_setting('app.current_org')::bigint);
+
+ALTER TABLE sales_order ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sales_order FORCE  ROW LEVEL SECURITY;
+CREATE POLICY sales_order_tenant ON sales_order
+    USING (store_id = current_setting('app.current_store')::bigint);
+
+-- Apply the same pattern to every tenant-scoped table:
+--   org-scoped   (filter on organization_id): customer, supplier, product, role(custom), expense, ...
+--   store-scoped (filter on store_id):         product_store, sales_order, sales_order_return,
+--                                              purchase_order, store expenses, ...
+-- Child/line tables (sales_order_product, ...) inherit isolation through their parent's FK, but add
+-- a policy too if they can ever be queried directly.
+```
+
+Notes:
+- **Defense in depth, not a replacement** — keep the app-level scoping; RLS catches the query that slips.
+- **org vs store context** — an org user acts with `app.current_org` set (and reaches store rows because
+  those stores are in their org — store policies can also allow `store.organization_id = app.current_org`);
+  a store action sets `app.current_store`. Pick one consistent policy shape per table and document it.
+- **Migrations bypass RLS** by design (run as the owner/privileged role), so schema changes aren't blocked.

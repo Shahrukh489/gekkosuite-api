@@ -281,6 +281,16 @@ An order belonging to another store doesn't match `store_id = {storeId}`, so it 
 
 This is as important as the permission check — **every endpoint that takes a resource id must do it.**
 
+### Making it impossible to forget
+
+The two protections above (the permission check and query scoping) only work if they're applied on *every* endpoint. Relying on developers to remember is how multi-tenant leaks happen. So we don't rely on memory — we make the system refuse to run without them, with two enforced rules:
+
+**1. Deny-by-default routing — a route must declare its permission, or it's blocked.** Every endpoint declares the permission it requires (right on the route). A global guard runs before every handler and **denies any route that hasn't declared one** — and a startup check refuses to even boot the app if a route is missing its declaration. So a forgotten permission check fails loudly and immediately (at deploy), never silently shipping an open endpoint. The default is *blocked*, and an endpoint has to opt in by stating what it needs — the opposite of "open unless someone added a check."
+
+**2. Row-Level Security — the database refuses foreign rows.** Even if a hand-written query forgets its `store_id` / `organization_id` filter, the database itself filters it out. Postgres RLS is set per request from the verified context (the org, and store when store-scoped) and applies to every query automatically — so a sloppy query can't leak another tenant's data. This is the floor *below* the application: query scoping is the first line, RLS is the can't-be-wrong backstop. See `database.md` for the RLS setup.
+
+Together these turn "remember to add the check" into "the system won't run without it": no route runs un-permissioned, and no query returns another tenant's rows.
+
 
 # Audit 
 
