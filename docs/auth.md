@@ -285,7 +285,21 @@ This is as important as the permission check — **every endpoint that takes a r
 
 The two protections above (the permission check and query scoping) only work if they're applied on *every* endpoint. Relying on developers to remember is how multi-tenant leaks happen. So we don't rely on memory — we make the system refuse to run without them, with two enforced rules:
 
-**1. Deny-by-default routing — a route must declare its permission, or it's blocked.** Every endpoint declares the permission it requires (right on the route). A global guard runs before every handler and **denies any route that hasn't declared one** — and a startup check refuses to even boot the app if a route is missing its declaration. So a forgotten permission check fails loudly and immediately (at deploy), never silently shipping an open endpoint. The default is *blocked*, and an endpoint has to opt in by stating what it needs — the opposite of "open unless someone added a check."
+**1. Deny-by-default routing — a route must declare its permission, or it's blocked.** Every endpoint declares the permission it requires (right on the route). A forgotten declaration should fail loudly and immediately (at deploy), never silently ship an open endpoint — the default is *blocked*, and an endpoint opts in by stating what it needs.
+
+This is a framework-agnostic requirement; two reference implementations:
+
+*FastAPI* — enforce at three moments so a route can't exist and serve traffic without an auth decision:
+
+- **Write time** — a custom router whose route-registration method takes `permission` as a **required argument** (e.g. `SecureRouter.secure(path, permission=...)`). Adding a route without naming a permission is a Python error; the auth dependency is wired in automatically.
+- **Boot time** — a startup scan over `app.routes` that **refuses to start the app** if any route lacks the auth marker, with a small explicit, greppable allowlist (`@public`) for genuinely unauthenticated routes like login/health. Catches anyone who used a raw `@router.post(...)` instead of the secure router.
+- **Request time** — the auth dependency (`Depends(require(permission))`) actually runs the authorization query before the handler.
+
+*ASP.NET Core* — most of this is built in, so there's less to hand-build:
+
+- **`FallbackPolicy`** — set a global fallback policy (`RequireAuthenticatedUser`) so any endpoint with *no* authorization attribute is denied by default; making a route public requires an explicit `[AllowAnonymous]` (opt-out, greppable). This is the deny-by-default goal without a custom startup scan.
+- **`[Authorize("order:refund")]`** — the `resource:action` permission maps onto a named policy; a dynamic `IAuthorizationPolicyProvider` mints the policy from the string so you don't register one per permission by hand.
+- **Single authorization handler** — an `AuthorizationHandler<PermissionRequirement>` runs the access query once for all permissions. It's **fail-closed by contract**: `context.Succeed()` is the only way to allow, so doing nothing = deny.
 
 **2. Row-Level Security — the database refuses foreign rows.** Even if a hand-written query forgets its `store_id` / `organization_id` filter, the database itself filters it out. Postgres RLS is set per request from the verified context (the org, and store when store-scoped) and applies to every query automatically — so a sloppy query can't leak another tenant's data. This is the floor *below* the application: query scoping is the first line, RLS is the can't-be-wrong backstop. See `database.md` for the RLS setup.
 
