@@ -313,5 +313,42 @@ system — each layer must assume the one before it can fail. "Cannot be hacked"
 - [ ] **Privilege-escalation guard on assignment.** Enforce the subset rule (can only grant
       ≤ your own permissions); see the role-assignment section and `post-mvp.md`.
 
+## Middleware & authz flow gaps (from review — to verify)
+
+Found while auditing the three checks (M1 authn, M2 tenancy, M3 authorization). Listed worst first.
+
+**High**
+- [ ] **Route ↔ header type agreement dropped from M2.** The design says `/orgs/...` routes
+      require `X-Target-Organization-Id` and `/stores/...` require `X-Target-Store-Id` (mismatch
+      → 400). The current M2 only checks "exactly one header present" — it no longer enforces the
+      header matches the route's tenant type, so a `/orgs/...` route could be hit with a store
+      header and resolve a store target. Re-add the route-type check; let the **route** decide
+      the expected `targetTenantType` and reject a mismatched header.
+- [ ] **Live-grant filter must bind to the SAME assignment that grants the permission.** In the
+      authz `EXISTS` query, `is_active`/`deleted_at` are on `membership` and `expires_at` is on
+      `membership_assignment`. The unexpired-assignment filter must apply to the *specific*
+      assignment whose role contains the required permission — not merely "the user has some
+      unexpired assignment AND (separately) some role with the permission." Otherwise an expired
+      assignment's permission could pass via a different live assignment. Make the join explicit
+      (assignment → role → permission all on one row).
+
+**Medium**
+- [ ] **M1: required claims not stated.** Spec that the token must contain well-formed `userId`
+      and `organizationId` (and only those are trusted); missing/garbage → 401.
+- [ ] **Re-verify `role.scope` vs target at authz time (defense in depth).** Scope-matches-place
+      is enforced at assignment time; the authz query trusts that invariant. Optionally also
+      require `role.scope` consistent with the membership's place, so a bad row (bug/migration/
+      direct write) can't leak an org role onto a store membership.
+
+**Low / clarity**
+- [ ] **M1:** also reject not-yet-valid tokens (`nbf`) and allow small clock skew on expiry.
+- [ ] **M2:** if stores have a lifecycle, check the target store is active/not-deleted (else 404),
+      not just that it belongs to the org.
+- [ ] **Conditions step target:** for create actions there's no loaded resource — clarify
+      conditions evaluate against the loaded resource *or* the request payload.
+- [ ] **(Note)** the earlier fail-fast "early membership gate" in tenancy was folded into the
+      step-3 membership check. Functionally fine; the defense-in-depth fast-deny on org targets
+      is gone — re-add to M2 if wanted.
+
 ## Non-negotiable summary
 1. IDOR check on every resource id (load → verify matches `context.targetTenantId` → 404 if not).
