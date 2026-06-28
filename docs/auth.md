@@ -136,37 +136,37 @@ John's access
 Because each record points at a real store or a real organization (a proper database link), a record can never refer to a place that doesn't exist, and deleting a place automatically removes its access records.
 
 
-
-
 # API Authentication and Authorization Flow
 
 This is the authentication and authorization flow each request must go through to verify if a user has permission to make the API request.
 
-### 1. JWT Token Validation Middleware — Authenticatio? 
+### 1. JWT Token Validation Middleware — Authentication
 
-This middleware only validates the JWT token is valid and not expired or tampered. It is the first check, if the token is invalid then nothing about it can be trusted and we should not proceed further, the user is NOT authenticated. return 401.
+This middleware only validates that the JWT token is valid and not expired or tampered with. It is the first check: if the token is invalid then nothing about it can be trusted and we should not proceed further — the user is NOT authenticated. Return **401**.
 
 **Validation Process**:
-      - **Signature is valid** (signed by us, not tampered).
-      - **Not expired.**
+- **Signature is valid** (signed by us, not tampered).
+- **Not expired.**
+- **Pin the expected algorithm** and **reject `alg: none`** — never let the token choose its own algorithm (blocks the `none` bypass and RS256→HS256 confusion attacks).
+- **Strong, rotated signing key** — a leaked key means every token is forgeable.
+- **Real revocation / short-lived tokens + refresh** — without it, a fired or suspended user's token keeps working until it expires, so `is_active = false` / `deleted_at` have no effect until then. For a money app this is mandatory, not optional.
 
-### 2. Tenancy Validation Middleware?
 
-This middleware is to validate the user has access to the target organization or store he is requesting to perform an action. In order to get the target organization or store, one and ONLY one of the following headers must be present, if both are present then return 403 immediately:
+### 2. Tenancy Validation Middleware — Authorization (boundary)
+
+This middleware validates that the **target** organization or store the user wants to act on is inside the user's own organization. To name the target, exactly **one** of the following headers must be present — if both (or neither) are present, return **400**:
 
 - **`X-Target-Store-Id`** — a store target.
 - **`X-Target-Organization-Id`** — the org target.
 
-Whats imporant to note here is that we are not validating if the user has actual authorization to perform the requested action on the target organization or store. We are only checking if the target organization is the one the user is in, or if the target store is the one in the users organization. This is a early guardrail to prevent a user wanting to perform an action on a target in a different organization. Now if a user does have access to the target, we dont check here if he can actually do the action on the target, for example: create product. That is something each api endpoint must validate if user has the proper role and permission to create a product.
+Important: this is **not** checking whether the user can perform the requested action (e.g. create a product) — only that the target belongs to their organization. It's an early guardrail against acting on a target in a *different* organization. Whether the user can actually do the action is checked per-endpoint in step 3.
 
 **Validation Process**:
 
-- If the header X-Target-Organization-Id is present, the UUID organization_id value of the header must be the same organization_id as in the users JWT token, a user can not act on another organization. 
-  - **`jwt_token.organization_id = X-Target-Organization-Id`**
-
-- If the header X-Target-Store-Id is present, the UUID store_id value of the header must be in the organization in the users JWT token, a user can not act on a store in a different organization. 
-      1. Organization_Stores = Get all stores in this user's organization -> `Select from store where organization_id = jwt_token.organization_id`
-      2. Verify the X-Target-Store-Id  exists in the list from step 1m `X-Target-Store-Id in Organization_Stores`
+- If **`X-Target-Organization-Id`** is present, it must equal the `organization_id` in the user's JWT token — a user can never act on another organization.
+  - `jwt_token.organization_id == X-Target-Organization-Id`  → else **403**
+- If **`X-Target-Store-Id`** is present, the store must belong to the user's org (from the token) — a user can never act on a store in a different organization.
+  - `store(X-Target-Store-Id).organization_id == jwt_token.organization_id`  → else **403** (or 404 if the store doesn't exist)
 
 After validating, the middleware stamps the resolved, **validated** values onto a request context that every downstream handler reads — handlers never re-read the raw headers (a header is an untrusted *claim*; the context is a *verified fact*):
 
@@ -175,35 +175,34 @@ context = {
   userId,                 // from the token
   organizationId,         // from the token (the boundary)
   targetTenantType,       // ORG | STORE  (which header was present + the route)
-  tenantId                // the validated org or store id
+  targetTenantId          // the validated org or store id
 }
 ```
 
 ```
 request →
-  M1 authn:    JWT signature valid + not expired? → no → 401
-  M2 tenancy:  
+  M1 authn:    JWT signature valid + not expired?                        → no → 401
+  M2 tenancy:  exactly one target header present?                        → no → 400
                validate target is inside the org:
-                X-Target-Organization-Id ==  token.organization_id ? → no → 403
-                store(X-Target-Store-Id).organization_id ==  token.organization_id ?  → no → 403
-               stamp context = { userId, organizationId, targetTenantType, tenantId }
-  → endpoint (authorization happens here — see below)
+                 X-Target-Organization-Id == token.organization_id?      → no → 403
+                 store(X-Target-Store-Id).organization_id
+                                          == token.organization_id?      → no → 403 (or 404 if missing)
+               stamp context = { userId, organizationId, targetTenantType, targetTenantId }
+  → endpoint (authorization happens — step 3 below)
 ```
 
-### 3. API Endpoint Validation - Authorization.
+### 3. Endpoint Authorization — can the user do this action here?
 
 Once we have confirmed the user is authenticated (step 1) and that the target organization or store is inside the user's organization (step 2), the endpoint does the final check: **is this user authorized to perform this specific action on this target?** Each endpoint declares the one permission it needs, and we verify the user holds it at the target.
 
 - API: `POST /products`, Permission: `product:create`
 - API: `POST /refunds`, Permission: `order:refund`
 
-The target was already resolved in step 2 into the context (`context.targetTenantType` = ORG | STORE, `context.tenantId` = the validated id), so every endpoint runs the same shared check — the rules never differ per endpoint.
+The target was already resolved in step 2 into the context (`context.targetTenantType` = ORG | STORE, `context.targetTenantId` = the validated id), so every endpoint runs the same shared check — the rules never differ per endpoint.
 
 **Authorization Process** (in order):
 
-**1. Owner short-circuit (root).** If the user is the organization's owner (`organization.owner_user_id`), allow immediately — the owner is root in their own org and skips the rest. (Loaded fresh from the DB using the validated `organizationId`, never from the token.)
-
-**2. Membership + permission check.** Find a **live** role the user holds that reaches the target tenant and contains the required permission. The target is explicit, so this is one uniform question — "does the user have a live membership *here* with a role that contains the permission?" — plus the blast-radius rule:
+**1. Membership + permission check.** Find a **live** role the user holds that reaches the target tenant and contains the required permission. The target is explicit, so this is one uniform question — "does the user have a live membership *here* with a role that contains the permission?" — plus the blast-radius rule:
 
 - **Direct** — a membership **at the target tenant** (the org if `targetTenantType = ORG`, or that store if `STORE`).
 - **Inherited** — if the target is a **STORE**, an **org** membership also reaches it (an org role applies to every store in the org). If the target is the **ORG**, only an org membership counts — a store-only user can never reach an org action.
@@ -215,8 +214,8 @@ EXISTS a row where:
     membership.user_id = context.userId
     AND (
           -- direct: a membership at the exact target tenant
-          (context.targetTenantType = STORE AND membership.store_id        = context.tenantId)
-       OR (context.targetTenantType = ORG   AND membership.organization_id = context.tenantId)
+          (context.targetTenantType = STORE AND membership.store_id        = context.targetTenantId)
+       OR (context.targetTenantType = ORG   AND membership.organization_id = context.targetTenantId)
           -- inherited: an org membership reaches a STORE target (blast radius)
        OR (context.targetTenantType = STORE AND membership.organization_id = context.organizationId)
         )
@@ -228,33 +227,21 @@ EXISTS a row where:
 ```
 No matching row → **403 Deny** (deny by default).
 
-**3. Conditions (ABAC gate — stretch goal).** If the matched role-permission has conditions (limits like "refund up to $500"), evaluate each against the action's target object:
-
-```
-for each condition (most-specific: store row else org row):
-    if NOT ( target[field]  operator  value )  →  403 Deny     -- e.g. order.amount <= 500
-```
-No conditions → skip (pure RBAC). A referenced field missing at runtime → **fail closed** (deny).
-
-**4. Allow.** All gates passed — the action proceeds.
+**Allow.** All gates passed — the action proceeds.
 
 ```
 endpoint authz (required permission declared by the route):
-  1. owner?      context.userId == organization.owner_user_id            → ALLOW
-  2. membership: a LIVE membership at the target (context.tenantId) (direct),
+  1. membership: a LIVE membership at the target (context.targetTenantId) (direct),
                  OR an org membership if targetTenantType = STORE (inherited),
                  whose role contains the required permission?            → none → 403
-  3. conditions: all conditions on that role-permission pass vs target?  → fail → 403
-  4.                                                                     → ALLOW
+  2. conditions: all conditions on that role-permission pass vs target?  → fail → 403
+  3.                                                                     → ALLOW
 ```
 
 **The things that must be right:**
-- **Inherited org access for STORE targets only** — an org admin/owner often has *no* store membership; their org role reaches the store. But an **ORG target requires an org membership** — a store-only user can't reach org actions. Get this asymmetry right.
+- **Inherited org access for STORE targets only** — an org admin often has *no* store membership; their org role reaches the store. But an **ORG target requires an org membership** — a store-only user can't reach org actions. Get this asymmetry right.
 - **Filter live grants** (`deleted_at IS NULL`, `is_active`, unexpired) — a removed, suspended, or expired grant must never count. Keep this in one shared resolver so no endpoint forgets it.
-- **IDOR on the target object** — if the action names a resource by id (e.g. the order being refunded), load it and confirm *its* `store_id`/`organization_id` matches `context.tenantId` before acting. You don't refund another store's order even with `order:refund`. (See Security gaps below.)
-
-
-
+- **IDOR on the target object** — if the action names a resource by id (e.g. the order being refunded), load it and confirm *its* `store_id`/`organization_id` matches `context.targetTenantId` before acting. You don't refund another store's order even with `order:refund`. (See Security gaps below.)
 
 
 # Security gaps & hardening (must-do before launch)
@@ -270,46 +257,8 @@ system — each layer must assume the one before it can fail. "Cannot be hacked"
       Attack: a Store-A cashier with refund rights sends `{ order_id: <a Store-B order> }` — token
       valid, tenancy passes, authz passes, and they refunded another store's order. **Every
       endpoint that takes a resource id must load it and verify its `store_id`/`organization_id`
-      matches `context.tenantId` — co-equal with the permission check, not a side note.** Return
+      matches `context.targetTenantId` — co-equal with the permission check, not a side note.** Return
       **404** (not 403) for resources outside the caller's tenant (403 confirms it exists).
 
-
-- [ ] **Harden JWT verification — this is where auth systems actually die.** "Valid signature +
-      not expired" must explicitly include:
-      - Reject **`alg: none`** and pin the **expected algorithm** (block RS256→HS256 confusion).
-      - Strong, rotated signing key; a leaked key = every token forgeable.
-      - **Real revocation / short-lived tokens + refresh.** Without it, a fired/suspended user's
-        token works until expiry — so `is_active = false` / `deleted_at` do nothing until then.
-        For a money app this is mandatory, not optional.
-
-## High
-
-- [ ] **Authz decision and the write must be atomic (TOCTOU).** Check-then-write can go stale.
-      For money ops, do the authorization check and the write (and the balance deplete) **in one
-      transaction with row locking** — or two concurrent refunds both pass and both deplete.
-- [ ] **Live-grant filter in ONE resolver.** The `deleted_at IS NULL AND is_active AND not
-      expired` filter is load-bearing; the exploit is a developer forgetting it on one query.
-      Enforce it in a single access-resolution function/view — never copy-pasted WHERE clauses.
-- [ ] **Rate limiting + account lockout** on login/token endpoints — without it, credential
-      stuffing and brute force are open.
-
-## Medium
-
-- [x] **Org-level action by a store-only user — RESOLVED by the explicit-target design.** The
-      target tenant is named explicitly in `X-Tenant-Id` (org or store), and authz requires a
-      membership *at that exact tenant*: an **org** target matches **only** org memberships, so a
-      store-only user can't reach an org action regardless of headers. (A store target also allows
-      org members, via inheritance.) Keep the asymmetry exactly as documented in the authz step.
-- [ ] **Don't trust anything security-relevant from the token beyond identity + org.** Roles and
-      permissions are resolved fresh per request (we do this — keep it; never cache them in the
-      token, or revocation/role changes won't take effect).
-- [ ] **Tenant-scoped error responses** — 404 (not 403) for cross-tenant resources, so errors
-      don't leak existence.
-
 ## Non-negotiable summary
-1. IDOR check on every resource id (load → verify in `context` → 404 if not).
-2. Hardened JWT (pin alg, reject `none`, rotate key, real revocation / short tokens).
-3. Owner short-circuit: DB-loaded by validated org, fail-closed.
-4. Authz + write atomic; balance deplete under a row lock.
-5. Live-grant filter in one resolver, never copy-pasted.
-6. Rate limiting + lockout on auth endpoints.
+1. IDOR check on every resource id (load → verify matches `context.targetTenantId` → 404 if not).
