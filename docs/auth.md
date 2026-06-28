@@ -168,45 +168,57 @@ Whats imporant to note here is that we are not validating if the user has actual
       1. Organization_Stores = Get all stores in this user's organization -> `Select from store where organization_id = jwt_token.organization_id`
       2. Verify the X-Target-Store-Id  exists in the list from step 1m `X-Target-Store-Id in Organization_Stores`
 
+After validating, the middleware stamps the resolved, **validated** values onto a request context that every downstream handler reads — handlers never re-read the raw headers (a header is an untrusted *claim*; the context is a *verified fact*):
+
+```
+context = {
+  userId,                 // from the token
+  organizationId,         // from the token (the boundary)
+  targetTenantType,       // ORG | STORE  (which header was present + the route)
+  tenantId                // the validated org or store id
+}
+```
+
 ```
 request →
   M1 authn:    JWT signature valid + not expired? → no → 401
   M2 tenancy:  
                validate target is inside the org:
                 X-Target-Organization-Id ==  token.organization_id ? → no → 403
-                store(X-Target-Store-Id).organization_id ==  token.organization_id ?  → no → 403 
+                store(X-Target-Store-Id).organization_id ==  token.organization_id ?  → no → 403
+               stamp context = { userId, organizationId, targetTenantType, tenantId }
   → endpoint (authorization happens here — see below)
 ```
 
 ### 3. API Endpoint Validation - Authorization.
 
-Once we have confirmed the user is authenticated, and that he has access to perform an action on the target organization or store. We need to now validate the user is authorized to perform the requested action on this endpoint. Each endpoint knows what permission it needs to continue proceeding, so we will check if the user has that for this target. Example
-- API: POST /products, Permission: 'product:create'
+Once we have confirmed the user is authenticated (step 1) and that the target organization or store is inside the user's organization (step 2), the endpoint does the final check: **is this user authorized to perform this specific action on this target?** Each endpoint declares the one permission it needs, and we verify the user holds it at the target.
 
+- API: `POST /products`, Permission: `product:create`
+- API: `POST /refunds`, Permission: `order:refund`
 
-**Authorization Process:**
--  by getting the header X-Target-Organization-Id or X-Target-Store-Id, if both are present then return 403 immediately
-      1. Check if the user have a membership on this target store or in this organization
-      2. Check if the user has any roles with permissions to perform the action the target.
+The target was already resolved in step 2 into the context (`context.targetTenantType` = ORG | STORE, `context.tenantId` = the validated id), so every endpoint runs the same shared check — the rules never differ per endpoint.
 
+**Authorization Process** (in order):
 
+**1. Owner short-circuit (root).** If the user is the organization's owner (`organization.owner_user_id`), allow immediately — the owner is root in their own org and skips the rest. (Loaded fresh from the DB using the validated `organizationId`, never from the token.)
 
-**Check the user has a role at the target tenant with the permission.** Because the target is explicit (`context.tenant`), this is uniform — "does the user have a live membership *here* that contains the permission?" — with one addition for the blast-radius rule:
+**2. Membership + permission check.** Find a **live** role the user holds that reaches the target tenant and contains the required permission. The target is explicit, so this is one uniform question — "does the user have a live membership *here* with a role that contains the permission?" — plus the blast-radius rule:
 
-- **Direct** — a membership **at the target tenant** (the org if `tenant.type = ORG`, or that store if `STORE`).
-- **Inherited** — if the target is a **store**, an **org** membership also reaches it (org roles apply to every store in the org). If the target is the **org**, only an org membership counts — a store user can never reach an org-level action (this is what closes the "org action without a store" gap: the org target requires an org membership).
+- **Direct** — a membership **at the target tenant** (the org if `targetTenantType = ORG`, or that store if `STORE`).
+- **Inherited** — if the target is a **STORE**, an **org** membership also reaches it (an org role applies to every store in the org). If the target is the **ORG**, only an org membership counts — a store-only user can never reach an org action.
 
-One query down `membership → membership_assignment → role → role_permission → permission`, filtered to live grants:
+One query down the chain `membership → membership_assignment → role → role_permission → permission`, filtered to live grants:
 
 ```
 EXISTS a row where:
     membership.user_id = context.userId
     AND (
           -- direct: a membership at the exact target tenant
-          (context.tenant.type = STORE AND membership.store_id        = context.tenant.id)
-       OR (context.tenant.type = ORG   AND membership.organization_id = context.tenant.id)
+          (context.targetTenantType = STORE AND membership.store_id        = context.tenantId)
+       OR (context.targetTenantType = ORG   AND membership.organization_id = context.tenantId)
           -- inherited: an org membership reaches a STORE target (blast radius)
-       OR (context.tenant.type = STORE AND membership.organization_id = context.organizationId)
+       OR (context.targetTenantType = STORE AND membership.organization_id = context.organizationId)
         )
     AND membership.deleted_at IS NULL AND membership.is_active = true   -- live membership
     AND (membership_assignment.expires_at IS NULL
@@ -216,10 +228,30 @@ EXISTS a row where:
 ```
 No matching row → **403 Deny** (deny by default).
 
+**3. Conditions (ABAC gate — stretch goal).** If the matched role-permission has conditions (limits like "refund up to $500"), evaluate each against the action's target object:
 
-**The two things that must be right:**
-- **Inherited org access for store targets only** — an org admin/owner often has *no* store membership; their org role reaches the store. But an **org target requires an org membership** — a store user can't reach org actions. Get this asymmetry right.
-- **Filter live grants** (`deleted_at IS NULL`, `is_active`, unexpired) — a removed, suspended, or expired grant must never count.
+```
+for each condition (most-specific: store row else org row):
+    if NOT ( target[field]  operator  value )  →  403 Deny     -- e.g. order.amount <= 500
+```
+No conditions → skip (pure RBAC). A referenced field missing at runtime → **fail closed** (deny).
+
+**4. Allow.** All gates passed — the action proceeds.
+
+```
+endpoint authz (required permission declared by the route):
+  1. owner?      context.userId == organization.owner_user_id            → ALLOW
+  2. membership: a LIVE membership at the target (context.tenantId) (direct),
+                 OR an org membership if targetTenantType = STORE (inherited),
+                 whose role contains the required permission?            → none → 403
+  3. conditions: all conditions on that role-permission pass vs target?  → fail → 403
+  4.                                                                     → ALLOW
+```
+
+**The things that must be right:**
+- **Inherited org access for STORE targets only** — an org admin/owner often has *no* store membership; their org role reaches the store. But an **ORG target requires an org membership** — a store-only user can't reach org actions. Get this asymmetry right.
+- **Filter live grants** (`deleted_at IS NULL`, `is_active`, unexpired) — a removed, suspended, or expired grant must never count. Keep this in one shared resolver so no endpoint forgets it.
+- **IDOR on the target object** — if the action names a resource by id (e.g. the order being refunded), load it and confirm *its* `store_id`/`organization_id` matches `context.tenantId` before acting. You don't refund another store's order even with `order:refund`. (See Security gaps below.)
 
 
 
@@ -238,7 +270,7 @@ system — each layer must assume the one before it can fail. "Cannot be hacked"
       Attack: a Store-A cashier with refund rights sends `{ order_id: <a Store-B order> }` — token
       valid, tenancy passes, authz passes, and they refunded another store's order. **Every
       endpoint that takes a resource id must load it and verify its `store_id`/`organization_id`
-      is inside `req.context` — co-equal with the permission check, not a side note.** Return
+      matches `context.tenantId` — co-equal with the permission check, not a side note.** Return
       **404** (not 403) for resources outside the caller's tenant (403 confirms it exists).
 
 
