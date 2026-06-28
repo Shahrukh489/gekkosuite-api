@@ -20,3 +20,8 @@ Customers in a store seperate database table
 3. Stores running promotions can give there customer account different discounts
 4. This brings the issue of doing customer loyalty, where he gets points based on purchases across all stores in the organization, for this we will add a loyalty feature where the organization can see customers with same email across different stores and grant rewards per store. 
 
+Organization makes purchases and expenses:
+1. Right now since an organization has a relationsihp with a vendor it should make purchases
+2. Stores dont have access to spend money to buy stuff not approved by organization, if they want a purchases they raise a ticket
+3. Gives org admin full contorl of where his money is going and he controls spending, stores make money on his behalf, but he spends to support them
+
