@@ -49,12 +49,10 @@ What the switcher shows depends on the user:
 Flat lists for now — we'll group them later when each tab is described. The same tab components are
 reused across contexts; the context scopes the data inside.
 
-**Organization context:**
+**Organization context** (central: procurement, spending, administration):
 - Dashboard
-- Products
-- Orders
 - Suppliers
-- Customers
+- Purchases
 - Expenses
 - Billing
 - Reports
@@ -62,14 +60,13 @@ reused across contexts; the context scopes the data inside.
 - Users
 - Settings
 
-**Store context:**
+**Store context** (selling: the store's own products, customers, sales):
 - Dashboard
 - Sell
 - Orders
 - Returns
 - Products
 - Customers
-- Expenses
 - Reports
 - Users
 - Settings
@@ -97,16 +94,16 @@ one role and fully editable for another, with no separate screen.
 Just their store (no switcher if it's one store), and only the tabs their role allows — e.g. Dashboard, Orders, Customers. No Users or Settings (no permission).
 
 **A store manager vs that cashier — same store, different view?**
-Yes. Same store, but the manager's role has more permissions, so they see more tabs (e.g. Products, Expenses, Users) and more actions inside them (refund, edit price). One UI, role decides the rest.
+Yes. Same store, but the manager's role has more permissions, so they see more tabs (e.g. Products, Users) and more actions inside them (refund, edit price). One UI, role decides the rest.
 
 **An org owner wants to work in one store — how?**
 They pick that store in the switcher. The app routes calls under `/stores/{storeId}/…` and shows the store tabs. Their org role reaches every store, so they have full access there.
 
 **How does the owner see the whole business?**
-They pick **Organization** in the switcher → the org tabs (Dashboard rollup, Products catalog, Customers, Suppliers, Billing, Stores, Users). The org Dashboard is the cross-store overview.
+They pick **Organization** in the switcher → the org tabs (Dashboard rollup, Suppliers, Purchases, Expenses, Billing, Stores, Users). The org Dashboard is the cross-store overview.
 
-**Same tab in org vs store — is it the same screen?**
-Yes — e.g. Customers is one screen. In the org it lists all customers; in a store it lists the customers used there. Context scopes the data; the screen is identical.
+**Why is there no Products or Customers tab in the org context?**
+Products and customers are store-owned, so they live in the store context. To see a store's products or customers, the owner switches to that store. (Org-wide views are a planned post-MVP sharing setting.)
 
 **Why can one user see a tab and another can't?**
 Tabs are hidden unless the user has a permission for them. So the sidebar always shows only what that person can actually do.

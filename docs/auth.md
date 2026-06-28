@@ -24,7 +24,6 @@ So: a user belongs *somewhere* (membership), is given *roles* there (membership_
 
 ## How is a user created and given access?
 
-**In short**
 A person's login and what they can do are two separate things. Creating a user just makes the login — they can't do anything until you give them access to a place and a role there.
 
 **How it works**
@@ -50,7 +49,6 @@ The login is the `user` row, carrying a `user_type` (`ORGANIZATION` or `STORE`).
 
 ## How do I revoke or suspend someone's access?
 
-**In short**
 You can dial access down by how permanent you want it — without ever deleting the person. The account always stays.
 
 **How it works**
@@ -71,7 +69,6 @@ Take-away = delete the `membership_assignment` (or let `expires_at` end it). Sus
 
 ## What is a role, and where do roles come from?
 
-**In short**
 A role is a named bundle of things a person is allowed to do (like "Cashier" or "Org Admin"). We build and ship the roles; customers assign them — they don't create their own (yet).
 
 **How it works**
@@ -89,7 +86,6 @@ Permissions are named `resource:action` (e.g. `product:read`, `order:refund`) an
 
 ## What happens to existing users when we update a managed role?
 
-**In short**
 The change applies to everyone with that role, immediately — there's nothing to re-assign.
 
 **How it works**
@@ -101,7 +97,6 @@ Custom roles (an org cloning a shipped role or building its own) are planned for
 
 ## How do users get roles at a store or the organization?
 
-**In short**
 You attach a role to a person *at a specific place* — "give Maria the Manager role at the Portland store."
 
 **How it works**
@@ -118,7 +113,6 @@ A grant is a `membership_assignment` (membership + role), optionally with `expir
 
 ## Can a store user ever gain organization-level access?
 
-**In short**
 No — and it's not a rule that can be forgotten or bypassed; it's how the system is built.
 
 **How it works**
@@ -130,7 +124,6 @@ A cashier who only belongs to Store A can never be given "Org Admin," because th
 
 ## How far does a role reach? (store vs org)
 
-**In short**
 A store role acts on **one store**. An org role acts on the **whole organization and every store in it**.
 
 **How it works**
@@ -146,7 +139,6 @@ do we need to allow that? I lean against it, if they want to see other store stu
 
 ## Who is the owner, and can their access be taken away?
 
-**In short**
 The person who signs up and creates the organization is its **owner**. They have full access, and **no one else can take it from them.**
 
 **How it works**
@@ -163,7 +155,6 @@ The owner is `organization.owner_user_id` (a column, not a `membership_assignmen
 
 ## How do we know everything a user can do, and where?
 
-**In short**
 At login we gather all the places a user belongs and the roles at each, and turn it into one simple list: where they can go, and what they can do there.
 
 **Example**
@@ -171,7 +162,7 @@ At login we gather all the places a user belongs and the roles at each, and turn
 Maria's access
  place        type    can do
  ----------   -----   -------------------------------------------
- Acme Inc     ORG     manage stores, manage users, edit any product
+ Acme Inc     ORG     manage stores, manage users, suppliers, purchases
  Seattle      STORE   read products, sell
  Portland     STORE   read products, sell, refund
 ```
@@ -213,10 +204,13 @@ context = {
 
 ## 2. Authorization — may this user do this action, here?
 
-Each endpoint declares the one permission it needs, and store-scoped endpoints carry the store in their **path** (`/stores/{storeId}/...`). The organization is never in the path — it's the tenant, taken from the token. Org-level endpoints (e.g. `/organization/products`) carry no place id; the org is implied.
+Each endpoint declares the one permission it needs, and store-scoped endpoints carry the store in their **path** (`/stores/{storeId}/...`). The organization is never in the path — it's the tenant, taken from the token. Org-level endpoints (e.g. `/organization/suppliers`) carry no place id; the org is implied.
 
-- `POST /organization/products`      → permission `product:create` (org action)
-- `POST /stores/{storeId}/refunds`   → permission `order:refund`   (store action, `storeId` from the path)
+Selling and everything a store owns (its products, customers, sales) are **store actions**. Procurement, suppliers, expenses, and managing stores/users are **org actions**.
+
+- `POST /stores/{storeId}/products`   → permission `product:create` (store action — the store's own products)
+- `POST /stores/{storeId}/refunds`    → permission `order:refund`    (store action)
+- `POST /organization/purchases`      → permission `purchase:create` (org action — org buys inventory)
 
 
 **Error convention:** anything outside the user's organization — a store in another org, or a resource not in the acted-on place — returns **404, never 403**, so existence isn't leaked. 403 is reserved for "this is yours, but you lack the permission."
@@ -229,7 +223,7 @@ if context.userType = STORE AND requiredPermission.is_elevated
                                                      →  403   -- store users can't do org-only actions
 ```
 
-The second guard is the clean version of "a store user can't act on the org": an org-only action requires an **elevated** permission, and a store user can never hold one — so we reject it up front, by the permission's own `is_elevated` flag (declared on the endpoint), rather than by guessing "is this an org route." Structurally it's already impossible (a store role can't contain an elevated permission), but checking it explicitly is one more runtime guard.
+The second guard is the clean version of "a store user can't do an org action": org actions (procurement, suppliers, expenses, creating stores or users) require an **elevated** permission, and a store user can never hold one — so we reject it up front, by the permission's own `is_elevated` flag (declared on the endpoint), rather than by guessing "is this an org route." Structurally it's already impossible (a store role can't contain an elevated permission), but checking it explicitly is one more runtime guard.
 
 `requiredPermission.is_elevated` is read off the permission the route already declares — `is_elevated` is a static property of each permission in the catalog, so this is a constant the endpoint exposes, **not an extra DB lookup**.
 
@@ -275,7 +269,7 @@ UPDATE / SELECT ... WHERE order_id = {orderId} AND store_id = {storeId}
   → no row → 404
 ```
 
-An order belonging to another store doesn't match `store_id = {storeId}`, so it returns **404** with no special handling — the isolation is the `WHERE` clause, not a thing a developer has to remember to add after loading. For an **organization** action, the same idea scopes to the org (`... AND organization_id = context.organizationId`), and an org user acting on a store resource scopes by that store's id from the path. This makes cross-store/cross-org access (the most common multi-tenant breach) structurally impossible: you can't fetch what your `WHERE` clause excludes.
+An order belonging to another store doesn't match `store_id = {storeId}`, so it returns **404** with no special handling — the isolation is the `WHERE` clause, not a thing a developer has to remember to add after loading. For an **organization** action, the same idea scopes to the org (`... AND organization_id = context.organizationId`). This makes cross-store/cross-org access (the most common multi-tenant breach) structurally impossible: you can't fetch what your `WHERE` clause excludes.
 
 This is as important as the permission check — **every endpoint that takes a resource id must do it.**
 
@@ -316,7 +310,7 @@ Together these turn "remember to add the check" into "the system won't run witho
 
 # Vulnerabilities to Review
 
-Open items from the auth-flow review. Items already handled in the SQL above (membership liveness filters, the `user_type` gate replacing the old `role.scope` match, store-existence note) are not repeated here.
+Open items from the auth-flow review.
 
 **Vulnerabilities**
 - There's no privilege-escalation guard on role assignment — nothing here stops an admin granting a role more powerful than their own (the subset rule lives only in `post-mvp.md`).
@@ -325,11 +319,10 @@ Open items from the auth-flow review. Items already handled in the SQL above (me
 **Weaknesses**
 - Authentication itself (login) is unspecified: no password-hashing choice, login rate limiting, account lockout, or MFA for admins handling money.
 - Token revocation is required but the mechanism (deny-list vs. short TTL + refresh) isn't decided, so a fired user's token lifetime is undefined.
-- "Return 404 not 403 so existence isn't leaked" is stated only for the IDOR check, not as a global convention, so other endpoints may still leak via 403.
-- `organization_id` immutability is trusted by M1 but never spec'd as DB-enforced, so the tenant boundary rests on an unguaranteed assumption.
+- `organization_id` immutability is trusted at authentication but never spec'd as DB-enforced, so the tenant boundary rests on an unguaranteed assumption.
 
 **Missing**
-- The Audit section is an empty stub — no security-relevant events (role grant/revoke, user create, owner transfer, refunds) are logged anywhere.
+- The Audit section is an empty stub — no security-relevant events (role grant/revoke, user create, owner transfer, refunds, purchases) are logged anywhere.
 - The Managed Roles and Permissions section is `TODO` — the seed roles and full permission catalog are undefined.
-- No concurrency/locking note for money actions (refunds, balance deplete) that this flow gates, so double-spend under simultaneous requests is unaddressed.
+- No concurrency/locking note for stock-affecting money actions (sales depleting stock, refunds restoring it) so double-spend under simultaneous requests is unaddressed.
 - No rate limiting on sensitive write endpoints (refunds, user creation) beyond the missing login throttle.

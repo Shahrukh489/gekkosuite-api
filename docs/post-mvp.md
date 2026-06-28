@@ -3,6 +3,28 @@
 Things intentionally deferred. Captured so we don't hard-code them as one-off behaviors and
 have to claw them back later.
 
+# Org-wide sharing of products and customers
+
+In MVP, products and customers are **store-owned** — each store keeps its own, isolated from other
+stores. This is the simplest, safest default. Some organizations will want the opposite: **one shared
+catalog and/or one shared customer base** across all their stores (a customer recognized at any store,
+a product carried by several).
+
+The plan: an **org-level setting** to turn on sharing — per entity (customers, products, or both).
+When on, an item created at one store can be promoted to org-wide visibility. Promotion is **gated by
+org approval**: the change raises a notification an org admin approves (or the org configures
+**auto-approve** to skip it). Open sub-questions for then:
+
+- **Dedup at share time** — matching the same customer (phone/email) or product (SKU) across stores so
+  sharing links rather than duplicates.
+- **Granularity** — all-or-nothing vs. per-entity (share customers but not catalog).
+- **Direction** — does sharing make a single org-owned record, or keep store records linked into a
+  shared view.
+
+This is deliberately deferred: build it when an organization actually needs cross-store sharing, not
+before.
+
+
 # Storefront and CRM
 Get a storefront online and manage products via this CRM
 
@@ -177,9 +199,9 @@ scattered as one-off handlers:
   *constraint* "an org needs a store to sell" stays a rule; the auto-creation is a workflow.)
 - **Managed-role assignment heads-up** — when an admin assigns a managed (`is_managed`) role,
   notify them its permissions may change over time. (`role.assigned` → notify.)
-- **Customer dedup / merge** — when a customer is first added at a store, match by phone/email
-  to link the existing org-level customer vs. create a new one. (`customer.create_attempt` →
-  find-or-link.)
+- **Customer dedup / merge** — only relevant once org-wide customer sharing is on (see *Org-wide
+  sharing* above): when a customer is added at a store, match by phone/email to link an existing
+  shared customer vs. create a new one. (`customer.create_attempt` → find-or-link.)
 - **Retention / cleanup** — scheduled: hard-delete soft-deleted memberships after N days;
   deactivate users with zero active memberships. (Scheduled workflows.)
 - **Plan-change side effects** — provisioning / welcome email / feature toggling when a store

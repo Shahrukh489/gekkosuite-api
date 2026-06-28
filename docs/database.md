@@ -286,15 +286,11 @@ CREATE TABLE store_tag (
 
 ## Store-owned entities (products, customers)
 
-Products and customers belong to **one store** — not shared across the org. Each store keeps its
-own product list and its own customers; other stores don't see them. This is the deliberate MVP
-choice: stores stay in their own domain, isolation is the default. (Org-wide sharing — one catalog /
-one customer base, with org approval — is a planned post-MVP setting; see `post-mvp.md`.)
+Products and customers belong to one store. Each store keeps its own product list and its own
+customers; other stores don't see them.
 
 ```sql
--- A product belongs to ONE store: its identity (sku, name), its price, and its stock all live
--- here. Store A's 'Coke' and Store B's 'Coke' are separate records. No org-level catalog.
--- Replaces the old org `product` + per-store `product_store` split.
+-- A product belongs to one store: its identity (sku), price, and stock all live here.
 CREATE TABLE store_product (
     store_product_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     store_id         BIGINT NOT NULL REFERENCES store (store_id),
@@ -304,57 +300,54 @@ CREATE TABLE store_product (
     UNIQUE (store_id, sku)   -- sku unique within the store
 );
 
--- A customer belongs to ONE store. Same person shopping at two stores = two customer records
--- (until org-wide sharing ships post-MVP). organization_id is denormalized for the tenant
--- boundary / RLS, but the OWNER is the store.
+-- A customer belongs to one store. organization_id is carried for the tenant boundary / RLS.
 CREATE TABLE customer (
     customer_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     store_id        BIGINT NOT NULL REFERENCES store (store_id),
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)  -- the store's org (boundary/RLS)
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
 
--- Supplier is an ORG-level vendor record. Procurement is centralized: only ORG users deal with
--- suppliers and create purchases (see purchase_order). Stores don't buy — they only sell.
+-- Supplier is an org-level vendor record. Only org users deal with suppliers and create purchases.
 CREATE TABLE supplier (
     supplier_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
 
--- Procurement is an ORG action: the organization buys inventory from a supplier. Only org users
--- create purchases; stores don't buy. No store_id — the purchase belongs to the org, not a store.
--- (How purchased stock then reaches a store's store_product is an OPEN question — see
--- to-be-decided.md, "Inventory distribution".)
+-- The organization buys inventory from a supplier. Only org users create purchases. store_id is
+-- optional: set it to attribute the purchase to a store (so a store admin can query their own),
+-- or leave it NULL for an org-wide purchase. description records why the purchase was made.
 CREATE TABLE purchase_order (
     purchase_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id   BIGINT NOT NULL REFERENCES organization (organization_id), -- the org that bought
-    supplier_id       BIGINT NOT NULL REFERENCES supplier (supplier_id),         -- the supplier bought from
+    organization_id   BIGINT NOT NULL REFERENCES organization (organization_id),
+    store_id          BIGINT REFERENCES store (store_id),         -- optional: the store this is for
+    supplier_id       BIGINT NOT NULL REFERENCES supplier (supplier_id),
+    description       TEXT,                      -- why this purchase was made
     total             NUMERIC(12, 2) NOT NULL,   -- order total
     status            TEXT NOT NULL,             -- e.g. ordered / received / cancelled
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Lines on an org purchase. Products are store-owned now (store_product), so a line can't simply
--- point at a store's product — what these reference (an org item list? free-text? the destination
--- store's product?) is an OPEN question tied to inventory distribution (see to-be-decided.md).
 CREATE TABLE purchase_order_product (
     purchase_order_id BIGINT NOT NULL REFERENCES purchase_order (purchase_order_id),
-    -- product reference: TBD (see to-be-decided.md, "Inventory distribution")
+    store_product_id  BIGINT NOT NULL REFERENCES store_product (store_product_id),
     quantity          INTEGER NOT NULL,
     unit_cost         NUMERIC(12, 2) NOT NULL,   -- cost per unit at purchase time
-    PRIMARY KEY (purchase_order_id)   -- TODO: composite once the product reference is decided
+    PRIMARY KEY (purchase_order_id, store_product_id)
 );
 
 
 
--- Non-inventory spending (furniture, computers, utilities, SaaS, accountant fees, etc.) —
--- money OUT that is NOT resold and does NOT touch stock. Like procurement, spending is
--- centralized: an expense is an ORG-level record created by ORG users only. Stores don't spend —
--- they only sell. (No store_id, no per-store expense_balance.)
+-- Non-inventory spending (furniture, computers, utilities, SaaS, accountant fees, etc.) — money
+-- OUT that is not resold and does not touch stock. Only org users record expenses. store_id is
+-- optional: set it to attribute the expense to a store (so a store admin can query their own),
+-- or leave it NULL for an org-wide expense. description records why.
 CREATE TABLE expense (
     expense_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),  -- the owning org
-    supplier_id     BIGINT REFERENCES supplier (supplier_id), -- the vendor (Amazon, Staples, ...); optional
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
+    store_id        BIGINT REFERENCES store (store_id),        -- optional: the store this is for
+    supplier_id     BIGINT REFERENCES supplier (supplier_id),  -- the vendor (Amazon, Staples, ...); optional
     category        TEXT NOT NULL,             -- e.g. 'furniture', 'equipment', 'utilities', 'software'
+    description     TEXT,                      -- why this expense was made
     amount          NUMERIC(12, 2) NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -364,8 +357,7 @@ CREATE TABLE expense (
 ## Store transactions (sales, returns)
 
 Selling happens at a store. Sales reference the store's own products (`store_product`) and its own
-customers, and the transaction belongs to the store. (Purchases and expenses are org-level — see
-above — because procurement and spending are centralized.)
+customers, and the transaction belongs to the store.
 
 ```sql
 CREATE TABLE sales_order (
@@ -434,8 +426,10 @@ CREATE INDEX ON plan_feature (feature_id);         -- plan_id covered by PK
 -- Org-level entities (suppliers; org-level money: purchases, expenses)
 CREATE INDEX ON supplier (organization_id);
 CREATE INDEX ON purchase_order (organization_id);
+CREATE INDEX ON purchase_order (store_id);     -- a store's purchases (when attributed)
 CREATE INDEX ON purchase_order (supplier_id);
 CREATE INDEX ON expense        (organization_id);
+CREATE INDEX ON expense        (store_id);     -- a store's expenses (when attributed)
 CREATE INDEX ON expense        (supplier_id);
 
 -- Store-owned entities (products, customers) + store sales (the big tables — these matter most)
@@ -480,9 +474,9 @@ CREATE ROLE app_user LOGIN;
 -- 3. Enable + FORCE RLS on every tenant-scoped table, then a policy filtering to the session tenant.
 --    FORCE so even the table owner is subject to it. Example for an org-scoped and a store-scoped table:
 
-ALTER TABLE customer ENABLE ROW LEVEL SECURITY;
-ALTER TABLE customer FORCE  ROW LEVEL SECURITY;
-CREATE POLICY customer_tenant ON customer
+ALTER TABLE supplier ENABLE ROW LEVEL SECURITY;
+ALTER TABLE supplier FORCE  ROW LEVEL SECURITY;
+CREATE POLICY supplier_tenant ON supplier
     USING (organization_id = current_setting('app.current_org')::bigint);
 
 ALTER TABLE sales_order ENABLE ROW LEVEL SECURITY;
@@ -491,9 +485,9 @@ CREATE POLICY sales_order_tenant ON sales_order
     USING (store_id = current_setting('app.current_store')::bigint);
 
 -- Apply the same pattern to every tenant-scoped table:
---   org-scoped   (filter on organization_id): customer, supplier, product, role(custom), expense, ...
---   store-scoped (filter on store_id):         product_store, sales_order, sales_order_return,
---                                              purchase_order, store expenses, ...
+--   org-scoped   (filter on organization_id): supplier, purchase_order, expense, role(custom), ...
+--   store-scoped (filter on store_id):         store_product, customer, sales_order,
+--                                              sales_order_return, ...
 -- Child/line tables (sales_order_product, ...) inherit isolation through their parent's FK, but add
 -- a policy too if they can ever be queried directly.
 ```
