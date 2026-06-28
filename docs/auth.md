@@ -89,6 +89,8 @@ Because users point at a role and the role points at its permissions (nobody kee
 
 Roles attach to a **membership** — "give role R to this user at this place" — by adding a `membership_assignment` on the user's membership. A user can hold several roles at a place, or none, and an assignment can optionally **expire** (`expires_at`) for temp/seasonal staff. **Only an org admin assigns roles** (store users don't assign).
 
+**No privilege escalation via assignment.** An admin must not be able to grant more power than they hold. The rule: **you can only grant a role whose permissions are a subset of your own** — so you can't hand out (or self-assign) a role stronger than yours, and you can't bootstrap to full power by granting yourself `role:assign`/owner. This is checked at grant time, server-side, against your *effective* permissions. (Full design in `post-mvp.md`; it becomes load-bearing the moment role assignment is delegated or custom roles ship.)
+
 
 ## How do we ensure a store user can never get organization access?
 
@@ -112,12 +114,17 @@ So the *same* permission reaches differently depending on the role's scope. `ord
 
 Permissions are explicit, never wildcards: a role lists exactly what it can do, and a new permission reaches nobody until it's added to a role.
 
-## Who is the root admin and owner is root?
+## Who is the owner (root)?
 
-The person who signs up and onboards the organization is the org's **root** user — they always have full org access, and it can't be stripped from them. They have the most powerful role: Organization Admin. Only they can give access
-of this role to other users, and no other user can strip it from them.
+The person who signs up and onboards the organization is the org's **owner** — recorded as `organization.owner_user_id`. The owner holds the most powerful role (Organization Admin) and their access **cannot be stripped by anyone else**.
 
-If someone else wants access to be root organization admin the current organization owner must update the organization settings to make them the new primary Organization admin.
+For that "cannot be stripped" guarantee to be real, it must be **enforced**, not just stated. The chosen mechanism:
+
+- The owner is identified by `organization.owner_user_id` (a column, not a grant).
+- The server **refuses to delete or deactivate the owner's org-admin `membership_assignment`** while they are the `owner_user_id` — any such request is rejected. (The owner's power lives in being the owner; the assignment just makes it concrete and can't be removed out from under them.)
+- The **only** way the owner changes is a deliberate **ownership transfer**: the current owner updates `organization.owner_user_id` to another user (who must already be an org admin). This is a privileged, audited action only the current owner can perform.
+
+So no admin — not even another Organization Admin — can revoke the owner's access or seize ownership; only the owner can hand it over.
 
 
 ## How do we know what a user can do, and where?
@@ -134,6 +141,21 @@ John's access
 ```
 
 Because each record points at a real store or a real organization (a proper database link), a record can never refer to a place that doesn't exist, and deleting a place automatically removes its access records.
+
+
+## How does login work, and how is it hardened?
+
+A user logs in with credentials; on success we issue the JWT the rest of the flow trusts. **Issuing the token is where the most common breaches happen**, so this path must be hardened (most of these are server/endpoint concerns, not schema):
+
+- **Password storage** — hash with a slow, salted algorithm (**argon2id** or **bcrypt**); never plaintext/MD5/SHA-1. Store in a `password_hash` column on `user`.
+- **Rate limiting** — throttle login attempts per account and per IP, to blunt credential stuffing and brute force.
+- **Account lockout / backoff** — temporary lockout or escalating delay after repeated failures.
+- **MFA** — at least for **org admins and the owner** (they control users, roles, funds). Strongly recommended for everyone.
+- **Password reset** — single-use, expiring, signed reset tokens; treat reset as its own attack surface (don't reveal whether an email exists).
+- **Token lifetime** — keep access tokens short-lived with a refresh token, so revocation/suspension takes effect quickly (see M1's revocation note).
+- **Login auditing** — record successes and failures (who, when, IP) for forensics.
+
+These are the **authentication** controls; everything after login (M1–M3 below) is about *trusting and using* the token, not issuing it.
 
 
 # API Authentication and Authorization Flow
@@ -227,21 +249,38 @@ EXISTS a row where:
 ```
 No matching row → **403 Deny** (deny by default).
 
-**Allow.** All gates passed — the action proceeds.
+**2. Resource ownership check (IDOR — mandatory, not optional).** If the action names a specific resource by id (the order to refund, the product to edit), **load that resource and verify it belongs to the target tenant** before acting:
+
+```
+load the resource by id
+if resource.store_id / resource.organization_id != context.targetTenantId  →  404
+```
+
+A valid `order:refund` at Store A does **not** let you refund a Store-B order — without this check, a user can act on another tenant's data through an id they were never authorized for (the #1 multi-tenant breach). Return **404** (not 403) for resources outside the tenant, so existence isn't leaked. This step is co-equal with the permission check — every endpoint that takes a resource id must do it.
+
+**3. Conditions (ABAC gate — stretch goal).** If the matched role-permission has conditions (limits like "refund up to $500"), evaluate each against the resource:
+
+```
+for each condition:  if NOT ( resource[field]  operator  value )  →  403 Deny
+```
+No conditions → skip (pure RBAC). A referenced field missing at runtime → **fail closed** (deny).
+
+**4. Allow.** All gates passed — the action proceeds.
 
 ```
 endpoint authz (required permission declared by the route):
   1. membership: a LIVE membership at the target (context.targetTenantId) (direct),
                  OR an org membership if targetTenantType = STORE (inherited),
                  whose role contains the required permission?            → none → 403
-  2. conditions: all conditions on that role-permission pass vs target?  → fail → 403
-  3.                                                                     → ALLOW
+  2. IDOR:       resource(id).tenant == context.targetTenantId?         → no   → 404
+  3. conditions: all conditions on that role-permission pass vs target?  → fail → 403
+  4.                                                                     → ALLOW
 ```
 
 **The things that must be right:**
 - **Inherited org access for STORE targets only** — an org admin often has *no* store membership; their org role reaches the store. But an **ORG target requires an org membership** — a store-only user can't reach org actions. Get this asymmetry right.
 - **Filter live grants** (`deleted_at IS NULL`, `is_active`, unexpired) — a removed, suspended, or expired grant must never count. Keep this in one shared resolver so no endpoint forgets it.
-- **IDOR on the target object** — if the action names a resource by id (e.g. the order being refunded), load it and confirm *its* `store_id`/`organization_id` matches `context.targetTenantId` before acting. You don't refund another store's order even with `order:refund`. (See Security gaps below.)
+- **Never skip the IDOR step (2)** — the permission check proves "can do X in this tenant," not "can do X to *this specific record*." A request can name a resource id from another tenant; only step 2 catches it.
 
 
 # Security gaps & hardening (must-do before launch)
@@ -259,6 +298,20 @@ system — each layer must assume the one before it can fail. "Cannot be hacked"
       endpoint that takes a resource id must load it and verify its `store_id`/`organization_id`
       matches `context.targetTenantId` — co-equal with the permission check, not a side note.** Return
       **404** (not 403) for resources outside the caller's tenant (403 confirms it exists).
+      (Now also documented as step 2 of the Endpoint Authorization process above.)
+
+## Medium
+
+- [ ] **Tenant-scoped error convention.** Cross-tenant or not-found → **404, never 403** —
+      a 403 confirms the resource exists. Apply this uniformly so errors don't leak existence.
+- [ ] **`organization_id` must be DB-immutable.** M1 trusts the token's `organization_id`
+      *because* `user.organization_id` never changes. There must be **no update path** for it
+      (enforce in the app/DB) — if it could be changed, the whole token-trust boundary breaks.
+- [ ] **Audit security-relevant events.** Role grant/revoke, user create, **ownership
+      transfer**, condition edits, and balance changes must be audited (who, when, what).
+      See the audit-log TODO in `database.md`.
+- [ ] **Privilege-escalation guard on assignment.** Enforce the subset rule (can only grant
+      ≤ your own permissions); see the role-assignment section and `post-mvp.md`.
 
 ## Non-negotiable summary
 1. IDOR check on every resource id (load → verify matches `context.targetTenantId` → 404 if not).
