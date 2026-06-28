@@ -1,3 +1,5 @@
+@TODO: users have type now so add that in here
+
 # UI Design
 
 One app, one set of screens. The **store switcher** sets the *context* (organization vs a store),
@@ -29,6 +31,7 @@ store. The organization sits at the top, with each store the user can reach belo
   └─ 🏪 Store C
 ```
 
+ @TODO: this cant always be correct because /customers is not store level, should I put under /organizations/customers? 
 This maps directly to the API (`auth.md`): selecting a **store** routes calls under
 `/stores/{storeId}/…`; selecting the **organization** routes them under the org-level paths. The
 organization itself always comes from the user's token, never the URL. Switching context

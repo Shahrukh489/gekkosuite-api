@@ -24,7 +24,7 @@ Bill = 3 × $150 = $450
 
 ## Why per-store pricing at the org level
 
-It's the simplest thing that matches how these businesses think: one subscription for the company, priced by how many stores they run. The org picks a plan once; adding a store just adds one more unit to the bill and the new store automatically has every feature. No per-store plan management, no stores on different tiers — which is right for a tightly-coupled single company.
+It's the simplest thing that matches how these businesses think: one subscription for the company, priced by how many stores they run. The org picks a plan once; adding a store just adds one more unit to the bill and the new store automatically has every feature.
 
 
 ## How features reach a store

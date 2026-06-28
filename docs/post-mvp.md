@@ -6,6 +6,9 @@ have to claw them back later.
 # Storefront and CRM
 Get a storefront online and manage products via this CRM
 
+# AI based creator like lovable but create home page, seller store and get CRM access 
+and create all products and employees easily
+
 
 # Customer login portal
 

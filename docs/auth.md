@@ -3,16 +3,10 @@
 How people sign in, how they get access to stores and the organization, and how we decide what they're allowed to do where.
 
 
-## The model in one picture
-
- Read it left to right:
+## Architecture 
 
 ```
 user  ──<  membership  ──<  membership_assignment  >──  role  ──<  role_permission  >──  permission
-(login +   (belongs at        (a role assigned          (bundle of   (the role's          (resource:
- type:      one place:         on that membership,       perms +      permissions)         action,
- ORG/STORE) a store or         optionally expiring)      a type:                           scope-free,
-            the org)                                     ORG/STORE)                         is_elevated)
 ```
 
 The **type** (ORGANIZATION or STORE) runs through the chain: a user's type, the membership's place, and the role's type all line up — a store user gets store roles, an org user gets org roles. Permissions don't have a type; instead an elevated permission can only sit in an org role, while a normal one fits either.
@@ -70,6 +64,7 @@ Four levels, from narrowest to widest:
 **Example**
 A cashier goes on leave → *disable their account* (off everywhere). They're just pulled from one store → *suspend at that place*. They quit → *remove* them from the store. You gave a cashier refund rights by mistake → just *take away that role*.
 
+ @TODO: make more clear
 **Under the hood**
 Take-away = delete the `membership_assignment` (or let `expires_at` end it). Suspend one place = `membership.is_active = false`. Disable the account = `user.is_active = false` (the kill switch above all memberships — effective access needs both `user.is_active` and the place's `membership.is_active`). Remove = soft-delete the membership (`deleted_at`). The `user` row itself is never deleted.
 
@@ -111,6 +106,8 @@ You attach a role to a person *at a specific place* — "give Maria the Manager 
 
 **How it works**
 An org admin assigns the role; it lands on the person's membership at that place. One person can hold several roles at a place, or none. A role can also be set to **expire** automatically — handy for temporary or seasonal staff.
+A role has a scope that must match the user's type. A store user can never have an organization role, and a
+organization user can never have a store role.
 
 **Good to know**
 Assigning roles needs the `role:assign` permission, which today only the Org Admin role has.
@@ -144,6 +141,9 @@ The *same* permission reaches differently depending on the role that holds it. `
 - Org Admin with `product:edit` → can edit any store's products.
 
 
+@TODO: a gap could be that a read-only organization user always wants to be store admin.
+do we need to allow that? I lean against it, if they want to see other store stuff give them that stores access
+
 ## Who is the owner, and can their access be taken away?
 
 **In short**
@@ -155,7 +155,7 @@ The owner is marked on the organization itself, not given as an ordinary grant �
 The only way ownership changes is a deliberate **transfer**: the current owner hands it to someone else (who must already be an org admin). No other admin can revoke the owner's access or seize ownership.
 
 **Example**
-A disgruntled co-admin tries to remove the founder's access → the request is rejected. The founder later sells the business → they transfer ownership to the new owner, which is recorded and audited.
+A co-admin tries to remove the founder's access → the request is rejected. The founder later sells the business → they transfer ownership to the new owner, which is recorded and audited.
 
 **Under the hood**
 The owner is `organization.owner_user_id` (a column, not a `membership_assignment`). Transfer = updating that column; it's a privileged, audited action only the current owner can do.
@@ -180,12 +180,11 @@ Maria's access
 Every entry points at a real store or organization, so it can never reference a place that doesn't exist — and deleting a place automatically clears the access tied to it.
 
 
-
 # API Authentication and Authorization Flow
 
 This is the authentication and authorization flow each request must go through to verify if a user has permission to make the API request.
 
-The flow is two layers: **authenticate** (who are you?) then **authorize** (may you do this here?). There is no separate "tenancy" middleware that inspects target headers — the tenant (the organization) comes from the token, the target store comes from the route, and the org-boundary is baked directly into the one authorization query.
+The flow is two layers: **authenticate** (who are you?) then **authorize** (may you do this here?).
 
 ## 1. Authentication — validate the JWT, load identity, build context
 
@@ -211,6 +210,8 @@ context = {
   isActive           // account kill switch — read FRESH from the user row
 }
 ```
+ @TODO what if the route is /customers shuld we put under /organiozatino/customers?if so how will store 
+ role work on these routes?
 
 ## 2. Authorization — may this user do this action, here?
 
@@ -219,7 +220,6 @@ Each endpoint declares the one permission it needs, and store-scoped endpoints c
 - `POST /organization/products`      → permission `product:create` (org action)
 - `POST /stores/{storeId}/refunds`   → permission `order:refund`   (store action, `storeId` from the path)
 
-There's no central middleware guessing which routes have a `storeId` — the endpoint that has one is the one that knows it's store-scoped, so the check lives with it (via a shared guard/helper the route declares). The endpoint hands the authorization the user's identity (from context), the required permission, and the `storeId` from its path if it has one.
 
 **Error convention:** anything outside the user's organization — a store in another org, or a resource not in the acted-on place — returns **404, never 403**, so existence isn't leaked. 403 is reserved for "this is yours, but you lack the permission."
 
