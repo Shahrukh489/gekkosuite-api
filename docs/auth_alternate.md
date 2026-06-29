@@ -378,6 +378,51 @@ query automatically. Query scoping is the first line; RLS is the can't-be-wrong 
 `database.md` for the setup.
 
 
+# When to consider this design
+
+The whole thing turns on **one** question: *should a single person be able to be both an org user and a
+store user at the same time?*
+
+Because a user here is placed only by the memberships they hold, this design **allows that** — the same
+person can hold an org membership *and* store memberships at once, and "promoting" a store employee to
+also oversee the company is just **adding an org membership** (no migration, no new account). That
+flexibility is the reason to pick it.
+
+If instead you want a hard, permanent rule that a person is *either* an org user *or* a store user and
+can never be both, you'd stamp the type on the user record itself. That's a different design (a fixed
+`user_type` on the user); reach for it when the one-type wall must be structural and unbreakable.
+
+Everything else is the same. On security-critical behavior — shared-table writes (governed by
+`is_elevated` + the org's sharing setting), elevated org-only actions, IDOR query-scoping, RLS, the
+owner model — the two are equivalent. The *only* thing that meaningfully differs is whether one person
+can span both levels.
+
+## Getting the "one membership-kind per user" rule without a `user_type` column
+
+You can have the rigid behavior **and** keep this design (no type on the user) with an org setting
+enforced at write time:
+
+> **`allow_user_cross_memberships`** (org setting)
+> - **ON** — no restriction; a user may hold an org membership *and* store memberships at once (this
+>   design's default, flexible behavior).
+> - **OFF** — at the moment a membership is *added* to a user, enforce the rule:
+>   - if the user already has an **org** membership → refuse to add a **store** membership;
+>   - if the user already has any **store** membership → refuse to add an **org** membership.
+
+So when it's OFF, each user is effectively locked to a single kind — the same outcome as a fixed
+`user_type` — but the constraint lives in the **org's setting plus a write-path check**, not a
+permanent column on the user. Turn it back on and users can span both again.
+
+Two things to keep straight:
+
+- The gate is on **org-vs-store crossing only**. Multiple *store* memberships are always fine (Maria
+  can be Cashier at Seattle and Manager at Portland) — the rule only stops mixing a store membership
+  with an org membership.
+- It's enforced **at write time** (when assigning the membership), so a violating combination never
+  gets created. Nothing in the request flow changes — authorization still just reads whatever
+  memberships exist.
+
+
 # How real systems do this
 
 This model — identity placed by membership, roles typed by level — is the mainstream industry pattern.
