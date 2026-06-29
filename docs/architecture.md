@@ -56,6 +56,9 @@ capability and what it lets that side do.
 | Store-only scope | A store user only ever acts on their own store's data — never another store's, never the org's. |
 
 
+**Important** During onboarding ask user settings if he wants customer and products shared.
+if so then allow it from getgo
+
 # Documentation map
 
 The detail lives in focused docs:

@@ -24,6 +24,48 @@ org approval**: the change raises a notification an org admin approves (or the o
 This is deliberately deferred: build it when an organization actually needs cross-store sharing, not
 before.
 
+## How shared customers work (the safe pattern)
+
+When an org turns sharing on for customers, a store user can create/edit a customer that **all** the
+org's stores see. This does **not** need any new actor-type branching — it's the same flat permission
+check plus the org's setting. The rules:
+
+1. **The org admin enables it.** A `customer:create` request from a store user is only allowed to write
+   a *shared* (org-level) customer if the org's **share-customers setting is on**. Off (the default) →
+   the customer stays store-owned. The setting is the switch; the user's type doesn't change.
+
+2. **The permission must NOT be elevated.** `customer:create` stays a normal (non-elevated) permission
+   so it can live in a **store role**. (If it were elevated, store users couldn't hold it at all — which
+   is the opposite of what shared-customers wants.) So the only thing gating store users from customers
+   is whether their role includes the permission — not the permission's level.
+
+3. **The check at the endpoint** is just two things — no branch on `user_type`:
+   ```
+   allow create/edit customer if:
+     a. the user holds customer:create (or customer:edit) via a LIVE role, AND
+     b. customer.organization_id == context.organizationId      (tenant boundary)
+   ```
+   That's it. A store user with the permission qualifies; the customer must be in their own org.
+
+4. **`organization_id` comes from the token, never the request body.** A new customer's
+   `organization_id` is set server-side from `context.organizationId`. A store user can therefore only
+   ever create a customer in *their own* org — they can't pass a different org id to write into another
+   tenant. This single rule is what makes the flat check safe.
+
+5. **RLS on `customer` follows the mode:**
+   - **Shared mode (setting on):** `customer` is org-scoped — the RLS policy filters on
+     `app.current_org` (`organization_id = current_setting('app.current_org')`). Any store user in the
+     org sees the shared customers.
+   - **Isolated mode (setting off, the MVP default):** `customer` is store-scoped — the policy filters on
+     `app.current_store` (`store_id = current_setting('app.current_store')`), so a store user sees only
+     their store's customers.
+
+   So the table carries both `organization_id` (always — the tenant boundary) and `store_id` (the owning
+   store in isolated mode), and the RLS policy shape is chosen by the org's sharing setting.
+
+The same pattern applies to shared products (an org-wide catalog) — flat permission + the org's setting
++ org-from-token + org-scoped RLS when sharing is on.
+
 
 # Storefront and CRM
 Get a storefront online and manage products via this CRM
