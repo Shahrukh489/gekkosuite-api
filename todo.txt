@@ -1,0 +1,5 @@
+the api design for shared resources like customers
+database and ui doc review
+ux mockup high level
+simplify post-mvp file
+security review of auth.md

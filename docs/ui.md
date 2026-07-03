@@ -110,25 +110,88 @@ Inside a tab, **permissions also decide the actions**: the tab may show, but but
 for one role and fully editable for another — no separate screen.
 
 
-## FAQ
+# FAQ
 
-**A cashier logs in — what do they see?**
-Just their store (no switcher if it's a single store), and only the tabs their role allows — e.g. Dashboard, Orders, Customers. No Users or Settings, since they lack the permission.
+## A cashier logs in — what do they see?
 
-**A store manager vs that cashier — same store, different view?**
-Yes. Same store, but the manager's role has more permissions, so they see more tabs (e.g. Products, Users) and more actions inside them (refund, edit price). One UI; the role decides the rest.
+A single store (with no switcher, since they belong to just one), and only the tabs their role's
+permissions unlock. Everything they lack a permission for is simply hidden.
 
-**An org owner wants to work in one store — how?**
-They pick that store in the switcher. The app routes calls under `/stores/{storeId}/…` and shows the store tabs. Their org membership reaches every store, so they have full access there.
+**Example**
+Sara is a Cashier at Store A. Her role holds `order:read`, `sale:create`, and `customer:read`, so she
+sees **Dashboard, Sell, Orders, Customers**. She has no `user:*` or settings permissions, so **Users**
+and **Settings** never appear. She doesn't have to know they exist — the sidebar shows only her job.
 
-**How does the owner see the whole business?**
-They pick **Organization** in the switcher → the org tabs (Dashboard rollup, Suppliers, Purchases, Expenses, Billing, Stores, Users). The org Dashboard is the cross-store overview.
 
-**Why is there no Products or Customers tab in the org context?**
-Products and customers are created and managed at a store, so they live in the store context. To work on them, the owner switches to that store. When sharing is on they're recognized across every store, but they're still managed from the store context — there's no separate org-level Products or Customers screen.
+## Same store, different roles — do two people see different things?
 
-**Why can one user see a tab and another can't?**
-Tabs are hidden unless the user has a permission for them, so the sidebar always shows only what that person can actually do.
+Yes. The store is the same; the **role decides the view**. More permissions means more tabs, and more
+actions inside each tab. This is the UI reading the exact same permissions that authorize the API
+(see *Authorization* in `auth.md`) — the tab and the button both check a permission.
 
-**A user works at two stores — how do they switch?**
-Both stores appear in the switcher; picking one re-scopes every tab to that store. Their roles can differ per store (Cashier at one, Manager at another).
+**Example**
+At Store A, Sara (Cashier) and Marcus (Manager) share one store context. Marcus's role adds
+`product:edit` and `order:refund`, so he also sees the **Products** tab and — inside **Orders** — a
+**Refund** button and an **Edit price** control. Sara sees neither. One screen, two experiences, no
+separate "manager app."
+
+
+## An org owner wants to work inside one store — how?
+
+They pick that store in the switcher. The app then routes under `/stores/{storeId}/…` and shows the
+store tabs, scoped to that store. Because an **organization membership reaches every store in the org**
+(`auth.md`), the owner has full access there without needing a separate store membership.
+
+**Example**
+Diego holds an organization membership with the Org Admin role. He picks **Store B** in the switcher →
+the store tabs appear, showing Store B's data. He can sell, edit products, and refund there, just as if
+he were a Store B manager — his org membership already grants store reach across the org.
+
+
+## How does the owner see the whole business at once?
+
+They pick **Organization** in the switcher. That swaps the sidebar to the org tabs — Dashboard rollup,
+Suppliers, Purchases, Expenses, Billing, Stores, Users, Settings — and every tab's data is the
+company-wide view. The org **Dashboard** is the cross-store overview.
+
+**Example**
+From the **Organization** context Diego opens **Reports** and sees sales rolled up across Stores A, B,
+and C together, then opens **Purchases** to record a supplier order for the company. None of this is
+reachable from a store context — org work lives only at the org level (`auth.md`).
+
+
+## Why is there no Products or Customers tab in the org context?
+
+Because products and customers are **created and managed at a store**, so those tabs live in the store
+context. To work on them, switch into the relevant store. Turning on sharing doesn't add an org-level
+screen — a shared product or customer is still managed from a store; sharing only changes whether the
+other stores also recognize it (see `tenancy.md` and the dual-write in `auth.md`).
+
+**Example**
+With `share_customers` on, Sara adds a customer at Store A. That customer is now recognized at Stores B
+and C too — but everyone still edits it from a **store's** Customers tab. There's no "org customers"
+screen; the owner who wants to see it just switches into any store.
+
+
+## Why can one user see a tab when another can't?
+
+Every tab is gated by a permission, and tabs a user lacks are hidden rather than greyed out — so the
+sidebar always reflects exactly what that person can do. This is the same deny-by-default idea the API
+uses (`auth.md`): no permission, no access — and here, no permission, no tab.
+
+**Example**
+**Users** requires a `user:*` permission. Marcus (Manager) doesn't hold one, so the tab is absent from
+his sidebar entirely — he never sees a button he can't use.
+
+
+## A user works at two stores — how do they switch, and can their access differ?
+
+Both stores appear in the switcher; picking one re-scopes every tab to that store. Their **role can
+differ per store**, because access is per-membership (`auth.md`), so the tabs and actions change as
+they switch.
+
+**Example**
+Maria is a Cashier at Seattle and a Manager at Portland (one login, two store memberships — see the
+create-user example in `auth.md`). In **Seattle** she sees the cashier view (no Products, no Refund);
+she switches to **Portland** and the Manager tabs and actions appear. Same login, different reach at
+each place.
