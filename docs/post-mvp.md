@@ -67,17 +67,17 @@ The same pattern applies to shared products (an org-wide catalog) — flat permi
 + org-from-token + org-scoped RLS when sharing is on.
 
 
-# Storefront and CRM
+# FEATURE:  Storefront and CRM
 Get a storefront online and manage products via this CRM
 
-# AI based creator like lovable but create home page, seller store and get CRM access 
+# FEATURE: AI based creator like lovable but create home page, seller store and get CRM access 
 and create all products and employees easily
 
 
-# Customer login portal
+# FEATURE: Customer login portal
 
 
-## Conditions on a permission (limits like "refund up to $500") — stretch goal (maybe MVP)
+# FEATURE: ABAC Conditions on a permission (limits like "refund up to $500") — stretch goal (maybe MVP)
 
 A role's permission can carry **conditions** — limits checked at the moment the action happens. The classic case: a Cashier *may* refund, but only up to $500; a Manager up to $5000. Same permission (`order:refund`), different limit per role. This is lightweight ABAC layered on the RBAC, and it may be the thing that **replaces custom roles** (see `post-mvp.md`): customers tune limits on the roles we ship rather than authoring roles.
 
@@ -133,14 +133,8 @@ One generic evaluator: `dto[field]  <operator>  value`. **No per-condition code*
 
 A **Store Admin cannot edit limits** — if a store manager wants a higher cap for their employees, they ask the org admin. This keeps it simple and **structurally removes any self-escalation risk**: the only editors are org-level, always setting limits *down* to a store, never their own. (If store-admin self-service is ever wanted, it's an additive change — grant `role_condition:edit` to a store role and add per-permission bounds so they can only move within an owner-set ceiling — but we deliberately don't do that now.)
 
-### Safety
 
-- **No conditions = pure RBAC.** The ABAC gate is a no-op when there are no rows — today's behavior, unchanged.
-- **We own the operator.** The customer only sets a value — a cap can't be flipped into a floor.
-- **Only org admins edit values**, always scoped down to a store — so no one can raise their own limit.
-
-
-# Custom Roles
+# FEATURE: Custom Roles
 
  **Escalation on role *assignment*** (when admins delegate / custom roles arrive) — no
   rule prevents an admin granting a role more powerful than their own, or handing out
@@ -170,50 +164,10 @@ A **Store Admin cannot edit limits** — if a store manager wants a higher cap f
   separate elevated-role flag. Build this when delegation / custom roles ship.
 
 
-# Promoting a store person to also run the org
-
-A user has no fixed type — they're placed by their memberships (see `auth.md`) — so "promoting" a
-store employee to oversee the company is simply **adding an organization membership** with an org
-role. No migration, no new account.
-
-Whether one person may hold both a store membership and an org membership at once is the
-`organization.allow_user_cross_memberships` setting (default off). The deferred piece here is only the
-**UX around toggling that setting on and adding the org membership** — a guided flow for an org admin,
-audited as a security-relevant event (it grants company-wide reach). No schema change is needed; the
-mechanism already exists.
 
 
-# Store admins create store users
 
-In MVP only an org admin can create users. Note that `user:create` is **elevated** (org-only) today,
-so it lives on org roles alone. Post-MVP, a store admin can be given the ability to add employees too
-— but **restricted to store memberships**: they may create a user and place them on the admin's own
-store(s), never give them an organization membership. This lets a store run its own hiring without
-ever minting someone with company-wide reach. The restriction is part of the create/assign path: a
-store-level holder may only attach **store** memberships (with store roles), never an org membership.
-
-This is **not** a separate-tenant feature — it's the ordinary create-user flow (see `auth.md`),
-just scoped to the inviting store admin. It stays inside the one org tenant; a store is still a
-resource, not a tenant. Key decisions for when it's built:
-
-- **Store membership only** — a store admin can only place the new user on a store membership, never
-  an organization one (that's the escalation hole this closes). Enforced on the assign path, not
-  trusted from the request.
-- **Membership locked to the inviter's own store** — the new membership's `store_id` must be a
-  store the inviter holds `role:assign` at, not an arbitrary id from the request (same principle
-  as the IDOR check: the target store is validated, never trusted).
-- **Role subset (escalation) guard** — they can only grant a STORE role whose permissions are a
-  subset of their own effective permissions (the rule under *Custom Roles* above).
-- **Invite by email → find-or-link** — if the person is already a user in the org, don't create a
-  second login; add a new store membership to the existing user (the multi-store case). Only
-  create a fresh `user` row when no match exists. Same shape as the customer dedup workflow.
-- **Don't leak the person's other stores** — because Store A can't see Store B's users, the
-  find-or-link must match by email/identity without revealing whether or where that person already
-  works in the org. The inviting store admin learns only "added to your store," never their other
-  memberships.
-
-
-## Workflow / event engine
+# FEATURE: Workflow / event engine
 
 A future event-driven engine (org-admin-configurable from the UI): **event → condition → action**.
 More flexible than fixed schema for cross-store and reactive behaviors. Note: this is a real,

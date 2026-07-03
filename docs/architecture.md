@@ -1,7 +1,7 @@
-Author: Salman Hoosein
-Version : 1.0
-Project:
-Description: A multi-store POS where one organization onboards its users, grants them access to stores (and optionally the org itself), and runs sales through each store as a business unit.
+### Author: Salman Hoosein
+### Version : 1.0
+### Project: 
+### Description: A multi-store POS where one organization onboards its users, grants them access to stores (and optionally the org itself), and runs sales through each store as a business unit.
 
 # Overview
 
