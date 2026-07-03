@@ -8,24 +8,19 @@ Note: `user` is a reserved word in Postgres, so the table name is quoted as `"us
 ## Auth / RBAC
 
 ```sql
--- The canonical org/store axis. ONE lookup table that user, role, and permission all point at,
--- so the two values ('ORGANIZATION', 'STORE') live in a single place instead of being repeated
--- as independent CHECK constraints that could drift. The whole authz model lines up through
--- these FKs: a user's type == the role's type == the permission's type along one grant chain.
+-- The canonical org/store axis. ONE lookup table that membership and role point at, so the two
+-- values ('ORGANIZATION', 'STORE') live in a single place instead of being repeated as independent
+-- CHECK constraints that could drift. The whole authz model lines up through these FKs:
+-- membership.user_type == role.user_type along one grant chain. The USER has no type — a person is
+-- placed by the memberships they hold, not by a label (see auth.md).
 CREATE TABLE user_type (
     user_type TEXT PRIMARY KEY CHECK (user_type IN ('ORGANIZATION', 'STORE'))
 );
 
 -- `user` is the GLOBAL identity table for the whole system (one login per person), not an
--- org-owned table. Provenance fields record where the account originated, so even after
--- every membership is removed we still know the user's home org and who created them.
---
--- user_type is the STRUCTURAL org-vs-store distinction, set at creation:
---   ORGANIZATION -> owns/runs the company; one org membership, reaches all the org's stores.
---   STORE        -> an employee; one or more store memberships, can never reach the org.
--- It gates which memberships and roles a user may hold (user_type must equal role.user_type).
--- IMMUTABLE in MVP: there is no path to change it. Promote/demote (changing user_type) is a
--- deliberate post-MVP feature (see post-mvp.md).
+-- org-owned table. It carries NO type: whether someone is an org or store person is decided
+-- entirely by which memberships they hold. Provenance fields record where the account originated,
+-- so even after every membership is removed we still know the user's home org and who created them.
 --
 -- is_active is an ACCOUNT-LEVEL kill switch, one level ABOVE membership.is_active:
 --   user.is_active       = false -> the whole account is off; ALL their memberships are
@@ -37,7 +32,6 @@ CREATE TABLE user_type (
 CREATE TABLE "user" (
     user_id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id    BIGINT NOT NULL REFERENCES organization (organization_id),  -- home org (set once, immutable)
-    user_type          TEXT NOT NULL REFERENCES user_type (user_type),  -- ORGANIZATION | STORE, set at creation, immutable
     is_active          BOOLEAN NOT NULL DEFAULT TRUE,   -- account kill switch; false = all memberships suspended
     created_by_user_id BIGINT REFERENCES "user" (user_id),     -- the org admin who created this account
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -48,8 +42,8 @@ CREATE TABLE "user" (
 --   is_managed      = TRUE for the roles we ship; FALSE for a customer's custom role.
 --   organization_id = the owning org for a custom role; NULL for managed (we own those).
 --   user_type       = the level the role applies at (ORGANIZATION or STORE), via the shared
---                     user_type lookup. A role is only assignable to a user of the same type
---                     (user.user_type == role.user_type) — see auth.md.
+--                     user_type lookup. A role is only assignable to a membership of the same type
+--                     (membership.user_type == role.user_type) — see auth.md.
 -- Custom roles are org-owned only — there are no store-owned custom roles (no store_id).
 CREATE TABLE role (
     role_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -146,10 +140,12 @@ CREATE TABLE role_permission_condition (
 -- Removing all of a user's roles at a place leaves this row intact, so the user
 -- still belongs there with no access.
 --
--- The place must MATCH the user's type (enforced on the write path, since it's a cross-table
--- rule the DB CHECK can't span): an ORGANIZATION user only gets organization_id memberships;
--- a STORE user only gets store_id memberships. So an org user has one org membership (reaching
--- all the org's stores), a store user has one or more store memberships.
+-- A user has NO type of their own — they're placed by the memberships they hold. An ORGANIZATION
+-- membership reaches all the org's stores; a STORE membership reaches its one store. A user may hold
+-- store memberships, an org membership, or both, UNLESS organization.allow_user_cross_memberships is
+-- FALSE (the default), in which case the write path locks each user to a single kind (an org member
+-- can't also be given a store membership, and vice versa). Multiple store memberships are always
+-- allowed. This crossing rule is a cross-table write-path check, not a DB CHECK. See auth.md.
 CREATE TABLE membership (
     membership_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id         BIGINT NOT NULL REFERENCES "user" (user_id),
@@ -164,8 +160,8 @@ CREATE TABLE membership (
     -- A live membership has deleted_at IS NULL. Every access query must filter
     -- deleted_at IS NULL, or a removed membership would still grant access.
     --
-    -- user_type FKs the shared `user_type` lookup, same as user.user_type and role.user_type, so the
-    -- whole grant chain stays consistent: user.user_type == membership.user_type == role.user_type.
+    -- user_type FKs the shared `user_type` lookup, same as role.user_type, so the grant chain stays
+    -- consistent: membership.user_type == role.user_type (the user itself has no type).
     -- organization_id is ALWAYS populated — it's the tenant boundary, carried on EVERY membership
     -- (org and store alike). store_id distinguishes the kind:
     --   ORGANIZATION membership: store_id IS NULL    (the place is the organization itself)
@@ -202,9 +198,9 @@ CREATE UNIQUE INDEX membership_org_uq
 --   NULL = never expires. Once expires_at has passed the assignment grants nothing — access
 --   resolution filters expires_at IS NULL OR expires_at > now() (same family as the
 --   membership.deleted_at / is_active filters).
--- A role is only assignable to a membership whose user has the SAME type as the role
--- (user.user_type == role.user_type) — enforced on the write path (cross-table rule). So a
--- STORE user can only ever receive STORE roles, an ORGANIZATION user only ORGANIZATION roles.
+-- A role is only assignable to a membership of the SAME type as the role
+-- (membership.user_type == role.user_type) — enforced on the write path (cross-table rule). So a
+-- STORE membership only ever receives STORE roles, an ORGANIZATION membership only ORGANIZATION roles.
 CREATE TABLE membership_assignment (
     membership_id BIGINT NOT NULL REFERENCES membership (membership_id),
     role_id       BIGINT NOT NULL REFERENCES role (role_id),
@@ -260,15 +256,19 @@ CREATE TABLE organization (
     organization_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     owner_user_id    BIGINT REFERENCES "user" (user_id),
     plan_id          BIGINT REFERENCES plan (plan_id),     -- the org's one plan; every store inherits its features
-    default_store_id BIGINT REFERENCES store (store_id)
+    default_store_id BIGINT REFERENCES store (store_id),
+    -- allow_user_cross_memberships: may one user hold an org membership AND store memberships at once?
+    --   FALSE (default) -> each user is locked to one kind; the write path refuses to add a store
+    --                      membership to a user who has an org membership, and vice versa. Multiple
+    --                      STORE memberships are always fine — the gate is only org-vs-store crossing.
+    --   TRUE            -> a user may span both levels. See auth.md ("Can a user be both...").
+    allow_user_cross_memberships BOOLEAN NOT NULL DEFAULT FALSE
     -- The plan is bought at the org and applies to all its stores. Billing is per store:
     -- total = plan.price_per_store × number of stores in the org (derived, not stored). See plans.md.
     -- Every org gets a default ("main") store created on onboarding — the store it sells and
     -- purchases through by default. default_store_id points at it; the owner can promote a
     -- different store later. Nullable only because the org row may be inserted just before its
     -- first store in the same onboarding transaction.
-    -- customers, suppliers, and the product catalog are all org-level and visible to every
-    -- store (tightly-coupled single company), so there's no per-store sharing flag.
 );
 ```
 

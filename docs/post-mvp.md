@@ -170,41 +170,35 @@ A **Store Admin cannot edit limits** — if a store manager wants a higher cap f
   separate elevated-role flag. Build this when delegation / custom roles ship.
 
 
-# Changing a user's type (promote / demote)
+# Promoting a store person to also run the org
 
-In MVP `user.user_type` is **immutable** — set at creation, no change path. To move someone
-between organization and store, you create a new user of the right type. This section is the
-deferred feature that makes the type changeable in place.
+A user has no fixed type — they're placed by their memberships (see `auth.md`) — so "promoting" a
+store employee to oversee the company is simply **adding an organization membership** with an org
+role. No migration, no new account.
 
-**The feature:** an org admin can flip a user between `STORE` and `ORGANIZATION`.
-
-- **Gated by a dedicated permission `user:set_type`** — held only by org-level roles. Changing
-  a user from STORE to ORGANIZATION grants company-wide reach, so this permission is as powerful
-  as `role:assign` to the Org Admin role and must be treated that way.
-- **Audited** — every type change is a security-relevant event (it grants or removes org-wide
-  reach), logged with who/when/old→new (see the Audit section in `auth.md`).
-- **Owner can't be demoted** — a user who is `organization.owner_user_id` cannot be changed to
-  STORE; the system refuses it (you'd be demoting the company owner to an employee).
-- **Mismatched memberships are cleared on change** — because memberships must match the user's
-  type, flipping the type soft-deletes the now-invalid memberships (a promoted store user's
-  store memberships are cleared; the admin then adds the org membership). The UI must show a
-  **warning** before the change, listing what access will be removed, so it's never a surprise.
+Whether one person may hold both a store membership and an org membership at once is the
+`organization.allow_user_cross_memberships` setting (default off). The deferred piece here is only the
+**UX around toggling that setting on and adding the org membership** — a guided flow for an org admin,
+audited as a security-relevant event (it grants company-wide reach). No schema change is needed; the
+mechanism already exists.
 
 
 # Store admins create store users
 
-In MVP only an org admin can create users (`user:create`, on the Org Admin role only). Post-MVP,
-a store admin can be given `user:create` too — but **restricted to creating `STORE`-type users**
-(never organization users). This lets a store run its own hiring without ever being able to mint
-someone with company-wide reach. The restriction is part of the create path: a store-level holder
-of `user:create` may only set `user_type = STORE`.
+In MVP only an org admin can create users. Note that `user:create` is **elevated** (org-only) today,
+so it lives on org roles alone. Post-MVP, a store admin can be given the ability to add employees too
+— but **restricted to store memberships**: they may create a user and place them on the admin's own
+store(s), never give them an organization membership. This lets a store run its own hiring without
+ever minting someone with company-wide reach. The restriction is part of the create/assign path: a
+store-level holder may only attach **store** memberships (with store roles), never an org membership.
 
 This is **not** a separate-tenant feature — it's the ordinary create-user flow (see `auth.md`),
 just scoped to the inviting store admin. It stays inside the one org tenant; a store is still a
 resource, not a tenant. Key decisions for when it's built:
 
-- **Forced `user_type = STORE`** — a store admin can never create an organization user (that's the
-  escalation hole this closes). Enforced on the create path, not trusted from the request.
+- **Store membership only** — a store admin can only place the new user on a store membership, never
+  an organization one (that's the escalation hole this closes). Enforced on the assign path, not
+  trusted from the request.
 - **Membership locked to the inviter's own store** — the new membership's `store_id` must be a
   store the inviter holds `role:assign` at, not an arbitrary id from the request (same principle
   as the IDOR check: the target store is validated, never trusted).
