@@ -11,8 +11,9 @@ they're allowed to do where.
 
 A user isn't labelled "an org person" or "a store person" — that's decided entirely by **which
 places they have a membership to**. The same person can belong to a store, to the organization, or to
-both, and that's what sets their reach. Roles, on the other hand, *are* typed (store or organization)
-so you can not assing an organization level to a store user. Usually any Role with an "is_elevated=true" permission on it is an organization level role.
+both, and that's what sets their reach. Roles, on the other hand, *are* typed (store or organization),
+so you can't attach an organization-level role to a store membership. Any role holding an
+`is_elevated = true` permission is necessarily an organization-level role.
 
 
 ## The chain (how the pieces connect)
@@ -26,15 +27,17 @@ user  ──<  membership  ──<  membership_assignment  >──  role  ──
 
 - **user** — one login per person (organization identity). A user is placed by the memberships they
   hold; the `user` row itself carries no org-vs-store distinction.
-- **membership** — the user has as a membership to either the `ORGANIZATION` or a `STORE`
-    - Every membership has an `organization_id. 
+- **membership** — a user's membership is either at the `ORGANIZATION` or at a `STORE`.
+    - Every membership carries an `organization_id` (the tenant boundary).
     - A **store** membership sets `store_id` (the one store it's at) and sets `user_type` to `STORE`.
-    - A **organization** membership leaves `store_id` NULL and sets `user_type` to `ORGANIZATION`.
+    - An **organization** membership leaves `store_id` NULL and sets `user_type` to `ORGANIZATION`.
 - **membership_assignment** — a role given to that membership (optionally with an expiration).
 - **role** — a named bundle of permissions we ship. Each role has a `user_type` (`STORE` or
   `ORGANIZATION`) — its level. A role's type must match the membership it's attached to: store roles
   go on store memberships, org roles on org memberships.
-- **permission** — one allowed action, like `product:read`. Carries an `is_elevated` flag to distinguish this permission as something only for users with an Organization Membership.
+- **permission** — one allowed action, like `product:read`. Carries an `is_elevated` flag: an
+  elevated permission is a company-level action that may only live in an organization role (and so is
+  only ever reachable through an organization membership).
 
 So an "org user" is simply **a person who holds an organization membership**; a "store user" is
 someone who holds only store memberships. 
@@ -294,39 +297,67 @@ where:
     AND membership.is_active  = true
     AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
 
-    -- the membership is at the place the route addresses, inside the caller's org.
-    -- Branch on membership.user_type, not on which id is null: organization_id is carried on EVERY
-    -- membership (the tenant boundary), so user_type is what tells an org from a store membership.
-    AND ( this is an ORG action   →  membership.user_type = 'ORGANIZATION'
-                                     AND membership.organization_id = context.organizationId
+    -- Read-time backstop: the role's type must match the membership it's exercised through. Even if a
+    -- bad write ever attached a role to a wrong-type membership (org role on a store seat, or a store
+    -- role on an org seat), the mismatched row is refused here — inert in both directions.
+    AND role.user_type = membership.user_type
 
-          this is a STORE action  →  ( membership.user_type = 'STORE'
-                                       AND membership.store_id = {storeId from the path}
-                                       AND membership.organization_id = context.organizationId )
-
-          -- OR an org membership may perform a store action on any store in its org:
-          OR ( membership.user_type = 'ORGANIZATION'
-               AND membership.organization_id = context.organizationId
-               AND store({storeId}).organization_id = context.organizationId ) )
+    -- Now qualify the membership. Branch on membership.user_type (organization_id is on EVERY
+    -- membership as the tenant boundary, so user_type — not "which id is null" — tells them apart).
+    -- Exactly one of the two blocks must hold:
+    AND (
+      -- ── STORE membership ────────────────────────────────────────────────────────────────
+      (
+            membership.user_type = 'STORE'
+        AND membership.organization_id = context.organizationId    -- same org as the token (tenant boundary)
+        AND request is a STORE action                              -- a store membership can't do org actions
+        AND membership.store_id = {storeId from the path}          -- and only at ITS store
+        AND permission.is_elevated = false                         -- a store membership can NEVER exercise an
+                                                                   -- elevated permission (read-time backstop:
+                                                                   -- inert even if a bad row put one in its role)
+      )
+      OR
+      -- ── ORGANIZATION membership ─────────────────────────────────────────────────────────
+      (
+            membership.user_type = 'ORGANIZATION'
+        AND membership.organization_id = context.organizationId    -- same org as the token (tenant boundary)
+        AND (
+              request is an ORG action                             -- org actions: org membership only
+           OR ( request is a STORE action                         -- OR a store action on any store in its org
+                AND store({storeId}).organization_id = context.organizationId )
+        )
+        -- no is_elevated restriction: an org membership may exercise elevated permissions
+      )
+    )
 ```
 
-No matching row → **403 Deny** (deny by default). A `storeId` in another org produces no row (the
-membership's `organization_id` won't match the token's), so a foreign store is denied by the same
-query.
+Read it as two mutually exclusive cases:
 
-Two things to notice:
+- **STORE membership** — may act only on a **STORE** action, only at **its own** store, only with a
+  **non-elevated** permission, and only inside its own org.
+- **ORGANIZATION membership** — may do **ORG** actions, or **STORE** actions on **any** store in its
+  org, with **any** permission (elevated included), inside its own org.
 
-1. **A store action can be satisfied two ways** — by a matching *store* membership, **or** by the
-   user's *org* membership (which reaches every store in the org). A single query allows either,
-   because "an org membership reaches all stores" is the point.
-2. **Org-only powers are already handled upstream.** Because an elevated permission can only sit in an
-   org role, and an org role only on an org membership, a store membership can never satisfy an
-   elevated permission — it's structurally impossible before the query even runs.
+No matching row → **403 Deny** (deny by default). A `storeId` in another org produces no row (its
+`organization_id` won't match the token's), so a foreign store is denied by the same query. And a
+store membership can never satisfy an elevated permission — `permission.is_elevated = false` is baked
+into the STORE block, so even a poisoned `role_permission` (elevated permission in a store role) is
+**inert**.
 
-It all has to come from **one** membership-role-permission chain, not a mix — an expired Cashier role
-that could refund doesn't lend its permission to a still-active Stocker role that can't. Walking the
-chain as one joined row guarantees the live membership, the unexpired assignment, and the permission
-all sit on the *same* row.
+**Bad rows are inert at read time, not just kept out at write time.** Two backstops make the query
+refuse poisoned data even if a write path ever slips one through:
+- `permission.is_elevated = false` in the STORE block → an elevated permission in a store role can
+  never be exercised from a store seat.
+- `role.user_type = membership.user_type` → a role attached to a wrong-type membership (org role on a
+  store seat, or store role on an org seat) is refused.
+
+The write path keeps these bad rows out in the first place; the clauses above make any that slip
+through harmless. The query never trusts the data is clean.
+
+**It all has to come from one chain, not a mix.** An expired Cashier role that could refund doesn't
+lend its permission to a still-active Stocker role that can't. Walking the chain as one joined row
+guarantees the live membership, the unexpired assignment, and the permission all sit on the *same*
+row.
 
 
 
@@ -343,6 +374,29 @@ An order belonging to another store doesn't match `store_id = {storeId}`, so it 
 special handling — the isolation is the `WHERE` clause, not something a developer must remember after
 loading. For an **organization** action the same idea scopes to the org (`... AND organization_id =
 context.organizationId`). **Every endpoint that takes a resource id must do this.**
+
+
+### Setting the tenant on writes
+
+Reads are scoped by the `WHERE` clause above; **writes** have the mirror rule: when inserting a new
+row, its `organization_id` is always set **from the context (the token)** — the request body never
+populates it. (`store_id`, on store routes, comes from the `{storeId}` in the path, already validated
+by the authorization query — likewise never from the body.)
+
+```
+row.organization_id = context.organizationId    // ✅ from the token, always
+// NOT: row = request.body   → a client could slip in "organization_id": <another org>
+```
+
+This closes cross-tenant writes (the "mass assignment" / over-posting bug): a valid token says org 7,
+but a lazy `save(request.body)` could stamp the row with an org id the client supplied. Two ways to
+make the rule unbreakable:
+
+- **The request shape has no `organization_id` / `store_id` field** — if the client's input type can't
+  carry it, no code can accidentally copy it onto the row. (Primary defense.)
+- *(Optional DB backstop)* a **`WITH CHECK (organization_id = app.current_org)`** on each table's RLS
+  policy — the write-side twin of the read filter, so Postgres refuses any insert whose org doesn't
+  match the session tenant, even if app code got it wrong. See `database.md`.
 
 
 ### Working with Shared Resources (Product/Customer/..)
@@ -442,11 +496,58 @@ these, not the permission chain. Ranked by severity.
 
 ## Medium — enforcement that an implementer can get wrong
 
-- **The write-path guards are the linchpin and live only in prose.** "Elevated only in org roles,"
-  "org role only on org membership," "role type matches membership," `allow_user_cross_memberships` —
-  all cross-table invariants a DB CHECK can't express. They must be **centralized, mandatory, single-
-  chokepoint, and tested**. The read-time query trusts the data; one write path that skips a guard
-  plants a poisoned row the query will then happily authorize. This is the seam to attack.
+### Write-path invariants (the linchpin — solve one at a time)
+
+The read-time authorization query **trusts** the rows it reads; it never re-derives whether the data
+is valid. So the safety actually lives on the **write path**. Each rule below is a cross-table /
+cross-row check a plain DB `CHECK` can't express (it spans two tables), so it must be enforced in app
+code or a DB trigger. If any one write path skips its check, a poisoned row is saved and the query
+will happily authorize it — nothing downstream catches it.
+
+**Q1. How do we guarantee an elevated permission can only ever be added to an org role?**
+- Bad row if skipped: `role_permission` linking `user:create` (elevated) to a **store** role.
+- Breaks: a store cashier's role holds an org-only power → cashier creates users.
+- Spans: `permission` ↔ `role_permission` ↔ `role`.
+- **Status: RESOLVED.** Two layers:
+  1. **Write time (app chokepoint):** a single `addPermissionToRole()` service method is the only path
+     that writes `role_permission`; it rejects adding an elevated permission to a store role.
+  2. **Read time (backstop):** the authorization query now includes
+     `permission.is_elevated = false OR membership.user_type = 'ORGANIZATION'`, so even if a bad row
+     slips in, an elevated permission reached through a store membership is refused — the poisoned row
+     is inert and can never authorize an org-only action.
+
+**Q2. How do we guarantee a role is only assigned to a membership of the same type?**
+- Bad row if skipped: an **org** role assigned to a **store** membership.
+- Breaks: a store employee's membership carries an org role → org-level reach from a store seat.
+- Spans: `role` ↔ `membership_assignment` ↔ `membership`.
+- **Status: RESOLVED.** Two layers:
+  1. **Write time (app chokepoint):** a single `assignRoleToMembership()` service method is the only
+     path that writes `membership_assignment`; it rejects any `role.user_type != membership.user_type`.
+  2. **Read time (backstop):** the authorization query includes `role.user_type = membership.user_type`,
+     so a mismatched assignment in *either* direction is refused — the poisoned row is inert.
+
+**Q3. How do we enforce the cross-membership rule when `allow_user_cross_memberships` is OFF?**
+- Bad row if skipped: a user with a store membership is given an org membership (or vice versa) while
+  the org setting is OFF.
+- Breaks: the "one kind per person" guarantee the org chose is silently violated.
+- Spans: `membership` (vs sibling `membership` rows + the `organization` setting).
+- **Status: open.**
+
+**Q4. How do we guarantee `organization_id` on any new row comes from the token, never the request body?**
+- Bad row if skipped: a record written with an attacker-supplied `organization_id` for another org.
+- Breaks: cross-tenant write — the worst multi-tenant bug.
+- Spans: any tenant-scoped table on insert.
+- **Status: RESOLVED.** See *Setting the tenant on writes* above. On every insert `organization_id`
+  is set from `context` (never the request body); the request shape carries no `organization_id` /
+  `store_id` field so it can't be over-posted; and an optional RLS `WITH CHECK` on inserts is the DB
+  backstop that refuses a cross-tenant write even if app code got it wrong.
+
+Cross-cutting requirement for all four: each write must go through a **single chokepoint** (one
+"assign role", one "add permission to role", one "create tenant-scoped row"), mandatory and tested —
+never scattered per-endpoint.
+
+### Other medium items
+
 - **RLS is a guarantee only if deployed exactly right.** App must connect as a non-superuser /
   non-owner role, and `SET LOCAL app.current_*` must be per-transaction. A pooled connection leaking
   the tenant setting, or the app running as table owner (bypasses RLS), silently voids the backstop.
@@ -459,11 +560,9 @@ these, not the permission chain. Ranked by severity.
 
 ## Low — clarity (ambiguity is a liability in a security spec)
 
-- Typo line 15 ("assing"); unterminated backtick line 30 (`` `organization_id. ``).
-- Line 37 conflates permission-level with membership when describing `is_elevated`.
-- **No Audit section**, though "audited" actions are referenced (owner transfer, etc.). Require audit
-  logging for security-relevant events: role grant/revoke, user create/delete, owner transfer,
-  membership changes, sharing-setting flips.
+- **No Audit section** (still open), though "audited" actions are referenced (owner transfer, etc.).
+  Require audit logging for security-relevant events: role grant/revoke, user create/delete, owner
+  transfer, membership changes, sharing-setting flips.
 
 ## Scorecard
 
