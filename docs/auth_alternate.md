@@ -29,9 +29,12 @@ user  ──<  membership  ──<  membership_assignment  >──  role  ──
 
 - **user** — one login per person (organization identity). The user carries **no type** — they're
   placed by their memberships, not by a label.
-- **membership** — the user belongs at a place: a **store** (`store_id` set) or the **organization**
-  (`organization_id` set). The place is what distinguishes org access from store access. A user can
-  hold several memberships — store memberships, an org membership, or both.
+- **membership** — the user belongs at a place. Every membership carries a `user_type` (`STORE` or
+  `ORGANIZATION`, via the shared `user_type` lookup) and an `organization_id` (always — it's the
+  tenant boundary). A **store** membership also sets `store_id` (the one store it's at); an
+  **organization** membership leaves `store_id` NULL (the place is the organization itself). The
+  `user_type` is what distinguishes org access from store access. A user can hold several memberships
+  — store memberships, an org membership, or both.
 - **membership_assignment** — a role given to that membership (optionally with an expiry).
 - **role** — a named bundle of permissions we ship. Each role has a `user_type` (`STORE` or
   `ORGANIZATION`) — its level. A role's type must match the membership it's attached to: store roles
@@ -216,7 +219,8 @@ Maria's access
  Portland     store   read products, sell, refund                         (store membership)
 ```
 
-"kind" is the membership's place (`organization_id` set → org; `store_id` set → store). Every entry
+"kind" is the membership's `user_type` (`ORGANIZATION` or `STORE`; a store membership also names its
+`store_id`, while `organization_id` is carried on both as the tenant boundary). Every entry
 points at a real store or organization, so it can never reference a place that doesn't exist — and
 deleting a place clears the access tied to it.
 
@@ -310,20 +314,27 @@ where:
     AND membership.is_active  = true
     AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
 
-    -- the membership is at the place the route addresses, inside the caller's org
-    AND ( this is an ORG action   →  membership.organization_id = context.organizationId
+    -- the membership is at the place the route addresses, inside the caller's org.
+    -- Branch on membership.user_type, not on which id is null: organization_id is carried on EVERY
+    -- membership (the tenant boundary), so it no longer distinguishes an org from a store membership.
+    AND ( this is an ORG action   →  membership.user_type = 'ORGANIZATION'
+                                     AND membership.organization_id = context.organizationId
 
-          this is a STORE action  →  membership.store_id = {storeId from the path}
-                                     AND store(storeId).organization_id = context.organizationId
+          this is a STORE action  →  ( membership.user_type = 'STORE'
+                                       AND membership.store_id = {storeId from the path}
+                                       AND membership.organization_id = context.organizationId )
 
           -- OR an org membership may perform a store action on any store in its org:
-          OR ( membership.organization_id = context.organizationId
+          OR ( membership.user_type = 'ORGANIZATION'
+               AND membership.organization_id = context.organizationId
                AND store({storeId}).organization_id = context.organizationId ) )
 ```
 
-No matching row → **403 Deny** (deny by default). A `storeId` in another org produces no row (its
-`organization_id` won't match the token's), so a foreign store is denied by the same query — there's
-no separate boundary step to forget.
+No matching row → **403 Deny** (deny by default). A `storeId` in another org produces no row (the
+membership's `organization_id` won't match the token's), so a foreign store is denied by the same
+query — there's no separate boundary step to forget. Because each membership now carries its own
+`organization_id`, the store-membership case is a direct column compare, no join to `store`; only the
+org-membership-reaching-an-arbitrary-store case still looks the store up to confirm it's in the org.
 
 Two things to notice:
 

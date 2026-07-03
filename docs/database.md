@@ -153,7 +153,8 @@ CREATE TABLE role_permission_condition (
 CREATE TABLE membership (
     membership_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id         BIGINT NOT NULL REFERENCES "user" (user_id),
-    organization_id BIGINT REFERENCES organization (organization_id),
+    user_type       TEXT NOT NULL REFERENCES user_type (user_type),   -- ORGANIZATION | STORE: the kind of place
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
     store_id        BIGINT REFERENCES store (store_id),
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
     deleted_at      TIMESTAMPTZ,   -- soft delete: NULL = live, set = removed (kept for history)
@@ -162,9 +163,16 @@ CREATE TABLE membership (
     --   deleted_at = removed from this place, but the row is retained for audit/history.
     -- A live membership has deleted_at IS NULL. Every access query must filter
     -- deleted_at IS NULL, or a removed membership would still grant access.
-    -- the place is organization_id OR store_id: EXACTLY ONE set, never both, never neither.
-    -- The `<>` (XOR) means exactly one of the two is NOT NULL.
-    CHECK ((organization_id IS NOT NULL) <> (store_id IS NOT NULL))
+    --
+    -- user_type FKs the shared `user_type` lookup, same as user.user_type and role.user_type, so the
+    -- whole grant chain stays consistent: user.user_type == membership.user_type == role.user_type.
+    -- organization_id is ALWAYS populated — it's the tenant boundary, carried on EVERY membership
+    -- (org and store alike). store_id distinguishes the kind:
+    --   ORGANIZATION membership: store_id IS NULL    (the place is the organization itself)
+    --   STORE        membership: store_id IS NOT NULL (the place is one store, inside organization_id)
+    -- Queries branch on user_type, not on which id is null.
+    CHECK ((user_type = 'ORGANIZATION' AND store_id IS NULL)
+        OR (user_type = 'STORE'        AND store_id IS NOT NULL))
 );
 
 -- Membership cardinality (the org-vs-store asymmetry):
@@ -182,9 +190,11 @@ CREATE UNIQUE INDEX membership_store_uq
 
 -- at most one LIVE org membership per user, PERIOD (keyed on user_id alone, not user+org) — this
 -- enforces the "an org user belongs to exactly one organization" rule without splitting the table.
+-- Keyed on user_type = 'ORGANIZATION' (NOT "organization_id IS NOT NULL"), because organization_id is
+-- set on every membership; only org-type memberships count toward this limit.
 CREATE UNIQUE INDEX membership_org_uq
     ON membership (user_id)
-    WHERE organization_id IS NOT NULL AND deleted_at IS NULL;
+    WHERE user_type = 'ORGANIZATION' AND deleted_at IS NULL;
 
 -- A role assigned to a membership. Zero or more per membership.
 -- Losing a role = deleting its row here; the membership above is untouched.

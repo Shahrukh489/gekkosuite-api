@@ -44,7 +44,7 @@ Maria is a *store* user, hired at the Seattle store as a Cashier, then later hel
 - Every user belongs to one **home organization**, set when they're created and never changed — so even if you later remove all their access, you still know which company they came from.
 
 **Under the hood**
-The login is the `user` row, carrying a `user_type` (`ORGANIZATION` or `STORE`). A place is a `membership` (a `store_id` or `organization_id`) — its kind must match the user's type. A role at that place is a `membership_assignment`, which can optionally carry an `expires_at`. The role's own `user_type` must equal the user's.
+The login is the `user` row, carrying a `user_type` (`ORGANIZATION` or `STORE`). A place is a `membership` carrying its own `user_type` (the same `ORGANIZATION`/`STORE` lookup) and always an `organization_id` (the tenant boundary); a store membership also sets `store_id`, an org membership leaves it NULL. The membership's `user_type` must match the user's. A role at that place is a `membership_assignment`, which can optionally carry an `expires_at`. The role's own `user_type` must equal the user's.
 
 
 ## How do I revoke or suspend someone's access?
@@ -238,17 +238,22 @@ where:
     AND membership.is_active  = true
     AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
 
-    -- the membership is at the place the user's type allows
-    AND ( context.userType = ORGANIZATION  →  membership.organization_id = context.organizationId
-          context.userType = STORE         →  membership.store_id        = {storeId from the path}
-                                              -- the store must be inside the caller's org: this is the
-                                              -- tenant boundary, baked into the access query itself
-                                              AND store(storeId).organization_id = context.organizationId )
+    -- the membership is at the place the user's type allows.
+    -- Branch on membership.user_type, NOT on which id is null: organization_id is populated on EVERY
+    -- membership (it's the tenant boundary), so "org_id is set" no longer distinguishes org from store.
+    AND ( context.userType = ORGANIZATION  →  membership.user_type       = 'ORGANIZATION'
+                                              AND membership.organization_id = context.organizationId
+          context.userType = STORE         →  membership.user_type       = 'STORE'
+                                              AND membership.store_id        = {storeId from the path}
+                                              -- the store must be inside the caller's org: the tenant
+                                              -- boundary. Because the membership now carries org_id,
+                                              -- this is a direct column compare — no join to `store`.
+                                              AND membership.organization_id = context.organizationId )
 ```
-No matching row → **403 Deny** (deny by default). A `storeId` in another org produces no row (its `organization_id` won't match the token's), so a foreign store is **denied by the same query** — there is no separate boundary step to forget.
+No matching row → **403 Deny** (deny by default). A `storeId` in another org produces no row (the membership's `organization_id` won't match the token's), so a foreign store is **denied by the same query** — there is no separate boundary step to forget.
 
 Why this is enough, per user type:
-- **Store user** — the `membership.store_id = {storeId}` join already requires they're a member of *that* store, and the `store.organization_id = token.org` clause requires the store be in their org. Both in one query.
+- **Store user** — the `membership.store_id = {storeId}` clause already requires they're a member of *that* store, and `membership.organization_id = token.org` requires that store be in their org. Both are columns on the one membership row — no extra join.
 - **Organization user** — they reach every store in their org. We only need their org membership to hold the permission; the store they're acting on is theirs as long as it's in their org, which is exactly what the action's own query enforces next (see resource scoping).
 
 The `role.user_type = context.userType` clause is the runtime version of the type↔role rule: a user only holds roles of their own type (enforced on the assignment write-path), but re-asserting it here means a store user can never authorize against an org role, and vice versa, even if a bad row slipped past the write-path guard.

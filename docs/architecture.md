@@ -13,7 +13,6 @@ Description: A multi-store POS where one organization onboards its users, grants
 So each store is an independent selling unit, and the organization sits above it owning procurement, spending, and administration.
 
 
-
 # Who this is for (the niche)
 
 We serve **tightly-coupled single companies** — one business that owns and runs all its stores — **not franchise systems** where each location is an independent business. A typical org has up to max 50-100 stores. The users are **non-technical**, so the design is deliberately simple over flexible:
