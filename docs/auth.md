@@ -274,6 +274,21 @@ Procurement, suppliers, expenses, and managing stores/users are **org actions**.
 not in the acted-on place — returns **404, never 403**, so existence isn't leaked. 403 is reserved for
 "this is yours, but you lack the permission."
 
+The rest of authorization splits into two layers by *when* the check runs:
+
+- **Read-time security** — checks at the moment of a request that decide whether to allow it and which
+  rows to return (the authorization query, resource scoping, and the read-time backstops).
+- **Write-time security** — checks at the moment data is saved that keep invalid rows out of the
+  database in the first place (tenant stamping, the write-path invariants, the shared-resource dual
+  write).
+
+The two reinforce each other: write-time keeps bad rows out, and read-time refuses to honor any that
+slip through, so no single mistake opens a hole.
+
+
+## Read-time security
+
+Checks that run **per request** — they decide *may this be allowed, and which rows come back*.
 
 **The authorization query.** Does the user hold a live membership that has a role with the required permission at the store or organization level based on the request?
 - If the request is to make a change in the Organization itself, does the user have an organization membership that has a role with permissions to make that change.
@@ -361,7 +376,7 @@ row.
 
 
 
-### Resource scoping (IDOR)
+### Resource scoping (IDOR) — read-time
 
 When an action names a specific resource by id (the order to refund, the product to edit), we must make sure that the database query has a WHERE clause matching the store_id or organization_id for this resource_id. 
 
@@ -374,6 +389,16 @@ An order belonging to another store doesn't match `store_id = {storeId}`, so it 
 special handling — the isolation is the `WHERE` clause, not something a developer must remember after
 loading. For an **organization** action the same idea scopes to the org (`... AND organization_id =
 context.organizationId`). **Every endpoint that takes a resource id must do this.**
+
+
+## Write-time security
+
+Checks that run **when data is saved** — they keep invalid rows out of the database in the first place.
+Read-time security *trusts* the rows it reads, so these write-time rules are what guarantee those rows
+are valid. Each is enforced through a **single chokepoint** (one service method per kind of write),
+mandatory and tested — never scattered per-endpoint — because a cross-table rule like these can't be a
+plain DB `CHECK`. Where a read-time backstop also exists, it's noted, so a bad row that ever slips
+through is still inert (see *Read-time security* above).
 
 
 ### Setting the tenant on writes
@@ -397,6 +422,73 @@ make the rule unbreakable:
 - *(Optional DB backstop)* a **`WITH CHECK (organization_id = app.current_org)`** on each table's RLS
   policy — the write-side twin of the read filter, so Postgres refuses any insert whose org doesn't
   match the session tenant, even if app code got it wrong. See `database.md`.
+
+
+### Write-path invariants (RBAC integrity)
+
+The authorization query trusts that the RBAC rows it walks are valid — it does not re-derive whether a
+role *should* hold a permission, or whether a role *should* sit on a membership. Those guarantees are
+made here, on the write path. Each rule spans two tables (so a plain DB `CHECK` can't express it) and
+must run through a single mandatory, tested chokepoint. Both also have a **read-time backstop** in the
+authorization query, so a bad row is inert even if a write ever bypasses the check.
+
+**1. An elevated permission may only be added to an org role.**
+- Write: `addPermissionToRole()` rejects adding an `is_elevated` permission to a `STORE` role.
+- Read-time backstop: the STORE block requires `permission.is_elevated = false`, so an elevated
+  permission reached through a store membership is refused.
+- Without it: a store role holding `user:create` → a cashier could create users.
+
+**2. A role may only be assigned to a membership of the same type.**
+- Write: `assignRoleToMembership()` rejects any `role.user_type != membership.user_type`.
+- Read-time backstop: the query requires `role.user_type = membership.user_type`, so a mismatched
+  assignment (org role on a store seat, or store role on an org seat) is refused.
+- Without it: an org role on a store membership → org-level reach from a store seat.
+
+*(Optional DB backstop — triggers.)* The app chokepoints above are the primary enforcement, and the
+read-time clauses make any bad row inert. If we want the same "can't be bypassed" floor these rules
+have at the database (so a migration, seed script, or raw query can't plant a bad row either), add a
+`BEFORE INSERT OR UPDATE` trigger per invariant. A trigger — not a `CHECK` — is needed because each
+rule spans two tables (the row being written is in a third), which a `CHECK` can't reach.
+
+```sql
+-- Invariant 1: an elevated permission may only sit in an ORGANIZATION role.
+CREATE FUNCTION enforce_elevated_in_org_role() RETURNS trigger AS $$
+BEGIN
+  IF (SELECT p.is_elevated FROM permission p WHERE p.permission_id = NEW.permission_id)
+     AND (SELECT r.user_type FROM role r WHERE r.role_id = NEW.role_id) = 'STORE'
+  THEN
+    RAISE EXCEPTION 'elevated permission % cannot be added to STORE role %',
+      NEW.permission_id, NEW.role_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER role_permission_elevated_guard
+  BEFORE INSERT OR UPDATE ON role_permission
+  FOR EACH ROW EXECUTE FUNCTION enforce_elevated_in_org_role();
+
+-- Invariant 2: a role's type must match the membership it's assigned to.
+CREATE FUNCTION enforce_role_matches_membership() RETURNS trigger AS $$
+BEGIN
+  IF (SELECT r.user_type FROM role r       WHERE r.role_id       = NEW.role_id)
+   <> (SELECT m.user_type FROM membership m WHERE m.membership_id = NEW.membership_id)
+  THEN
+    RAISE EXCEPTION 'role % type does not match membership % type',
+      NEW.role_id, NEW.membership_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER membership_assignment_type_guard
+  BEFORE INSERT OR UPDATE ON membership_assignment
+  FOR EACH ROW EXECUTE FUNCTION enforce_role_matches_membership();
+```
+
+So each invariant can be enforced at up to three levels: the **app chokepoint** (primary, friendly
+error), the **read-time clause** (makes a bad row inert), and — if added — the **trigger** (the DB
+refuses to store the bad row at all).
 
 
 ### Working with Shared Resources (Product/Customer/..)
@@ -466,9 +558,9 @@ query automatically.
 # Security Review Notes (open items — not yet in the design above)
 
 An adversarial review of this doc. The authorization **model** is strong (tenant boundary from the
-token, structural IDOR, deny-by-default, single-chain, RLS floor). The gaps below are mostly in
-**authentication** and in **pinning the load-bearing write-path guards** — an attacker would target
-these, not the permission chain. Ranked by severity.
+token, structural IDOR, deny-by-default, single-chain, RLS floor, and now explicit write-time
+invariants with read-time backstops). The remaining gaps are mostly in **authentication** — an
+attacker would target the login, not the permission chain. Ranked by severity.
 
 ## Critical / High — authentication is under-specified (the real attack surface)
 
@@ -496,55 +588,23 @@ these, not the permission chain. Ranked by severity.
 
 ## Medium — enforcement that an implementer can get wrong
 
-### Write-path invariants (the linchpin — solve one at a time)
+### Write-path invariants
 
-The read-time authorization query **trusts** the rows it reads; it never re-derives whether the data
-is valid. So the safety actually lives on the **write path**. Each rule below is a cross-table /
-cross-row check a plain DB `CHECK` can't express (it spans two tables), so it must be enforced in app
-code or a DB trigger. If any one write path skips its check, a poisoned row is saved and the query
-will happily authorize it — nothing downstream catches it.
-
-**Q1. How do we guarantee an elevated permission can only ever be added to an org role?**
-- Bad row if skipped: `role_permission` linking `user:create` (elevated) to a **store** role.
-- Breaks: a store cashier's role holds an org-only power → cashier creates users.
-- Spans: `permission` ↔ `role_permission` ↔ `role`.
-- **Status: RESOLVED.** Two layers:
-  1. **Write time (app chokepoint):** a single `addPermissionToRole()` service method is the only path
-     that writes `role_permission`; it rejects adding an elevated permission to a store role.
-  2. **Read time (backstop):** the authorization query now includes
-     `permission.is_elevated = false OR membership.user_type = 'ORGANIZATION'`, so even if a bad row
-     slips in, an elevated permission reached through a store membership is refused — the poisoned row
-     is inert and can never authorize an org-only action.
-
-**Q2. How do we guarantee a role is only assigned to a membership of the same type?**
-- Bad row if skipped: an **org** role assigned to a **store** membership.
-- Breaks: a store employee's membership carries an org role → org-level reach from a store seat.
-- Spans: `role` ↔ `membership_assignment` ↔ `membership`.
-- **Status: RESOLVED.** Two layers:
-  1. **Write time (app chokepoint):** a single `assignRoleToMembership()` service method is the only
-     path that writes `membership_assignment`; it rejects any `role.user_type != membership.user_type`.
-  2. **Read time (backstop):** the authorization query includes `role.user_type = membership.user_type`,
-     so a mismatched assignment in *either* direction is refused — the poisoned row is inert.
+The write-path integrity rules (elevated-in-org-role, role-matches-membership, tenant-from-token) are
+now documented in the design under **Write-time security** — see *Write-path invariants* and *Setting
+the tenant on writes*. Q1, Q2, and Q4 from the original review are **resolved** there (write chokepoint
++ read-time backstop). One item remains open:
 
 **Q3. How do we enforce the cross-membership rule when `allow_user_cross_memberships` is OFF?**
 - Bad row if skipped: a user with a store membership is given an org membership (or vice versa) while
   the org setting is OFF.
 - Breaks: the "one kind per person" guarantee the org chose is silently violated.
 - Spans: `membership` (vs sibling `membership` rows + the `organization` setting).
+- Note: this is a **policy** invariant, not a privilege escalation — each membership is individually
+  valid and correctly scoped, so there's no unsafe row to neutralize at read time (a blanket 403 would
+  wrongly deny the user's legitimate access too). Treatment: a write-time chokepoint on membership
+  creation, plus optionally a consistency report for admins rather than a per-request block.
 - **Status: open.**
-
-**Q4. How do we guarantee `organization_id` on any new row comes from the token, never the request body?**
-- Bad row if skipped: a record written with an attacker-supplied `organization_id` for another org.
-- Breaks: cross-tenant write — the worst multi-tenant bug.
-- Spans: any tenant-scoped table on insert.
-- **Status: RESOLVED.** See *Setting the tenant on writes* above. On every insert `organization_id`
-  is set from `context` (never the request body); the request shape carries no `organization_id` /
-  `store_id` field so it can't be over-posted; and an optional RLS `WITH CHECK` on inserts is the DB
-  backstop that refuses a cross-tenant write even if app code got it wrong.
-
-Cross-cutting requirement for all four: each write must go through a **single chokepoint** (one
-"assign role", one "add permission to role", one "create tenant-scoped row"), mandatory and tested —
-never scattered per-endpoint.
 
 ### Other medium items
 
@@ -566,17 +626,18 @@ never scattered per-endpoint.
 
 ## Scorecard
 
-| Area | Grade |
-|---|---|
-| Tenant isolation / IDOR | A |
-| Authorization model | A− |
-| Privilege-escalation controls | C+ |
-| Authentication (login) | D |
-| Write-path invariant rigor | C |
-| Auditing | D |
+| Area | Grade | Notes |
+|---|---|---|
+| Tenant isolation / IDOR | A | token-sourced org, structural WHERE-scoping, RLS floor |
+| Authorization model | A− | deny-by-default, single-chain, two membership cases |
+| Write-path invariant rigor | B+ | write chokepoints + read-time backstops (Q3 policy item open) |
+| Privilege-escalation controls | C+ | no subset/ceiling rule on role assignment |
+| Authentication (login) | D | hashing, lockout, MFA, revocation, PIN all unspecified |
+| Auditing | D | referenced but not required anywhere |
 
-**Bottom line:** authorization design is genuinely strong; overall auth posture is capped at ~C+/B−
-until authentication (hashing, lockout, MFA, committed revocation, PIN handling), the escalation-
-ceiling rule, and the write-path invariants get the same rigor the authz query already has.
+**Bottom line:** the authorization design is genuinely strong, and the write-path invariants now have
+the same rigor as the authz query. Overall auth posture is capped at ~B− until **authentication**
+(hashing, lockout, MFA, committed revocation, PIN handling) and the **escalation-ceiling rule** get
+the same treatment — those are now the top open risks.
 
 
