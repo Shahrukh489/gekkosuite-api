@@ -407,3 +407,77 @@ verified context (`app.current_org`, and `app.current_store` for store actions) 
 query automatically.
 
 
+---
+
+# Security Review Notes (open items — not yet in the design above)
+
+An adversarial review of this doc. The authorization **model** is strong (tenant boundary from the
+token, structural IDOR, deny-by-default, single-chain, RLS floor). The gaps below are mostly in
+**authentication** and in **pinning the load-bearing write-path guards** — an attacker would target
+these, not the permission chain. Ranked by severity.
+
+## Critical / High — authentication is under-specified (the real attack surface)
+
+- **Password hashing is not specified.** Must be a slow, salted KDF (argon2id or bcrypt). Without it a
+  DB dump = every account cracked. Biggest single omission.
+- **No brute-force protection** — login rate-limiting, account lockout/backoff. Credential stuffing is
+  the realistic entry for a money app with many low-privilege cashier accounts.
+- **No MFA**, especially for org admins and the owner — the accounts that can drain the whole company.
+- **Token revocation mechanism is undecided** (the doc says "revocation / short-lived + refresh" but
+  doesn't commit). Until decided, `user.is_active` / membership kill switches are cosmetic — a fired
+  employee's JWT keeps working until it expires. Pick one: short TTL + refresh, or a deny-list.
+- **`store_pin` (register PIN) has zero coverage here.** It's an auth path in the schema — needs its
+  own hashing, rate-limit, and scope treatment, or it's a weak-secret backdoor.
+
+## High — privilege-escalation controls
+
+- **No subset (escalation-ceiling) rule on role assignment.** Nothing stops an org admin from granting
+  a role more powerful than their own, or granting `role:assign` / minting another org admin. A single
+  compromised admin account = full org takeover with no ceiling. Add "you may only grant permissions
+  you already hold."
+- **User-create + role-assign is the real crown-jewel path** and isn't specially protected the way the
+  owner column is. Guard "admin account compromised → creates a new org admin."
+- **Owner "can't be stripped" is asserted, not enforced in the flow.** Add explicit guards: the owner's
+  effective admin access can't be removed, and the org can't be left with zero admins.
+
+## Medium — enforcement that an implementer can get wrong
+
+- **The write-path guards are the linchpin and live only in prose.** "Elevated only in org roles,"
+  "org role only on org membership," "role type matches membership," `allow_user_cross_memberships` —
+  all cross-table invariants a DB CHECK can't express. They must be **centralized, mandatory, single-
+  chokepoint, and tested**. The read-time query trusts the data; one write path that skips a guard
+  plants a poisoned row the query will then happily authorize. This is the seam to attack.
+- **RLS is a guarantee only if deployed exactly right.** App must connect as a non-superuser /
+  non-owner role, and `SET LOCAL app.current_*` must be per-transaction. A pooled connection leaking
+  the tenant setting, or the app running as table owner (bypasses RLS), silently voids the backstop.
+  Flag this fragility here, not only in `database.md`.
+- **State "never trust roles/permissions from the token."** The authz query runs live — good — but if
+  any implementer caches the flattened access list in the JWT, revocation breaks. Make it explicit.
+- **`customer:edit` / `product:edit` on a *shared* record isn't spelled out.** Create is covered; a
+  store user editing an org-wide shared customer deserves the same explicit treatment (likely fine by
+  the same logic, but "arguably fine" is where bugs live).
+
+## Low — clarity (ambiguity is a liability in a security spec)
+
+- Typo line 15 ("assing"); unterminated backtick line 30 (`` `organization_id. ``).
+- Line 37 conflates permission-level with membership when describing `is_elevated`.
+- **No Audit section**, though "audited" actions are referenced (owner transfer, etc.). Require audit
+  logging for security-relevant events: role grant/revoke, user create/delete, owner transfer,
+  membership changes, sharing-setting flips.
+
+## Scorecard
+
+| Area | Grade |
+|---|---|
+| Tenant isolation / IDOR | A |
+| Authorization model | A− |
+| Privilege-escalation controls | C+ |
+| Authentication (login) | D |
+| Write-path invariant rigor | C |
+| Auditing | D |
+
+**Bottom line:** authorization design is genuinely strong; overall auth posture is capped at ~C+/B−
+until authentication (hashing, lockout, MFA, committed revocation, PIN handling), the escalation-
+ceiling rule, and the write-path invariants get the same rigor the authz query already has.
+
+
