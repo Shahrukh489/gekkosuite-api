@@ -345,7 +345,54 @@ loading. For an **organization** action the same idea scopes to the org (`... AN
 context.organizationId`). **Every endpoint that takes a resource id must do this.**
 
 
-### Making it impossible to forget
+### Working with Shared Resources (Product/Customer/..)
+
+Shared resources are those that can be updated both by a store user and an organization user. For example customers belong to entire organization, but a user in any store can add them to the organization.
+
+When an org turns sharing on, a **store user can create a customer (or product) that every store in
+the org sees.** A store user writing something the whole org shares sounds like it needs special
+handling — it doesn't. It's the **same flat permission check** plus the org's setting. The reasoning:
+
+1. **The org setting is the switch — nothing else changes.** The store user's create is only allowed
+   to write the *shared* (org-level) record when the org's **`share_customers` / `share_products`
+   setting is on**. Off (the default) → the item stays the store's own. The membership, the role, and
+   the permission are identical either way; the org's setting alone decides whether the shared row is
+   written.
+
+2. **The permission stays non-elevated.** `customer:create` / `product:create` are **non-elevated**, so
+   they can live in a **store role** — a cashier can hold them. (If they were elevated they couldn't be
+   in a store role at all, which is the opposite of what sharing wants.) So the only thing gating a
+   store user is whether their role includes the permission — not the permission's level, and not the
+   membership kind.
+
+3. **The check is the ordinary authorization query** — no branch for "is this shared?", no branch on
+   the membership kind. A **store membership** at `{storeId}` *or* an **org membership** qualifies, as
+   long as a live role on it holds the permission and the place is inside the caller's org (the tenant
+   boundary the query already bakes in). A store cashier and an org admin pass through the identical
+   check.
+
+4. **`organization_id` comes from the token, never the request body.** The new record's
+   `organization_id` is set server-side from `context.organizationId`, and its `store_id` is the
+   `{storeId}` from the path (already validated by the query). So a store user can only ever create
+   within *their own* org and *their own* store — they can't pass a different org or store id to write
+   into another tenant. This is what makes the flat check safe.
+
+5. **RLS matches the two tables' scope.** The store-level copy (`store_customer` / `store_product`) is
+   **store-scoped** — a store only ever reads its own rows. The shared record (`customer` / `product`)
+   is **org-scoped** — every store in the org resolves it. So sharing-on shows the item org-wide,
+   sharing-off keeps it to the store, and neither can leak across orgs (see `database.md`).
+
+Mechanically that means the store-level row is **always** written, and when sharing is on the shared
+row is written too — in the **same transaction**, with the store row linking up to it:
+
+```
+create customer on /stores/{storeId}/customers:
+  share_customers OFF → INSERT store_customer (links to no shared row)
+  share_customers ON  → INSERT customer (shared) , then INSERT store_customer linked to it   -- one txn
+```
+
+
+### Reducing Developer Auth Errors
 
 It is possible that a developer forgets to add RBAC checks on an API endpoint or forgets a WHERE clause in a SQL query, to prevent the code from running we do the following in .Net:
 

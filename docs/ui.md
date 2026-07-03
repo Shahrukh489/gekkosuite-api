@@ -34,8 +34,9 @@ store. The organization sits at the top, with each store the user can reach belo
 ```
 
 This maps directly to the API (`auth.md`): selecting a **store** routes its tabs under
-`/stores/{storeId}/…` (products, customers, and sales are store-owned, so they're all store paths);
-selecting the **organization** routes its tabs under the org-level paths (suppliers, purchases,
+`/stores/{storeId}/…` (products, customers, and sales are worked on at the store, so they're all store
+paths — even when products/customers are shared org-wide, they're still created and managed from a
+store); selecting the **organization** routes its tabs under the org-level paths (suppliers, purchases,
 expenses, stores, users). The organization itself always comes from the user's token, never the URL.
 Switching context re-scopes every tab's data to that place.
 
@@ -105,7 +106,7 @@ They pick that store in the switcher. The app routes calls under `/stores/{store
 They pick **Organization** in the switcher → the org tabs (Dashboard rollup, Suppliers, Purchases, Expenses, Billing, Stores, Users). The org Dashboard is the cross-store overview.
 
 **Why is there no Products or Customers tab in the org context?**
-Products and customers are store-owned, so they live in the store context. To see a store's products or customers, the owner switches to that store. (Org-wide views are a planned post-MVP sharing setting.)
+Products and customers are created and managed at a store, so they live in the store context. To work on a store's products or customers, the owner switches to that store. When the org has sharing on, those items are recognized across every store, but they're still managed from the store context — there's no separate org-level Products/Customers screen.
 
 **Why can one user see a tab and another can't?**
 Tabs are hidden unless the user has a permission for them. So the sidebar always shows only what that person can actually do.

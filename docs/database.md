@@ -262,7 +262,16 @@ CREATE TABLE organization (
     --                      membership to a user who has an org membership, and vice versa. Multiple
     --                      STORE memberships are always fine — the gate is only org-vs-store crossing.
     --   TRUE            -> a user may span both levels. See auth.md ("Can a user be both...").
-    allow_user_cross_memberships BOOLEAN NOT NULL DEFAULT FALSE
+    allow_user_cross_memberships BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Org-wide sharing settings (default off = each store's products/customers are its own):
+    --   share_products  TRUE -> a store creating a product also writes a shared `product` row, so the
+    --                           catalog identity (SKU) is recognized org-wide (each store still keeps
+    --                           its own stock/price in store_product).
+    --   share_customers TRUE -> a store creating a customer also writes a shared `customer` row, so
+    --                           the customer is recognized at every store.
+    -- When on, the store create dual-writes both tables in one transaction. See auth.md / tenancy.md.
+    share_products  BOOLEAN NOT NULL DEFAULT FALSE,
+    share_customers BOOLEAN NOT NULL DEFAULT FALSE
     -- The plan is bought at the org and applies to all its stores. Billing is per store:
     -- total = plan.price_per_store × number of stores in the org (derived, not stored). See plans.md.
     -- Every org gets a default ("main") store created on onboarding — the store it sells and
@@ -294,26 +303,54 @@ CREATE TABLE store_tag (
 );
 ```
 
-## Store-owned entities (products, customers)
+## Products and customers (two tables per entity: store-level + shared)
 
-Products and customers belong to one store. Each store keeps its own product list and its own
-customers; other stores don't see them.
+Products and customers use **two tables each** — a store-level one and an org-level shared one:
+
+- **Store-level** (`store_product`, `store_customer`) — always written; a row owned by one store.
+- **Shared** (`product`, `customer`) — org-level records visible to every store in the org, written
+  only when the org has turned sharing on (`organization.share_products` / `share_customers`).
+
+By default sharing is off and each store keeps its own products and customers, isolated from the
+others. When an org turns sharing on, a store's create dual-writes: the store-level row **and** a
+shared org-level row it links up to, so the item is recognized at every store. See `tenancy.md` for
+the model and `auth.md` for the write flow.
 
 ```sql
--- A product belongs to one store: its identity (sku), price, and stock all live here.
+-- Store-level product: this store's own copy — its sku, stock, and price live here, always.
+-- product_id links up to the shared record when sharing is on (NULL = store-only).
 CREATE TABLE store_product (
     store_product_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     store_id         BIGINT NOT NULL REFERENCES store (store_id),
+    organization_id  BIGINT NOT NULL REFERENCES organization (organization_id),  -- tenant boundary / RLS
+    product_id       BIGINT REFERENCES product (product_id),   -- NULL = store-only; set = shared
     sku              TEXT,
     quantity         INTEGER NOT NULL DEFAULT 0,   -- this store's stock
     price            NUMERIC(12, 2),               -- this store's price
     UNIQUE (store_id, sku)   -- sku unique within the store
 );
 
--- A customer belongs to one store. organization_id is carried for the tenant boundary / RLS.
+-- Shared product: the org-wide identity (SKU). Written only when share_products is on. Holds no
+-- stock/price — each store still prices and stocks independently in its store_product row.
+CREATE TABLE product (
+    product_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
+    sku             TEXT,
+    UNIQUE (organization_id, sku)
+);
+
+-- Store-level customer: this store's own copy. customer_id links up to the shared record when
+-- sharing is on (NULL = store-only). organization_id is the tenant boundary / RLS.
+CREATE TABLE store_customer (
+    store_customer_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    store_id          BIGINT NOT NULL REFERENCES store (store_id),
+    organization_id   BIGINT NOT NULL REFERENCES organization (organization_id),
+    customer_id       BIGINT REFERENCES customer (customer_id)   -- NULL = store-only; set = shared
+);
+
+-- Shared customer: the org-wide customer account. Written only when share_customers is on.
 CREATE TABLE customer (
     customer_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id        BIGINT NOT NULL REFERENCES store (store_id),
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
 
@@ -371,10 +408,10 @@ customers, and the transaction belongs to the store.
 
 ```sql
 CREATE TABLE sales_order (
-    order_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id    BIGINT NOT NULL REFERENCES store (store_id),
-    customer_id BIGINT REFERENCES customer (customer_id),   -- the store's own customer
-    status      TEXT NOT NULL   -- e.g. open / paid / refunded
+    order_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    store_id          BIGINT NOT NULL REFERENCES store (store_id),
+    store_customer_id BIGINT REFERENCES store_customer (store_customer_id),   -- the store's own customer row
+    status            TEXT NOT NULL   -- e.g. open / paid / refunded
 );
 
 CREATE TABLE sales_order_product (
@@ -442,12 +479,17 @@ CREATE INDEX ON expense        (organization_id);
 CREATE INDEX ON expense        (store_id);     -- a store's expenses (when attributed)
 CREATE INDEX ON expense        (supplier_id);
 
--- Store-owned entities (products, customers) + store sales (the big tables — these matter most)
-CREATE INDEX ON store_product          (store_id);     -- a store's own products
-CREATE INDEX ON customer               (store_id);     -- a store's own customers
-CREATE INDEX ON customer               (organization_id);
+-- Products & customers (store-level + shared) + store sales (the big tables — these matter most)
+CREATE INDEX ON store_product          (store_id);           -- a store's own products
+CREATE INDEX ON store_product          (organization_id);
+CREATE INDEX ON store_product          (product_id);         -- link to the shared record (when shared)
+CREATE INDEX ON product                (organization_id);    -- the org's shared catalog
+CREATE INDEX ON store_customer         (store_id);           -- a store's own customers
+CREATE INDEX ON store_customer         (organization_id);
+CREATE INDEX ON store_customer         (customer_id);        -- link to the shared record (when shared)
+CREATE INDEX ON customer               (organization_id);    -- the org's shared customers
 CREATE INDEX ON sales_order            (store_id);
-CREATE INDEX ON sales_order            (customer_id);
+CREATE INDEX ON sales_order            (store_customer_id);
 CREATE INDEX ON sales_order_product    (store_product_id);   -- order_id covered by PK
 CREATE INDEX ON sales_order_return         (store_id);
 CREATE INDEX ON sales_order_return         (order_id);
@@ -494,10 +536,23 @@ ALTER TABLE sales_order FORCE  ROW LEVEL SECURITY;
 CREATE POLICY sales_order_tenant ON sales_order
     USING (store_id = current_setting('app.current_store')::bigint);
 
+-- The store-level copies are always store-scoped; the shared records are org-scoped (so every store
+-- in the org can resolve them). Both carry organization_id, so both are safe under RLS either way.
+ALTER TABLE store_customer ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_customer FORCE  ROW LEVEL SECURITY;
+CREATE POLICY store_customer_tenant ON store_customer
+    USING (store_id = current_setting('app.current_store')::bigint);
+
+ALTER TABLE customer ENABLE ROW LEVEL SECURITY;    -- the SHARED record
+ALTER TABLE customer FORCE  ROW LEVEL SECURITY;
+CREATE POLICY customer_tenant ON customer
+    USING (organization_id = current_setting('app.current_org')::bigint);
+
 -- Apply the same pattern to every tenant-scoped table:
---   org-scoped   (filter on organization_id): supplier, purchase_order, expense, role(custom), ...
---   store-scoped (filter on store_id):         store_product, customer, sales_order,
---                                              sales_order_return, ...
+--   store-scoped (filter on store_id):        store_product, store_customer, sales_order,
+--                                             sales_order_return, ...
+--   org-scoped   (filter on organization_id): product (shared), customer (shared), supplier,
+--                                             purchase_order, expense, role(custom), ...
 -- Child/line tables (sales_order_product, ...) inherit isolation through their parent's FK, but add
 -- a policy too if they can ever be queried directly.
 ```
