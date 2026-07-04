@@ -337,72 +337,67 @@ this endpoint requires — for the place this request targets?*
 - For a **store action**, the caller needs either a **store** membership at that store, **or** an
   **organization** membership (which reaches every store in the org), whose role has the permission.
 
-One rule underpins it: the permission must come from **a single unbroken chain** — one live membership,
-its unexpired role assignment, and that role's permission, all on the *same* row. A permission from an
-expired Cashier role can't be borrowed by a separate, still-active Stocker role; they're different
-chains.
+One rule underpins it: the permission must come from **a single unbroken chain** — the *same* live
+membership, its unexpired role, and that role's permission, all connected. A permission from an expired
+Cashier role can't be borrowed by a separate, still-active Stocker role; they're different chains.
 
-**Query**
+**The query.** We ask the database: *is there one connected chain from this user, through a live
+membership and a valid role, to the permission we need — for the place being acted on?* If yes, allow;
+if no row comes back, deny.
+
+The chain we walk:
+
 ```
-Does a row exist in:
-  membership → membership_assignment → role → role_permission → permission
-
-where:
-    membership.user_id = context.userId
-    AND permission     = requiredPermission        -- the role has the permission
-
-    -- account live AND membership live (not removed, not suspended) AND role not expired
-    AND membership.deleted_at IS NULL
-    AND membership.is_active  = true
-    AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
-
-    -- Read-time backstop: the role's type must match the membership it's exercised through. Even if a
-    -- bad write ever attached a role to a wrong-type membership (org role on a store seat, or a store
-    -- role on an org seat), the mismatched row is refused here — inert in both directions.
-    AND role.user_type = membership.user_type
-
-    -- Now qualify the membership. Branch on membership.user_type (organization_id is on EVERY
-    -- membership as the tenant boundary, so user_type — not "which id is null" — tells them apart).
-    -- Exactly one of the two blocks must hold:
-    AND (
-      -- ── STORE membership ────────────────────────────────────────────────────────────────
-      (
-            membership.user_type = 'STORE'
-        AND membership.organization_id = context.organizationId    -- same org as the token (tenant boundary)
-        AND request is a STORE action                              -- a store membership can't do org actions
-        AND membership.store_id = {storeId from the path}          -- and only at ITS store
-        AND permission.is_elevated = false                         -- a store membership can NEVER exercise an
-                                                                   -- elevated permission (read-time backstop:
-                                                                   -- inert even if a bad row put one in its role)
-      )
-      OR
-      -- ── ORGANIZATION membership ─────────────────────────────────────────────────────────
-      (
-            membership.user_type = 'ORGANIZATION'
-        AND membership.organization_id = context.organizationId    -- same org as the token (tenant boundary)
-        AND (
-              request is an ORG action                             -- org actions: org membership only
-           OR ( request is a STORE action                         -- OR a store action on any store in its org
-                AND store({storeId}).organization_id = context.organizationId )
-        )
-        -- no is_elevated restriction: an org membership may exercise elevated permissions
-      )
-    )
+user → membership → membership_assignment → role → role_permission → permission
 ```
 
-Read it as two mutually exclusive cases:
+The conditions on that chain, in four groups:
 
-- **STORE membership** — may act only on a **STORE** action, only at **its own** store, only with a
-  **non-elevated** permission, and only inside its own org.
-- **ORGANIZATION membership** — may do **ORG** actions, or **STORE** actions on **any** store in its
-  org, with **any** permission (elevated included) in its role, inside its own org.
+```
+-- (1) It's this user, and the role actually has the permission we need.
+membership.user_id = context.userId
+AND permission     = requiredPermission
 
-**Example.** A cashier at Seattle calls `POST /stores/{seattle}/refunds` (needs `order:refund`):
-- Their store membership is at Seattle ✅, it's a store action ✅, `order:refund` is non-elevated ✅,
-  and Seattle is in their org ✅ → if their role holds `order:refund`, the row exists → **allowed**.
-- The same cashier calling `POST /stores/{portland}/refunds` fails the `store_id = {storeId}` check
-  (they have no Portland membership) → no row → **403**. An org admin, by contrast, matches the
-  ORGANIZATION block for *any* store in the org → **allowed**.
+-- (2) Everything on the chain is still live (not removed, suspended, or expired).
+AND membership.deleted_at IS NULL
+AND membership.is_active  = true
+AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
+
+-- (3) The role and the membership are the same kind (store role on a store seat, org role on an
+--     org seat). This also quietly rejects any bad data where they don't match.
+AND role.user_type = membership.user_type
+
+-- (4) The membership is the right one for what's being done. Exactly ONE of these two must hold:
+AND (
+      -- STORE membership: can only do store actions, only at its own store, only with an
+      -- everyday (non-elevated) permission, and only within its own organization.
+      (   membership.user_type      = 'STORE'
+      AND membership.organization_id = context.organizationId
+      AND membership.store_id        = {storeId from the path}
+      AND request is a STORE action
+      AND permission.is_elevated     = false )
+
+   OR
+      -- ORGANIZATION membership: can do org actions, or store actions on ANY store in its org,
+      -- with any permission (elevated included) — as long as that store is in its own organization.
+      (   membership.user_type      = 'ORGANIZATION'
+      AND membership.organization_id = context.organizationId
+      AND ( request is an ORG action
+            OR ( request is a STORE action
+                 AND store({storeId}).organization_id = context.organizationId ) ) )
+)
+```
+
+The heart of it is group (4): a **store** membership is boxed into its own store and everyday
+permissions, while an **organization** membership reaches every store in its org and may use elevated
+permissions. In both, `organization_id = context.organizationId` is the wall that keeps everything
+inside the caller's own company.
+
+**How to picture it running.** The database doesn't judge "the user" as a whole. It looks at **each
+membership the user has, one at a time**, and asks: *does THIS membership form a complete chain to the
+required permission, and pass all the conditions?* If **any** one membership succeeds, access is
+allowed. So a user with three memberships is three separate candidate chains; the query needs just one
+to fully match.
 
 **The query double-checks two things for extra security.** Normally, bad combinations (like an
 org-only permission ending up in a store role) are blocked when the data is *saved* — see
@@ -416,6 +411,60 @@ time, so a bad row simply doesn't count:
 
 The idea: the query never assumes the saved data is perfect. It checks these rules itself, so one bad
 row can't grant access it shouldn't.
+
+**Example 1 — a user with two store memberships.**
+
+Maria has two store memberships and no org membership:
+
+| membership | kind  | store    | roles it grants          |
+|------------|-------|----------|--------------------------|
+| M1         | STORE | Seattle  | Cashier — has `order:refund` |
+| M2         | STORE | Portland | Stocker — has `product:read`, *not* `order:refund` |
+
+She calls `POST /stores/{Seattle}/refunds` → needs `order:refund`. The query tries each membership:
+
+- **M1 (Seattle/Cashier):** has `order:refund` ✅, live ✅, it's a STORE membership so the **STORE
+  block** applies → same org ✅, `store_id` Seattle = path Seattle ✅, store action ✅, refund is
+  non-elevated ✅ → **full match → allowed.**
+- M2 wasn't even needed, but it would fail anyway: Stocker doesn't have `order:refund`.
+
+Now she calls `POST /stores/{Portland}/refunds` instead:
+
+- **M1:** has `order:refund` ✅ … but `store_id` Seattle ≠ path Portland ❌ → fails.
+- **M2:** `store_id` Portland = path Portland ✅ … but Stocker doesn't have `order:refund` ❌ → fails.
+- No membership makes a full chain → **403.** (Correct — her Portland role is only a Stocker.)
+
+The takeaway: each membership is checked on its own, end to end. A permission from one membership can't
+be mixed with the store of another.
+
+**Example 2 — an organization user.**
+
+Diego has one **organization** membership with the Org Admin role (which has `product:edit`, an
+elevated-capable role). He calls `POST /stores/{Portland}/products/91` → needs `product:edit`.
+
+- His membership is `user_type = ORGANIZATION`, so the **ORG block** applies.
+- Same org ✅, and it's a store action on Portland → the block allows a store action on *any* store as
+  long as `store(Portland).organization_id = his org` ✅ → **allowed.**
+
+Diego never has a Portland membership — he doesn't need one. An org membership reaches every store in
+its org. The same request from Maria (store-only) would have needed a Portland membership and been
+denied.
+
+
+**Example 3 — creating a shared customer (store user, sharing on).**
+
+Sara is a Cashier at Store A; her org has `share_customers` turned on. She calls
+`POST /stores/{StoreA}/customers` → needs `customer:create`.
+
+Authorization is the *ordinary store check* — nothing special for "shared":
+
+- Her Store A membership hits the **STORE block**: same org ✅, `store_id` A = path A ✅, store action
+  ✅, and `customer:create` is non-elevated ✅ → **allowed.**
+
+The "shared" part changes only what gets *written*, not who's allowed: because sharing is on, the save
+writes both the store's own copy and the org-wide shared record (see *Write-time security → Working
+with Shared Resources*). The permission check is identical whether sharing is on or off.
+
 
 
 ### Resource scoping (IDOR)

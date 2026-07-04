@@ -8,27 +8,11 @@ Note: `user` is a reserved word in Postgres, so the table name is quoted as `"us
 ## Auth / RBAC
 
 ```sql
--- The canonical org/store axis. ONE lookup table that membership and role point at, so the two
--- values ('ORGANIZATION', 'STORE') live in a single place instead of being repeated as independent
--- CHECK constraints that could drift. The whole authz model lines up through these FKs:
--- membership.user_type == role.user_type along one grant chain. The USER has no type — a person is
--- placed by the memberships they hold, not by a label (see auth.md).
 CREATE TABLE user_type (
     user_type TEXT PRIMARY KEY CHECK (user_type IN ('ORGANIZATION', 'STORE'))
 );
 
--- `user` is the GLOBAL identity table for the whole system (one login per person), not an
--- org-owned table. It carries NO type: whether someone is an org or store person is decided
--- entirely by which memberships they hold. Provenance fields record where the account originated,
--- so even after every membership is removed we still know the user's home org and who created them.
---
--- is_active is an ACCOUNT-LEVEL kill switch, one level ABOVE membership.is_active:
---   user.is_active       = false -> the whole account is off; ALL their memberships are
---                                   effectively suspended at once (a single switch to disable a
---                                   person everywhere, e.g. offboarding, without touching each
---                                   membership). Access resolution must check this first.
---   membership.is_active = false -> suspends access at ONE place only.
--- So effective access at a place requires BOTH user.is_active AND that membership.is_active.
+
 CREATE TABLE "user" (
     user_id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id    BIGINT NOT NULL REFERENCES organization (organization_id),  -- home org (set once, immutable)
@@ -37,14 +21,6 @@ CREATE TABLE "user" (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Roles. For MVP all roles are managed (we ship them; customers assign, don't author).
--- The columns below pre-lay the infrastructure for org-owned CUSTOM roles (post-MVP):
---   is_managed      = TRUE for the roles we ship; FALSE for a customer's custom role.
---   organization_id = the owning org for a custom role; NULL for managed (we own those).
---   user_type       = the level the role applies at (ORGANIZATION or STORE), via the shared
---                     user_type lookup. A role is only assignable to a membership of the same type
---                     (membership.user_type == role.user_type) — see auth.md.
--- Custom roles are org-owned only — there are no store-owned custom roles (no store_id).
 CREATE TABLE role (
     role_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     is_managed      BOOLEAN NOT NULL DEFAULT TRUE,
@@ -57,17 +33,6 @@ CREATE TABLE role (
     )
 );
 
--- A permission is resource:action (e.g. product:read, order:refund, role:assign), explicit
--- and never a wildcard. The REACH (one store vs all the org's stores) comes from the ROLE
--- that holds it (role.user_type) and the membership it's granted at, NOT from the permission.
---   resource    = what's acted on: product, order, role, store, user, ...
---   action      = the verb: read, create, refund, assign, ...
---   is_elevated = an eligibility guard on which role types may HOLD this permission (NOT the
---                 level it operates at):
---                   FALSE -> can go in store roles AND org roles (the default).
---                   TRUE  -> can go in ORGANIZATION roles ONLY (e.g. store:create, user:create).
---                 A one-way gate: elevated permissions are org-only; non-elevated apply to both.
---                 This stops a (future custom) store-typed role from holding an org-only power.
 CREATE TABLE permission (
     permission_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     resource      TEXT NOT NULL,   -- e.g. product, order, role
@@ -76,76 +41,13 @@ CREATE TABLE permission (
     UNIQUE (resource, action)
 );
 
--- An elevated permission (is_elevated = TRUE) may only attach to an ORGANIZATION role.
--- Enforced on the write path (cross-table: permission.is_elevated vs role.user_type) when a
--- permission is added to a role. Non-elevated permissions attach to either type.
 CREATE TABLE role_permission (
     role_id       BIGINT NOT NULL REFERENCES role (role_id),
     permission_id BIGINT NOT NULL REFERENCES permission (permission_id),
     PRIMARY KEY (role_id, permission_id)
 );
 
--- ===========================================================================================
--- ABAC conditions (STRETCH GOAL — maybe MVP). Let customers put limits on a role's permission,
--- e.g. "Cashier may refund, but only up to $500." Two tables: a fixed MENU we ship
--- (permission_condition) and the customer's chosen VALUES (role_permission_condition).
--- ===========================================================================================
 
--- The MENU: which conditions a permission is allowed to have. WE define these (fixed reference
--- data). Each row is one tunable check: a `field` + an `operator`, plus a display label.
---   field    = the name to check on the action's DTO/entity (the SAME name; that's the mapping —
---              field 'amount' reads dto.amount at evaluation time).
---   operator = how to compare (<=, >=, ==, ...).
--- WHO edits values: ONLY org admins (permission `role_condition:edit`, held only by org roles).
--- They set a store's limits, scoped via store_id. Store admins do NOT edit limits -> no
--- self-escalation is possible. If a store wants a higher cap, the store admin asks the org admin.
--- No CHECK/min/max constraints: org admins are trusted to set any value, and WE author these
--- menu rows, so the inputs are already controlled. See auth.md.
-CREATE TABLE permission_condition (
-    permission_condition_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    permission_id BIGINT NOT NULL REFERENCES permission (permission_id),
-    field         TEXT NOT NULL,   -- DTO/entity field to check, e.g. 'amount', 'age_days'
-    operator      TEXT NOT NULL,   -- how to compare, e.g. '<='
-    label         TEXT NOT NULL,   -- UI display, e.g. 'Refund cap'
-    UNIQUE (permission_id, field, operator)
-);
-
--- The customer's chosen VALUES. CUSTOMER data — empty by default (we ship none). Points at an
--- allowed menu entry (permission_condition_id), so a customer can only ever set a value for a
--- condition we permit — they can't invent a field/operator (the FK enforces the allowlist).
--- TENANT-SCOPED (required — roles are global/managed; an unscoped row would change a shared role
--- for every org):
---   organization_id NOT NULL  -- the owning org
---   store_id        NULL      -- NULL = all the org's stores; set = this store only (override)
--- Resolution is MOST-SPECIFIC-WINS for a user acting at store S in org O:
---   1. row (role, condition, org=O, store=S)        -- store-specific override
---   2. else row (role, condition, org=O, store=NULL) -- org-wide setting
---   3. else unconditional
-CREATE TABLE role_permission_condition (
-    role_permission_condition_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id         BIGINT NOT NULL REFERENCES organization (organization_id),
-    store_id                BIGINT REFERENCES store (store_id),   -- NULL = whole org; set = one store
-    role_id                 BIGINT NOT NULL REFERENCES role (role_id),
-    permission_condition_id BIGINT NOT NULL REFERENCES permission_condition (permission_condition_id),
-    value                   NUMERIC NOT NULL,   -- the customer's setting, e.g. 500 (within min/max)
-    -- one value per (tenant-place, role, condition)
-    UNIQUE (organization_id, store_id, role_id, permission_condition_id)
-    -- Note: this doesn't enforce that the role actually holds the menu entry's permission
-    -- (a cap on a permission the role lacks is harmless — RBAC denies first). The UI should
-    -- only offer conditions for permissions the role has; value must be within the menu's min/max.
-);
-
--- A user belongs to a place (a store OR the org), independent of any role.
--- Like an IAM user: the membership exists on its own; roles are layered on top.
--- Removing all of a user's roles at a place leaves this row intact, so the user
--- still belongs there with no access.
---
--- A user has NO type of their own — they're placed by the memberships they hold. An ORGANIZATION
--- membership reaches all the org's stores; a STORE membership reaches its one store. A user may hold
--- store memberships, an org membership, or both, UNLESS organization.allow_user_cross_memberships is
--- FALSE (the default), in which case the write path locks each user to a single kind (an org member
--- can't also be given a store membership, and vice versa). Multiple store memberships are always
--- allowed. This crossing rule is a cross-table write-path check, not a DB CHECK. See auth.md.
 CREATE TABLE membership (
     membership_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id         BIGINT NOT NULL REFERENCES "user" (user_id),
@@ -153,54 +55,19 @@ CREATE TABLE membership (
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
     store_id        BIGINT REFERENCES store (store_id),
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    deleted_at      TIMESTAMPTZ,   -- soft delete: NULL = live, set = removed (kept for history)
-    -- Two distinct switches:
-    --   is_active  = suspended but still belongs here (temporary; reversible toggle).
-    --   deleted_at = removed from this place, but the row is retained for audit/history.
-    -- A live membership has deleted_at IS NULL. Every access query must filter
-    -- deleted_at IS NULL, or a removed membership would still grant access.
-    --
-    -- user_type FKs the shared `user_type` lookup, same as role.user_type, so the grant chain stays
-    -- consistent: membership.user_type == role.user_type (the user itself has no type).
-    -- organization_id is ALWAYS populated — it's the tenant boundary, carried on EVERY membership
-    -- (org and store alike). store_id distinguishes the kind:
-    --   ORGANIZATION membership: store_id IS NULL    (the place is the organization itself)
-    --   STORE        membership: store_id IS NOT NULL (the place is one store, inside organization_id)
-    -- Queries branch on user_type, not on which id is null.
+    deleted_at      TIMESTAMPTZ,   
     CHECK ((user_type = 'ORGANIZATION' AND store_id IS NULL)
         OR (user_type = 'STORE'        AND store_id IS NOT NULL))
 );
 
--- Membership cardinality (the org-vs-store asymmetry):
---   STORE user  -> MANY store memberships (one per store they belong to).
---   ORG   user  -> EXACTLY ONE org membership, ever (an org member belongs to one org, and
---                  that org is their immutable home org; org reach already covers all stores,
---                  so there's never a second org membership).
--- Soft-deleted rows (deleted_at set) are excluded from both, so removing then re-adding a user
--- at the same place doesn't collide with the old tombstone.
-
--- at most one LIVE membership per user per store
 CREATE UNIQUE INDEX membership_store_uq
     ON membership (user_id, store_id)
     WHERE store_id IS NOT NULL AND deleted_at IS NULL;
 
--- at most one LIVE org membership per user, PERIOD (keyed on user_id alone, not user+org) — this
--- enforces the "an org user belongs to exactly one organization" rule without splitting the table.
--- Keyed on user_type = 'ORGANIZATION' (NOT "organization_id IS NOT NULL"), because organization_id is
--- set on every membership; only org-type memberships count toward this limit.
 CREATE UNIQUE INDEX membership_org_uq
     ON membership (user_id)
     WHERE user_type = 'ORGANIZATION' AND deleted_at IS NULL;
 
--- A role assigned to a membership. Zero or more per membership.
--- Losing a role = deleting its row here; the membership above is untouched.
--- expires_at: optional time limit on the assignment (temp/seasonal staff, contractors).
---   NULL = never expires. Once expires_at has passed the assignment grants nothing — access
---   resolution filters expires_at IS NULL OR expires_at > now() (same family as the
---   membership.deleted_at / is_active filters).
--- A role is only assignable to a membership of the SAME type as the role
--- (membership.user_type == role.user_type) — enforced on the write path (cross-table rule). So a
--- STORE membership only ever receives STORE roles, an ORGANIZATION membership only ORGANIZATION roles.
 CREATE TABLE membership_assignment (
     membership_id BIGINT NOT NULL REFERENCES membership (membership_id),
     role_id       BIGINT NOT NULL REFERENCES role (role_id),
@@ -208,12 +75,6 @@ CREATE TABLE membership_assignment (
     PRIMARY KEY (membership_id, role_id)   -- same role can't be granted twice here
 );
 
--- Level-specific membership fields live in side tables, so the shared `membership`
--- table stays free of nulls. A membership has a detail row in exactly ONE of these,
--- matching its place: store memberships get a store_membership_detail row, org
--- memberships get an organization_membership_detail row. One row per membership, so
--- membership_id is both the PK and the FK. Screens join the one that matches the place
--- they're already querying — the two detail tables never overlap, so no UNION.
 CREATE TABLE store_membership_detail (
     membership_id BIGINT PRIMARY KEY REFERENCES membership (membership_id),
     store_pin     TEXT
@@ -257,27 +118,9 @@ CREATE TABLE organization (
     owner_user_id    BIGINT REFERENCES "user" (user_id),
     plan_id          BIGINT REFERENCES plan (plan_id),     -- the org's one plan; every store inherits its features
     default_store_id BIGINT REFERENCES store (store_id),
-    -- allow_user_cross_memberships: may one user hold an org membership AND store memberships at once?
-    --   FALSE (default) -> each user is locked to one kind; the write path refuses to add a store
-    --                      membership to a user who has an org membership, and vice versa. Multiple
-    --                      STORE memberships are always fine — the gate is only org-vs-store crossing.
-    --   TRUE            -> a user may span both levels. See auth.md ("Can a user be both...").
     allow_user_cross_memberships BOOLEAN NOT NULL DEFAULT FALSE,
-    -- Org-wide sharing settings (default off = each store's products/customers are its own):
-    --   share_products  TRUE -> a store creating a product also writes a shared `product` row, so the
-    --                           catalog identity (SKU) is recognized org-wide (each store still keeps
-    --                           its own stock/price in store_product).
-    --   share_customers TRUE -> a store creating a customer also writes a shared `customer` row, so
-    --                           the customer is recognized at every store.
-    -- When on, the store create dual-writes both tables in one transaction. See auth.md / tenancy.md.
     share_products  BOOLEAN NOT NULL DEFAULT FALSE,
     share_customers BOOLEAN NOT NULL DEFAULT FALSE
-    -- The plan is bought at the org and applies to all its stores. Billing is per store:
-    -- total = plan.price_per_store × number of stores in the org (derived, not stored). See plans.md.
-    -- Every org gets a default ("main") store created on onboarding — the store it sells and
-    -- purchases through by default. default_store_id points at it; the owner can promote a
-    -- different store later. Nullable only because the org row may be inserted just before its
-    -- first store in the same onboarding transaction.
 );
 ```
 
@@ -287,15 +130,10 @@ CREATE TABLE organization (
 CREATE TABLE store (
     store_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id  BIGINT NOT NULL REFERENCES organization (organization_id),
-    region           TEXT,                               -- grouping label, e.g. 'NorthWest'
-    sub_region       TEXT                                -- finer grouping, e.g. 'Seattle-Metro'
-    -- region/sub_region are descriptive tags for filtering and reports, NOT places you can
-    -- grant roles at. If a region ever needs to OWN access (a real district manager role)
-    -- it graduates to its own entity; until then it's just a label on the store.
+    region           TEXT,     
+    sub_region       TEXT      
 );
 
--- Free-form labels on a store (e.g. 'flagship', 'airport', 'pilot-program'). Many tags
--- per store. Kept separate from region/sub_region so a store can carry any number of them.
 CREATE TABLE store_tag (
     store_id BIGINT NOT NULL REFERENCES store (store_id),
     tag      TEXT   NOT NULL,
@@ -317,21 +155,17 @@ shared org-level row it links up to, so the item is recognized at every store. S
 the model and `auth.md` for the write flow.
 
 ```sql
--- Store-level product: this store's own copy — its sku, stock, and price live here, always.
--- product_id links up to the shared record when sharing is on (NULL = store-only).
 CREATE TABLE store_product (
     store_product_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     store_id         BIGINT NOT NULL REFERENCES store (store_id),
-    organization_id  BIGINT NOT NULL REFERENCES organization (organization_id),  -- tenant boundary / RLS
-    product_id       BIGINT REFERENCES product (product_id),   -- NULL = store-only; set = shared
+    organization_id  BIGINT NOT NULL REFERENCES organization (organization_id), 
+    product_id       BIGINT REFERENCES product (product_id),  
     sku              TEXT,
-    quantity         INTEGER NOT NULL DEFAULT 0,   -- this store's stock
-    price            NUMERIC(12, 2),               -- this store's price
-    UNIQUE (store_id, sku)   -- sku unique within the store
+    quantity         INTEGER NOT NULL DEFAULT 0,   
+    price            NUMERIC(12, 2),             
+    UNIQUE (store_id, sku) 
 );
 
--- Shared product: the org-wide identity (SKU). Written only when share_products is on. Holds no
--- stock/price — each store still prices and stocks independently in its store_product row.
 CREATE TABLE product (
     product_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
@@ -339,8 +173,6 @@ CREATE TABLE product (
     UNIQUE (organization_id, sku)
 );
 
--- Store-level customer: this store's own copy. customer_id links up to the shared record when
--- sharing is on (NULL = store-only). organization_id is the tenant boundary / RLS.
 CREATE TABLE store_customer (
     store_customer_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     store_id          BIGINT NOT NULL REFERENCES store (store_id),
@@ -348,29 +180,24 @@ CREATE TABLE store_customer (
     customer_id       BIGINT REFERENCES customer (customer_id)   -- NULL = store-only; set = shared
 );
 
--- Shared customer: the org-wide customer account. Written only when share_customers is on.
 CREATE TABLE customer (
     customer_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
 
--- Supplier is an org-level vendor record. Only org users deal with suppliers and create purchases.
 CREATE TABLE supplier (
     supplier_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
 );
 
--- The organization buys inventory from a supplier. Only org users create purchases. store_id is
--- optional: set it to attribute the purchase to a store (so a store admin can query their own),
--- or leave it NULL for an org-wide purchase. description records why the purchase was made.
 CREATE TABLE purchase_order (
     purchase_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id   BIGINT NOT NULL REFERENCES organization (organization_id),
-    store_id          BIGINT REFERENCES store (store_id),         -- optional: the store this is for
+    store_id          BIGINT REFERENCES store (store_id),        
     supplier_id       BIGINT NOT NULL REFERENCES supplier (supplier_id),
-    description       TEXT,                      -- why this purchase was made
-    total             NUMERIC(12, 2) NOT NULL,   -- order total
-    status            TEXT NOT NULL,             -- e.g. ordered / received / cancelled
+    description       TEXT,                    
+    total             NUMERIC(12, 2) NOT NULL, 
+    status            TEXT NOT NULL,          
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -378,23 +205,18 @@ CREATE TABLE purchase_order_product (
     purchase_order_id BIGINT NOT NULL REFERENCES purchase_order (purchase_order_id),
     store_product_id  BIGINT NOT NULL REFERENCES store_product (store_product_id),
     quantity          INTEGER NOT NULL,
-    unit_cost         NUMERIC(12, 2) NOT NULL,   -- cost per unit at purchase time
+    unit_cost         NUMERIC(12, 2) NOT NULL,
     PRIMARY KEY (purchase_order_id, store_product_id)
 );
 
 
-
--- Non-inventory spending (furniture, computers, utilities, SaaS, accountant fees, etc.) — money
--- OUT that is not resold and does not touch stock. Only org users record expenses. store_id is
--- optional: set it to attribute the expense to a store (so a store admin can query their own),
--- or leave it NULL for an org-wide expense. description records why.
 CREATE TABLE expense (
     expense_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
-    store_id        BIGINT REFERENCES store (store_id),        -- optional: the store this is for
-    supplier_id     BIGINT REFERENCES supplier (supplier_id),  -- the vendor (Amazon, Staples, ...); optional
-    category        TEXT NOT NULL,             -- e.g. 'furniture', 'equipment', 'utilities', 'software'
-    description     TEXT,                      -- why this expense was made
+    store_id        BIGINT REFERENCES store (store_id),  
+    supplier_id     BIGINT REFERENCES supplier (supplier_id),  
+    category        TEXT NOT NULL,          
+    description     TEXT,                   
     amount          NUMERIC(12, 2) NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -410,15 +232,15 @@ customers, and the transaction belongs to the store.
 CREATE TABLE sales_order (
     order_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     store_id          BIGINT NOT NULL REFERENCES store (store_id),
-    store_customer_id BIGINT REFERENCES store_customer (store_customer_id),   -- the store's own customer row
-    status            TEXT NOT NULL   -- e.g. open / paid / refunded
+    store_customer_id BIGINT REFERENCES store_customer (store_customer_id),  
+    status            TEXT NOT NULL   
 );
 
 CREATE TABLE sales_order_product (
     order_id         BIGINT NOT NULL REFERENCES sales_order (order_id),
-    store_product_id BIGINT NOT NULL REFERENCES store_product (store_product_id),  -- the store's product
+    store_product_id BIGINT NOT NULL REFERENCES store_product (store_product_id), 
     quantity         INTEGER NOT NULL,
-    unit_price       NUMERIC(12, 2) NOT NULL,   -- snapshots the price at sale time
+    unit_price       NUMERIC(12, 2) NOT NULL,  
     PRIMARY KEY (order_id, store_product_id)
 );
 
