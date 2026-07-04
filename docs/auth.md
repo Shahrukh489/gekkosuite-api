@@ -330,87 +330,104 @@ avoids leaking that it exists at all.
 
 ### The authorization query
 
-The core question: *does the caller hold a live membership, with a role, that carries the permission
-this endpoint requires — for the place this request targets?*
+A user can have **several memberships at once** (Cashier at one store, Manager at another, maybe an org
+membership too). So the check isn't "look at *the* membership" — it's:
 
-- For an **org action**, the caller needs an **organization** membership whose role has the permission.
-- For a **store action**, the caller needs either a **store** membership at that store, **or** an
-  **organization** membership (which reaches every store in the org), whose role has the permission.
+> **Go through every membership the user currently has. If *any one* of them grants the required
+> permission for the place being acted on, allow the request. If none do, deny.**
 
-One rule underpins it: the permission must come from **a single unbroken chain** — the *same* live
-membership, its unexpired role, and that role's permission, all connected. A permission from an expired
-Cashier role can't be borrowed by a separate, still-active Stocker role; they're different chains.
+Each membership is checked **on its own, end to end** — its own role, its own store. A permission that
+comes from one membership can't be combined with the store of another. One membership has to satisfy
+*everything* by itself.
 
-**The query.** We ask the database: *is there one connected chain from this user, through a live
-membership and a valid role, to the permission we need — for the place being acted on?* If yes, allow;
-if no row comes back, deny.
+**Pseudocode.** Written as a loop so the "check each membership" part is explicit — in practice this is
+one SQL query, but it behaves exactly like this:
 
-The chain we walk:
-
-```
-user → membership → membership_assignment → role → role_permission → permission
-```
-
-The conditions on that chain, in four groups:
+The order is: first weed out memberships that can't apply (dead, malformed, or wrong place), then — of
+the ones that survive — check whether any actually grants the permission.
 
 ```
--- (1) It's this user, and the role actually has the permission we need.
-membership.user_id = context.userId
-AND permission     = requiredPermission
+allowed = false
 
--- (2) Everything on the chain is still live (not removed, suspended, or expired).
-AND membership.deleted_at IS NULL
-AND membership.is_active  = true
-AND (membership_assignment.expires_at IS NULL OR membership_assignment.expires_at > now())
+for each membership M the user holds:                     -- every membership, checked separately
+    role = the role on M for this request
 
--- (3) The role and the membership are the same kind (store role on a store seat, org role on an
---     org seat). This also quietly rejects any bad data where they don't match.
-AND role.user_type = membership.user_type
+    # ── (1) live? skip anything removed, suspended, or expired ──
+    if M.is_active is false:            continue
+    if M.deleted_at is set:             continue
+    if role is missing or expired:      continue
 
--- (4) The membership is the right one for what's being done. Exactly ONE of these two must hold:
-AND (
-      -- STORE membership: can only do store actions, only at its own store, only with an
-      -- everyday (non-elevated) permission, and only within its own organization.
-      (   membership.user_type      = 'STORE'
-      AND membership.organization_id = context.organizationId
-      AND membership.store_id        = {storeId from the path}
-      AND request is a STORE action
-      AND permission.is_elevated     = false )
+    # ── (2) internally consistent? role and membership must be the same kind ──
+    if role.user_type != M.user_type:   continue     -- rejects any bad/mismatched data
 
-   OR
-      -- ORGANIZATION membership: can do org actions, or store actions on ANY store in its org,
-      -- with any permission (elevated included) — as long as that store is in its own organization.
-      (   membership.user_type      = 'ORGANIZATION'
-      AND membership.organization_id = context.organizationId
-      AND ( request is an ORG action
-            OR ( request is a STORE action
-                 AND store({storeId}).organization_id = context.organizationId ) ) )
-)
+    # ── (3) does this membership even apply to this request (right kind, place, and org)? ──
+    if M.user_type == 'STORE':
+        # a store membership: only store actions, only at ITS store, only everyday permissions
+        if not ( request is a STORE action
+                 and M.store_id == {storeId from the path}
+                 and M.organization_id == context.organizationId
+                 and requiredPermission.is_elevated == false ):
+            continue
+
+    if M.user_type == 'ORGANIZATION':
+        # an org membership: org actions, OR a store action on ANY store in its org (elevated ok)
+        if not ( M.organization_id == context.organizationId
+                 and ( request is an ORG action
+                       or ( request is a STORE action
+                            and store({storeId}).organization_id == context.organizationId ) ) ):
+            continue
+
+    # ── (4) the real question: does this membership's role actually grant the permission? ──
+    if role has requiredPermission:
+        allowed = true; break
+
+return allowed        # true = one membership passed everything → allow ; false → 403
 ```
 
-The heart of it is group (4): a **store** membership is boxed into its own store and everyday
-permissions, while an **organization** membership reaches every store in its org and may use elevated
-permissions. In both, `organization_id = context.organizationId` is the wall that keeps everything
-inside the caller's own company.
+**What each step means:**
 
-**How to picture it running.** The database doesn't judge "the user" as a whole. It looks at **each
-membership the user has, one at a time**, and asks: *does THIS membership form a complete chain to the
-required permission, and pass all the conditions?* If **any** one membership succeeds, access is
-allowed. So a user with three memberships is three separate candidate chains; the query needs just one
-to fully match.
+The **loop** is the key idea — we test *each* membership on its own; the first one that clears every
+step wins, and we stop. Steps (1)–(3) ask *"is this membership even a candidate?"*; step (4) is the
+real permission check, asked last.
 
-**The query double-checks two things for extra security.** Normally, bad combinations (like an
-org-only permission ending up in a store role) are blocked when the data is *saved* — see
-*Write-time security*. But just in case a bad row ever gets in, the query re-verifies two rules every
-time, so a bad row simply doesn't count:
+- **(1) Live?** — Skip any membership that's been removed (`deleted_at`), switched off
+  (`is_active = false`), or whose role assignment has expired. A dead membership grants nothing, so
+  there's no point looking further at it.
 
-- `permission.is_elevated = false` in the STORE block — a store person can never use an org-only
-  permission, even if one wrongly ended up in their role.
-- `role.user_type = membership.user_type` — the role and the membership must be the same kind (store
-  role on a store seat, org role on an org seat).
+- **(2) Internally consistent? (role kind == membership kind).** Every membership has a *kind*
+  (`STORE` or `ORGANIZATION`), and so does every role. This step requires them to match — a store role
+  only counts on a store membership, an org role only on an org membership. Normally this is already
+  guaranteed when the role is assigned; re-checking here means a *mismatched* record (say, an org role
+  somehow attached to a store seat) is simply ignored, so it can't grant the store seat org-level power.
 
-The idea: the query never assumes the saved data is perfect. It checks these rules itself, so one bad
-row can't grant access it shouldn't.
+- **(3) Does this membership apply to this request?** — This is where a **store** membership and an
+  **organization** membership are checked differently, because they can do different things:
+
+  - A request is either a **store action** (it targets a specific store — the URL is
+    `/stores/{storeId}/...`) or an **org action** (it targets the organization — e.g.
+    `/organization/...`).
+  - A **STORE** membership may satisfy *only a store action*, and *only for its own store*
+    (`M.store_id` must equal the `{storeId}` in the URL), and *only with an non elevated permission*
+    (`is_elevated == false`). It can never do org actions and never reach another store.
+  - An **ORGANIZATION** membership may satisfy an *org action*, **or** a store action on *any* store —
+    as long as that store is inside its own org (`store.organization_id == M.organization_id`). It may
+    also use elevated permissions.
+  - In *both* cases, `M.organization_id == context.organizationId` must hold — this is the wall that
+    keeps every caller inside their own company; a store or org in another company never matches.
+
+  A membership that doesn't fit the request (wrong kind, wrong store, another company) is skipped here,
+  before we ever look at its permissions.
+
+- **(4) Does its role actually grant the permission?** — Of the memberships that survived (1)–(3),
+  this asks the real question: does one hold `requiredPermission`? The first that does → **allow**.
+
+**Why steps (2) and (3) double as safety nets.** The role-kind match in (2) and the
+`is_elevated == false` guard in (3) re-verify rules that are *also* enforced when data is saved (see
+*Write-time security*). If a bad record ever slipped into the database — an org-only permission inside
+a store role, or a role on the wrong kind of seat — these steps make the loop ignore it. The check
+never trusts that the stored data is already correct; it re-proves it on every request.
+
+---
 
 **Example 1 — a user with two store memberships.**
 
@@ -421,45 +438,73 @@ Maria has two store memberships and no org membership:
 | M1         | STORE | Seattle  | Cashier — has `order:refund` |
 | M2         | STORE | Portland | Stocker — has `product:read`, *not* `order:refund` |
 
-She calls `POST /stores/{Seattle}/refunds` → needs `order:refund`. The query tries each membership:
+**Request A — she calls `POST /stores/{Seattle}/refunds`** (a store action, needs `order:refund`). The
+loop tries her memberships:
 
-- **M1 (Seattle/Cashier):** has `order:refund` ✅, live ✅, it's a STORE membership so the **STORE
-  block** applies → same org ✅, `store_id` Seattle = path Seattle ✅, store action ✅, refund is
-  non-elevated ✅ → **full match → allowed.**
-- M2 wasn't even needed, but it would fail anyway: Stocker doesn't have `order:refund`.
+**M1 — Seattle / Cashier:**
+- (1) Live? — yes, active and not removed → continue.
+- (2) Same kind? — store role on a store membership → yes → continue.
+- (3) Applies? — it's a store action ✅, `M1.store_id` (Seattle) matches the URL's `{Seattle}` ✅,
+  same company ✅, and `order:refund` is non-elevated ✅ → this membership applies → continue.
+- (4) Has the permission? — Cashier holds `order:refund` ✅ → **allow.** The loop stops here.
 
-Now she calls `POST /stores/{Portland}/refunds` instead:
+M2 is never reached. (Even if it were, it applies only to *Portland*, so it wouldn't help a Seattle
+request.)
 
-- **M1:** has `order:refund` ✅ … but `store_id` Seattle ≠ path Portland ❌ → fails.
-- **M2:** `store_id` Portland = path Portland ✅ … but Stocker doesn't have `order:refund` ❌ → fails.
-- No membership makes a full chain → **403.** (Correct — her Portland role is only a Stocker.)
+→ **Allowed.**
 
-The takeaway: each membership is checked on its own, end to end. A permission from one membership can't
-be mixed with the store of another.
+**Request B — she calls `POST /stores/{Portland}/refunds`** (same permission, different store):
 
-**Example 2 — an organization user.**
+**M1 — Seattle / Cashier:**
+- (3) Applies? — `M1.store_id` is Seattle, but the URL asks for Portland → **doesn't apply → skip.**
+  (A Seattle membership can't act on Portland.)
 
-Diego has one **organization** membership with the Org Admin role (which has `product:edit`, an
-elevated-capable role). He calls `POST /stores/{Portland}/products/91` → needs `product:edit`.
+**M2 — Portland / Stocker:**
+- (3) Applies? — it's Portland ✅ and a store action ✅ → applies → continue.
+- (4) Has the permission? — Stocker does **not** hold `order:refund` ❌ → skip.
 
-- His membership is `user_type = ORGANIZATION`, so the **ORG block** applies.
-- Same org ✅, and it's a store action on Portland → the block allows a store action on *any* store as
-  long as `store(Portland).organization_id = his org` ✅ → **allowed.**
+No membership cleared every step → **403.** Correct: at Portland she's only a Stocker. Notice a
+permission from her *Seattle* role can't be combined with the *Portland* store — each membership is
+judged whole, on its own.
 
-Diego never has a Portland membership — he doesn't need one. An org membership reaches every store in
-its org. The same request from Maria (store-only) would have needed a Portland membership and been
-denied.
+---
 
+**Example 2 — an organization user reaching into a store.**
 
-**Example 3 — creating a shared customer (store user, sharing on).**
+Diego has a single **organization** membership with the Org Admin role (which holds `product:edit`). He
+calls `POST /stores/{Portland}/products/91` (a store action, needs `product:edit`).
 
-Sara is a Cashier at Store A; her org has `share_customers` turned on. She calls
-`POST /stores/{StoreA}/customers` → needs `customer:create`.
+**M — Diego's org membership:**
+- (1) Live? — yes → continue.
+- (2) Same kind? — org role on an org membership → yes → continue.
+- (3) Applies? — it's an ORGANIZATION membership, so it may act on a store action at *any* store,
+  provided that store is in his company: `store(Portland).organization_id == his org` ✅, and it's his
+  own company ✅ → applies → continue.
+- (4) Has the permission? — Org Admin holds `product:edit` ✅ → **allow.**
 
-Authorization is the *ordinary store check* — nothing special for "shared":
+→ **Allowed — with no Portland membership at all.** That's the whole point of an org membership: it
+reaches every store in the org. The identical request from Maria (store-only) would be skipped at step
+(3) unless she had a Portland membership.
 
-- Her Store A membership hits the **STORE block**: same org ✅, `store_id` A = path A ✅, store action
-  ✅, and `customer:create` is non-elevated ✅ → **allowed.**
+---
+
+**Example 3 — a store cashier creating a *shared* customer.**
+
+Sara is a Cashier at Store A, and her org has `share_customers` turned **on**. She calls
+`POST /stores/{StoreA}/customers` (a store action, needs `customer:create`). The important point:
+authorization runs exactly like any other store action — "shared" changes nothing here.
+
+**M — Sara's Store A membership:**
+- (1) Live? — yes → continue.
+- (2) Same kind? — store role on a store membership → yes → continue.
+- (3) Applies? — store action ✅, `M.store_id` = Store A = the URL's store ✅, same company ✅, and
+  `customer:create` is non-elevated (an everyday action) ✅ → applies → continue.
+- (4) Has the permission? — her role holds `customer:create` ✅ → **allow.**
+
+→ **Allowed** by the ordinary store check. The *only* thing the `share_customers` setting affects is
+what gets **written** afterward: with sharing on, the save records both the store's own copy and the
+org-wide shared copy (see *Write-time security → Working with Shared Resources*). The permission check
+is identical whether sharing is on or off.
 
 The "shared" part changes only what gets *written*, not who's allowed: because sharing is on, the save
 writes both the store's own copy and the org-wide shared record (see *Write-time security → Working
