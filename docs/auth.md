@@ -224,6 +224,7 @@ This section is the request lifecycle: what happens, in order, from the moment a
 the moment it's allowed to touch data. Everything above described the *model* (users, memberships,
 roles); this describes how a single request is checked against it.
 
+
 Every request passes through the same pipeline:
 
 ```
@@ -270,6 +271,19 @@ freshly-read account status. It carries **no target**: the thing being acted on 
 not from a header the client set.
 
 ## 2. Authorization — may this user do this action, here?
+
+1. A person is just a login. By itself, an account can do nothing.
+2. Access comes from "memberships" — a membership is a place you belong (a specific store, or the organization as a whole).
+3. On each membership you're given a role, and a role is just a named bundle of permissions (a permission is one allowed action,
+like "refund an order").
+4. A person can have several memberships at once — Cashier at one store, Manager at another, maybe an org-wide membership too.
+5. Every request carries a signed token that says who you are and which company you're in. The company is read from the token,
+never from anything the client can type — so nobody can pretend to be in a different company.
+6. To decide "can you do this?", the system looks at every membership you currently have and checks each one on its own: is it
+live, is it the right kind of place for this action, is it in your company, and does its role actually grant the permission needed?
+If any one membership passes all of that, you're allowed. If none do, you're denied.
+7. A store membership can only touch its own store; an org membership reaches every store in the company. That difference is the entire store-vs-org model.
+8. When you save data, the row is stamped with your company from the token — so you can only ever write into your own company, never someone else's.
 
 Each endpoint declares the one permission it needs. Store actions carry the store in the **path**
 (`/stores/{storeId}/...`); org actions (`/organization/...`) carry no place id — the org comes from
