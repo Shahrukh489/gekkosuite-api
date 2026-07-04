@@ -1,10 +1,4 @@
-# Auth (authentication & authorization)
-
-How people sign in, how they get access to stores and the organization, and how we decide what
-they're allowed to do where.
-
-
-**Overview**
+# Overview
 
 > A user is just a login. *Where* they can act comes from the **memberships** they hold; *what* they
 > can do there comes from the **roles** on those memberships.
@@ -14,12 +8,6 @@ places they have a membership to**. The same person can belong to a store, to th
 both, and that's what sets their reach. Roles, on the other hand, *are* typed (store or organization),
 so you can't attach an organization-level role to a store membership. Any role holding an
 `is_elevated = true` permission is necessarily an organization-level role.
-
-
-## The chain (how the pieces connect)
-
-Read the chain left to right: a **user** has **memberships** (places they belong); each membership is
-given **roles**; each role is a bundle of **permissions** (individual allowed actions).
 
 ```
 user  ──<  membership  ──<  membership_assignment  >──  role  ──<  role_permission  >──  permission
@@ -41,6 +29,8 @@ user  ──<  membership  ──<  membership_assignment  >──  role  ──
 
 So an "org user" is simply **a person who holds an organization membership**; a "store user" is
 someone who holds only store memberships. 
+
+---
 
 # FAQ
 
@@ -226,10 +216,34 @@ role's permissions:
 - Attaching to an **organization** membership → list only **org roles** (`role.user_type =
   ORGANIZATION`).
 
+---
 
 # API Authentication and Authorization Flow
 
-Two layers: **authenticate** (who are you?) then **authorize** (may you do this here?).
+This section is the request lifecycle: what happens, in order, from the moment an API call arrives to
+the moment it's allowed to touch data. Everything above described the *model* (users, memberships,
+roles); this describes how a single request is checked against it.
+
+Every request passes through the same pipeline:
+
+```
+request
+  │
+  ├─ 1. Authenticate ──  Who are you?  Validate the JWT, load the account, build the request context.
+  │                      Fail → 401.
+  │
+  └─ 2. Authorize ─────  May you do THIS, HERE?  Runs in two halves:
+         │
+         ├─ Read-time security  ── decide allow/deny and which rows come back (the permission
+         │                          check and scoping the data to what the caller may see).
+         │
+         └─ Write-time security ── when the action saves data, keep invalid rows out of the
+                                    database in the first place (tenant stamping, RBAC integrity).
+```
+
+The two authorization halves exist because a request has two distinct moments to protect: **reading**
+(deciding whether to serve the request and what data it may see) and **writing** (making sure whatever
+gets saved is valid and correctly owned). 
 
 ## 1. Authentication — validate the JWT, load identity, build context
 
@@ -238,19 +252,17 @@ strong **rotated** signing key, and **real revocation / short-lived tokens + ref
 user's token stops working promptly. If anything fails, stop and return **401**.
 
 On success, read **`is_active` fresh from the `user` row** — one DB read per request — so a disabled
-account is judged on what's true now, never on a stale token. Then build the request **context**:
+account is judged on what's true now, never on a stale token. If the user is not active then return 401, else build the request **context**:
 
 
 ```
-if context.isActive = false                 →  403   -- kill switch: off everywhere
-```
-
-```
-context = {
-  userId,            // from the token
-  organizationId,    // from the token — the tenant boundary, never client input
-  isActive           // account kill switch — read FRESH from the user row
-}
+if context.isActive = false                 →  401
+else:
+  context = {
+    userId,            // from the token
+    organizationId,    // from the token — the tenant boundary, never client input
+    isActive           // account kill switch — read FRESH from the user row
+  }
 ```
 
 The context holds only **verified identity** — who the user is, their home org (the tenant), and the
@@ -274,29 +286,61 @@ Procurement, suppliers, expenses, and managing stores/users are **org actions**.
 not in the acted-on place — returns **404, never 403**, so existence isn't leaked. 403 is reserved for
 "this is yours, but you lack the permission."
 
-The rest of authorization splits into two layers by *when* the check runs:
+## 2a. Read-time security
 
-- **Read-time security** — checks at the moment of a request that decide whether to allow it and which
-  rows to return (the authorization query, resource scoping, and the read-time backstops).
-- **Write-time security** — checks at the moment data is saved that keep invalid rows out of the
-  database in the first place (tenant stamping, the write-path invariants, the shared-resource dual
-  write).
+**Purpose:** decide whether the request is allowed, and scope every read so it can only return rows
+the caller is entitled to. It has two parts: the **authorization query** (does the caller hold the
+required permission, at the right place?) and **resource scoping** (when a specific record is named by
+id, make sure it belongs to that place).
 
-The two reinforce each other: write-time keeps bad rows out, and read-time refuses to honor any that
-slip through, so no single mistake opens a hole.
+```mermaid
+flowchart TD
+    A([Authenticated request]) --> B{Does a role the caller holds<br/>grant the required permission<br/>for this place?}
+    B -->|no| D[403 Deny]
+    B -->|yes| C{Does the action point at a<br/>specific record by id?}
+    C -->|no| E([Allow])
+    C -->|yes| F{Is that record in this place?}
+    F -->|no| G[404 Not Found]
+    F -->|yes| E
 
+    style D fill:#fee2e2,stroke:#ef4444
+    style G fill:#fee2e2,stroke:#ef4444
+    style E fill:#dcfce7,stroke:#22c55e
+```
 
-## Read-time security
+**Reading the diagram, box by box:**
 
-Checks that run **per request** — they decide *may this be allowed, and which rows come back*.
+- **Authenticated request** — we've already checked *who* the caller is (step 1). Now we check what
+  they may do.
+- **"Does a role the caller holds grant the required permission for this place?"** — the
+  **authorization query**. Every endpoint declares one permission it needs (e.g. `order:refund`). This
+  asks whether the caller has that permission, through a role, at the store or org the request targets.
+  If not → **403 Deny** (you're a valid user, but you can't do this here).
+- **"Does the action point at a specific record by id?"** — some requests are general ("list my
+  orders"); others name one exact record ("refund order 4382"). Only the second kind needs the next
+  check.
+- **"Is that record in this place?"** — **resource scoping**. It makes sure the named record actually
+  belongs to the store/org in the request, so nobody can reach another store's order by guessing its
+  id. If it doesn't belong here → **404 Not Found** (we don't even admit it exists).
+- **Allow** — reached only by passing every check on the path.
 
-**The authorization query.** Does the user hold a live membership that has a role with the required permission at the store or organization level based on the request?
-- If the request is to make a change in the Organization itself, does the user have an organization membership that has a role with permissions to make that change.
-- If the request is to make a change in a Store, does the user have an store or organization membership that has a role with permissions to make that change for that Store
+The two failure colors mean different things: **403** = "this is a real thing but not yours to do,"
+**404** = "as far as you're concerned, it doesn't exist." Using 404 (not 403) for another tenant's data
+avoids leaking that it exists at all.
 
-**Important!**
-- Must make sure that a user has a membership at the place you want to make a change, if user has membership in Store A to create:product and in Store B he can only read:product. If a request comes from user to create:product, it should never allow it in Store B. Must check the entire chain:  membership → membership_assignment → role → role_permission → permission.
+### The authorization query
 
+The core question: *does the caller hold a live membership, with a role, that carries the permission
+this endpoint requires — for the place this request targets?*
+
+- For an **org action**, the caller needs an **organization** membership whose role has the permission.
+- For a **store action**, the caller needs either a **store** membership at that store, **or** an
+  **organization** membership (which reaches every store in the org), whose role has the permission.
+
+One rule underpins it: the permission must come from **a single unbroken chain** — one live membership,
+its unexpired role assignment, and that role's permission, all on the *same* row. A permission from an
+expired Cashier role can't be borrowed by a separate, still-active Stocker role; they're different
+chains.
 
 **Query**
 ```
@@ -351,34 +395,38 @@ Read it as two mutually exclusive cases:
 - **STORE membership** — may act only on a **STORE** action, only at **its own** store, only with a
   **non-elevated** permission, and only inside its own org.
 - **ORGANIZATION membership** — may do **ORG** actions, or **STORE** actions on **any** store in its
-  org, with **any** permission (elevated included), inside its own org.
+  org, with **any** permission (elevated included) in its role, inside its own org.
 
-No matching row → **403 Deny** (deny by default). A `storeId` in another org produces no row (its
-`organization_id` won't match the token's), so a foreign store is denied by the same query. And a
-store membership can never satisfy an elevated permission — `permission.is_elevated = false` is baked
-into the STORE block, so even a poisoned `role_permission` (elevated permission in a store role) is
-**inert**.
+**Example.** A cashier at Seattle calls `POST /stores/{seattle}/refunds` (needs `order:refund`):
+- Their store membership is at Seattle ✅, it's a store action ✅, `order:refund` is non-elevated ✅,
+  and Seattle is in their org ✅ → if their role holds `order:refund`, the row exists → **allowed**.
+- The same cashier calling `POST /stores/{portland}/refunds` fails the `store_id = {storeId}` check
+  (they have no Portland membership) → no row → **403**. An org admin, by contrast, matches the
+  ORGANIZATION block for *any* store in the org → **allowed**.
 
-**Bad rows are inert at read time, not just kept out at write time.** Two backstops make the query
-refuse poisoned data even if a write path ever slips one through:
-- `permission.is_elevated = false` in the STORE block → an elevated permission in a store role can
-  never be exercised from a store seat.
-- `role.user_type = membership.user_type` → a role attached to a wrong-type membership (org role on a
-  store seat, or store role on an org seat) is refused.
+**The query double-checks two things for extra security.** Normally, bad combinations (like an
+org-only permission ending up in a store role) are blocked when the data is *saved* — see
+*Write-time security*. But just in case a bad row ever gets in, the query re-verifies two rules every
+time, so a bad row simply doesn't count:
 
-The write path keeps these bad rows out in the first place; the clauses above make any that slip
-through harmless. The query never trusts the data is clean.
+- `permission.is_elevated = false` in the STORE block — a store person can never use an org-only
+  permission, even if one wrongly ended up in their role.
+- `role.user_type = membership.user_type` — the role and the membership must be the same kind (store
+  role on a store seat, org role on an org seat).
 
-**It all has to come from one chain, not a mix.** An expired Cashier role that could refund doesn't
-lend its permission to a still-active Stocker role that can't. Walking the chain as one joined row
-guarantees the live membership, the unexpired assignment, and the permission all sit on the *same*
-row.
-
+The idea: the query never assumes the saved data is perfect. It checks these rules itself, so one bad
+row can't grant access it shouldn't.
 
 
-### Resource scoping (IDOR) — read-time
+### Resource scoping (IDOR)
 
-When an action names a specific resource by id (the order to refund, the product to edit), we must make sure that the database query has a WHERE clause matching the store_id or organization_id for this resource_id. 
+The permission check above answers "may you do this *kind* of action here?" But many actions name a
+**specific record by id** — refund *order 4382*, edit *product 91*. We must also ensure that record
+actually belongs to the place in the request, or a caller could pass someone else's id (an *insecure
+direct object reference*, IDOR).
+
+The rule: **scope every by-id query with the place**, so a foreign record simply isn't found rather
+than being fetched and then checked.
 
 ```
 UPDATE / SELECT ... WHERE order_id = {orderId} AND store_id = {storeId}
@@ -391,64 +439,109 @@ loading. For an **organization** action the same idea scopes to the org (`... AN
 context.organizationId`). **Every endpoint that takes a resource id must do this.**
 
 
-## Write-time security
+## 2b. Write-time security
 
-Checks that run **when data is saved** — they keep invalid rows out of the database in the first place.
-Read-time security *trusts* the rows it reads, so these write-time rules are what guarantee those rows
-are valid. Each is enforced through a **single chokepoint** (one service method per kind of write),
-mandatory and tested — never scattered per-endpoint — because a cross-table rule like these can't be a
-plain DB `CHECK`. Where a read-time backstop also exists, it's noted, so a bad row that ever slips
-through is still inert (see *Read-time security* above).
+**Purpose:** when a request *saves* data, make sure whatever gets written is valid and correctly owned
+— because everything read-time does depends on the stored data being trustworthy in the first place.
+
+A useful way to see it: read-time security is the guard at the door checking each visitor; write-time
+security is what makes sure no bad visitor was ever let into the building. If a corrupt row reaches the
+database, read-time has to keep catching it forever; if we stop it at write, it never exists.
+
+This half has two concerns:
+
+1. **Tenant ownership** — every new row must be stamped with the caller's own org (never a value the
+   client supplied), so nobody can write into another tenant. *(Setting the tenant on writes.)*
+2. **RBAC integrity** — the role/permission rows the authorization query walks must themselves be
+   valid (e.g. an org-only permission never lands in a store role). *(Write-path invariants.)*
+
+```mermaid
+flowchart TD
+    A([Request wants to save a row]) --> B[Stamp the owner from context<br/>org from token, store from path<br/>never from the request body]
+    B --> C{Is this a role/permission row?}
+    C -->|no · ordinary data| E([Save])
+    C -->|yes| D{Is the combination allowed?<br/>org-only power stays in org roles ·<br/>role kind matches membership kind}
+    D -->|no| F[Reject]
+    D -->|yes| E
+    E -.->|optional safety floor| G[[Database also refuses bad rows:<br/>RLS WITH CHECK, triggers]]
+
+    style F fill:#fee2e2,stroke:#ef4444
+    style E fill:#dcfce7,stroke:#22c55e
+    style G fill:#f1f5f9,stroke:#94a3b8
+```
+
+**Reading the diagram, box by box:**
+
+- **Request wants to save a row** — the caller has already passed authorization (read-time) and is now
+  writing something.
+- **Stamp the owner from context** — before saving, the system sets *who owns this row* itself, from
+  trusted sources: the **org** comes from the caller's signed token, and the **store** comes from the
+  URL path (`/stores/{storeId}/...`). Neither is taken from the request body. The store id is safe to
+  use here because authorization already ran and *proved the caller may act on that store* — a store
+  they don't belong to would have been rejected (403) long before this write. So a caller can only ever
+  write a row into their own org, and into a store they're actually entitled to.
+  *(This is "Setting the tenant on writes" below.)*
+- **"Is this a role/permission row?"** — most saves are ordinary business data (a customer, an order).
+  A few saves change the access rules themselves — giving a role a permission, or assigning a role to a
+  person. Only those need the next check.
+- **"Is the combination allowed?"** — for those access-rule rows, we verify the pairing is legal: an
+  org-only power can only go into an org role, and a role can only go on a matching kind of membership.
+  A bad pairing is **Reject**ed. *(This is "Write-path invariants" below.)*
+- **Save** — the row is written.
+- **Database also refuses bad rows (optional)** — a last-resort floor *inside* the database (RLS write
+  checks and triggers) that rejects a bad row even if the app code above ever slipped. Dotted because
+  it's optional defense-in-depth, not the primary guard.
+
+So: everything gets the right owner stamped; only access-rule rows get the extra legality check; and
+the database can optionally back up both.
 
 
 ### Setting the tenant on writes
 
-Reads are scoped by the `WHERE` clause above; **writes** have the mirror rule: when inserting a new
-row, its `organization_id` is always set **from the context (the token)** — the request body never
-populates it. (`store_id`, on store routes, comes from the `{storeId}` in the path, already validated
-by the authorization query — likewise never from the body.)
+**The rule:** when inserting a new row, its `organization_id` is always taken **from the context (the
+token)** — never from the request body. (`store_id`, on store routes, comes from the `{storeId}` in
+the path, already validated by the authorization query — likewise never from the body.)
 
 ```
 row.organization_id = context.organizationId    // ✅ from the token, always
 // NOT: row = request.body   → a client could slip in "organization_id": <another org>
 ```
 
-This closes cross-tenant writes (the "mass assignment" / over-posting bug): a valid token says org 7,
-but a lazy `save(request.body)` could stamp the row with an org id the client supplied. Two ways to
-make the rule unbreakable:
+**Why this matters:** if the code lazily copies the whole request into the new row (`save(request.body)`),
+a client could include `"organization_id": <some other org>` in their request and have their data
+written into a *different* company. The token says org 7, but the saved row lands in org 9. Reads can't
+catch this afterward — the row genuinely looks like it belongs to org 9 — so it has to be prevented at
+write time.
 
-- **The request shape has no `organization_id` / `store_id` field** — if the client's input type can't
-  carry it, no code can accidentally copy it onto the row. (Primary defense.)
-- *(Optional DB backstop)* a **`WITH CHECK (organization_id = app.current_org)`** on each table's RLS
-  policy — the write-side twin of the read filter, so Postgres refuses any insert whose org doesn't
-  match the session tenant, even if app code got it wrong. See `database.md`.
+Two ways to make the rule impossible to break:
+
+- **Don't let the client send it at all.** The request's data shape has no `organization_id` /
+  `store_id` field, so there's nothing for code to accidentally copy onto the row. (Main defense.)
+- **Have the database refuse it too (optional).** Add `WITH CHECK (organization_id = app.current_org)`
+  to each table's RLS policy. This is the write-side version of the read filter: Postgres rejects any
+  insert whose org doesn't match the caller's, even if the app code got it wrong. See `database.md`.
 
 
-### Write-path invariants (RBAC integrity)
+### Keeping role data valid
 
-The authorization query trusts that the RBAC rows it walks are valid — it does not re-derive whether a
-role *should* hold a permission, or whether a role *should* sit on a membership. Those guarantees are
-made here, on the write path. Each rule spans two tables (so a plain DB `CHECK` can't express it) and
-must run through a single mandatory, tested chokepoint. Both also have a **read-time backstop** in the
-authorization query, so a bad row is inert even if a write ever bypasses the check.
+When the authorization query reads a user's roles and permissions, it *assumes* those were set up
+correctly — it doesn't stop to ask "should this role even be allowed to have this permission?" That
+"should" is guaranteed here instead: at the moment someone builds a role or assigns one, we block the
+bad combinations so they never get saved.
 
-**1. An elevated permission may only be added to an org role.**
-- Write: `addPermissionToRole()` rejects adding an `is_elevated` permission to a `STORE` role.
-- Read-time backstop: the STORE block requires `permission.is_elevated = false`, so an elevated
-  permission reached through a store membership is refused.
-- Without it: a store role holding `user:create` → a cashier could create users.
+**1. An org-only permission can only go into an org role.**
+- When saving: `addPermissionToRole()` refuses to add an `is_elevated` permission to a store role.
+- Also caught when reading: the query requires `permission.is_elevated = false` for a store person.
+- Why it matters: without it, a store role could hold `user:create`, and a cashier could create users.
 
-**2. A role may only be assigned to a membership of the same type.**
-- Write: `assignRoleToMembership()` rejects any `role.user_type != membership.user_type`.
-- Read-time backstop: the query requires `role.user_type = membership.user_type`, so a mismatched
-  assignment (org role on a store seat, or store role on an org seat) is refused.
-- Without it: an org role on a store membership → org-level reach from a store seat.
+**2. A role can only be assigned to a membership of the same kind.**
+- When saving: `assignRoleToMembership()` refuses to put an org role on a store seat (or vice versa).
+- Also caught when reading: the query requires `role.user_type = membership.user_type`.
+- Why it matters: without it, an org role on a store seat would give a store employee org-wide reach.
 
-*(Optional DB backstop — triggers.)* The app chokepoints above are the primary enforcement, and the
-read-time clauses make any bad row inert. If we want the same "can't be bypassed" floor these rules
-have at the database (so a migration, seed script, or raw query can't plant a bad row either), add a
-`BEFORE INSERT OR UPDATE` trigger per invariant. A trigger — not a `CHECK` — is needed because each
-rule spans two tables (the row being written is in a third), which a `CHECK` can't reach.
+**Optional: enforce these in the database too (triggers).** The two service methods above are the main
+guard, and the query re-checks them. If we also want the database itself to refuse a bad row — so even
+a migration or a raw SQL script can't create one — we add a **trigger** on each table. 
 
 ```sql
 -- Invariant 1: an elevated permission may only sit in an ORGANIZATION role.
@@ -486,25 +579,28 @@ CREATE TRIGGER membership_assignment_type_guard
   FOR EACH ROW EXECUTE FUNCTION enforce_role_matches_membership();
 ```
 
-So each invariant can be enforced at up to three levels: the **app chokepoint** (primary, friendly
-error), the **read-time clause** (makes a bad row inert), and — if added — the **trigger** (the DB
-refuses to store the bad row at all).
+So each rule can be guarded in up to three places: the **service method** (main check, gives a clear
+error), the **authorization query** (catches a bad row when reading), and — if we add it — the
+**trigger** (the database refuses to store a bad row at all).
+
+**Other rules that could use the same trigger pattern later (noted, not built yet):**
+- **One-membership-kind-per-user (Q3)** — stop a user getting both an org and a store membership when
+  the org has that turned off. Trigger sketched in *Security Review Notes → Q3* below.
+- **Permission limits, e.g. refund caps (post-MVP)** — a chosen limit must stay within the allowed
+  range we ship. Same two-table shape; add when that feature is built.
+- **Setting the tenant on writes** is *not* here — it only checks one column against the caller's org,
+  so the database handles it with an RLS `WITH CHECK` (above), not a trigger.
 
 
 ### Working with Shared Resources (Product/Customer/..)
 
-Shared resources are those that can be updated both by a store user and an organization user. For example customers belong to entire organization, but a user in any store can add them to the organization.
-
-When an org turns sharing on, a **store user can create a customer (or product) that every store in
-the org sees.** A store user writing something the whole org shares sounds like it needs special
-handling — it doesn't. It's the **same flat permission check** plus the org's setting. The reasoning:
+Normally a store's products and customers are its own. But an org can turn on **sharing**, and then a
+customer or product created at one store is visible to *every* store in the org (see `tenancy.md`).
 
 1. **The org setting is the switch — nothing else changes.** The store user's create is only allowed
    to write the *shared* (org-level) record when the org's **`share_customers` / `share_products`
-   setting is on**. Off (the default) → the item stays the store's own. The membership, the role, and
-   the permission are identical either way; the org's setting alone decides whether the shared row is
-   written.
-
+   setting is on**. Off (the default) → the item stays the store's own. 
+   
 2. **The permission stays non-elevated.** `customer:create` / `product:create` are **non-elevated**, so
    they can live in a **store role** — a cashier can hold them. (If they were elevated they couldn't be
    in a store role at all, which is the opposite of what sharing wants.) So the only thing gating a
@@ -521,7 +617,7 @@ handling — it doesn't. It's the **same flat permission check** plus the org's 
    `organization_id` is set server-side from `context.organizationId`, and its `store_id` is the
    `{storeId}` from the path (already validated by the query). So a store user can only ever create
    within *their own* org and *their own* store — they can't pass a different org or store id to write
-   into another tenant. This is what makes the flat check safe.
+   into another tenant. This is what makes the ordinary permission check safe here.
 
 5. **RLS matches the two tables' scope.** The store-level copy (`store_customer` / `store_product`) is
    **store-scoped** — a store only ever reads its own rows. The shared record (`customer` / `product`)
@@ -537,10 +633,22 @@ create customer on /stores/{storeId}/customers:
   share_customers ON  → INSERT customer (shared) , then INSERT store_customer linked to it   -- one txn
 ```
 
+> **⚠️ Open risk — editing/deleting a *shared* record is not yet specified.** The above covers
+> **create**. Once a customer or product is shared org-wide, a store user at Store A editing it changes
+> a record **every** store sees, and deleting it could pull a record Store B is actively using. The
+> `customer:edit` / `product:edit` / `delete` paths on a *shared* row need an explicit rule — probably
+> the same check as create (an everyday permission plus the tenant boundary), but "probably" is where bugs
+> hide. Questions to resolve: can any store with the permission edit a shared record, or only the store
+> that created it? Can a shared record be deleted while another store references it? **Decide before
+> shipping sharing.** Tracked in *Security Review Notes* below.
 
-### Reducing Developer Auth Errors
 
-It is possible that a developer forgets to add RBAC checks on an API endpoint or forgets a WHERE clause in a SQL query, to prevent the code from running we do the following in .Net:
+## Safety nets — making mistakes fail closed
+
+Everything above is correct only if every endpoint remembers to apply it. Developers forget: a new
+route ships without its permission check, or a query is written without its tenant `WHERE` clause. So
+we don't rely on memory — two system-wide safety nets make the *default* outcome "denied," so a
+forgotten check fails closed instead of leaking.
 
 **1. Deny-by-default routing — a route must declare its permission, or it's blocked.**
 
@@ -551,6 +659,25 @@ It is possible that a developer forgets to add RBAC checks on an API endpoint or
 `store_id` / `organization_id` filter, Postgres RLS filters it out. RLS is set per request from the
 verified context (`app.current_org`, and `app.current_store` for store actions) and applies to every
 query automatically.
+
+> **RLS only protects you if it's deployed exactly right — it fails *silently* if not.** Two conditions
+> must hold, or RLS runs but does nothing:
+> - **The app connects as a non-superuser, non-owner role.** Postgres superusers and table owners
+>   *bypass* RLS entirely. Run migrations/admin as a separate privileged role; the request path must
+>   use a restricted role.
+> - **The tenant setting is transaction-scoped** (`SET LOCAL app.current_*`, set per request inside its
+>   transaction). Otherwise a pooled connection can carry one request's tenant into the next request —
+>   the classic pooling leak.
+>
+> Both failure modes look fine in normal testing (data still comes back), so they must be verified
+> explicitly. See `database.md` for the exact setup.
+
+**3. Never cache roles/permissions in the token.** Authorization runs the query above **live** on every
+request, reading the user's current roles from the database — that's what makes revocation immediate.
+Do **not** put a user's roles, permissions, or flattened access list in the JWT: a token that carries
+its own permissions can't be revoked, so a suspended or demoted user keeps their old access until the
+token expires. The token holds only immutable identity (`userId`, `organizationId`); everything about
+*what they can do* is read fresh.
 
 
 ---
@@ -604,19 +731,48 @@ the tenant on writes*. Q1, Q2, and Q4 from the original review are **resolved** 
   valid and correctly scoped, so there's no unsafe row to neutralize at read time (a blanket 403 would
   wrongly deny the user's legitimate access too). Treatment: a write-time chokepoint on membership
   creation, plus optionally a consistency report for admins rather than a per-request block.
+- *(Optional DB backstop — trigger, if we build Q3.)* Like invariants 1–2, this spans rows/tables a
+  `CHECK` can't reach (sibling `membership` rows + the `organization` setting), so the DB-level version
+  is a trigger:
+  ```sql
+  -- Reject a membership whose kind conflicts with one the user already holds, when the org disallows crossing.
+  CREATE FUNCTION enforce_cross_membership() RETURNS trigger AS $$
+  BEGIN
+    IF NOT (SELECT o.allow_user_cross_memberships
+              FROM organization o WHERE o.organization_id = NEW.organization_id)
+       AND EXISTS (SELECT 1 FROM membership m
+                    WHERE m.user_id = NEW.user_id
+                      AND m.organization_id = NEW.organization_id
+                      AND m.deleted_at IS NULL
+                      AND m.user_type <> NEW.user_type)
+    THEN
+      RAISE EXCEPTION 'user % already holds a % membership; cross-membership is disabled for org %',
+        NEW.user_id, (SELECT m.user_type FROM membership m WHERE m.user_id = NEW.user_id
+                       AND m.organization_id = NEW.organization_id AND m.deleted_at IS NULL LIMIT 1),
+        NEW.organization_id;
+    END IF;
+    RETURN NEW;
+  END;
+  $$ LANGUAGE plpgsql;
+
+  CREATE TRIGGER membership_cross_guard
+    BEFORE INSERT OR UPDATE ON membership
+    FOR EACH ROW EXECUTE FUNCTION enforce_cross_membership();
+  ```
+  (A trigger is a *good* fit here specifically because it checks sibling rows atomically — safer
+  against a race than an app-level "check then insert".)
 - **Status: open.**
 
 ### Other medium items
 
-- **RLS is a guarantee only if deployed exactly right.** App must connect as a non-superuser /
-  non-owner role, and `SET LOCAL app.current_*` must be per-transaction. A pooled connection leaking
-  the tenant setting, or the app running as table owner (bypasses RLS), silently voids the backstop.
-  Flag this fragility here, not only in `database.md`.
-- **State "never trust roles/permissions from the token."** The authz query runs live — good — but if
-  any implementer caches the flattened access list in the JWT, revocation breaks. Make it explicit.
-- **`customer:edit` / `product:edit` on a *shared* record isn't spelled out.** Create is covered; a
-  store user editing an org-wide shared customer deserves the same explicit treatment (likely fine by
-  the same logic, but "arguably fine" is where bugs live).
+- ~~**RLS is a guarantee only if deployed exactly right.**~~ **RESOLVED** — callout added in *Reducing
+  Developer Auth Errors* (non-superuser role + transaction-scoped tenant setting; fails silently).
+- ~~**Never trust roles/permissions from the token.**~~ **RESOLVED** — stated in *Reducing Developer
+  Auth Errors* (item 3): roles read live, never cached in the JWT.
+- **`customer:edit` / `product:edit` / `delete` on a *shared* record — OPEN.** Create is specified;
+  editing/deleting an org-wide shared record is flagged as an open risk in *Working with Shared
+  Resources*. Decide the rule (who may edit — any store or only the creator; delete while referenced?)
+  before shipping sharing.
 
 ## Low — clarity (ambiguity is a liability in a security spec)
 
