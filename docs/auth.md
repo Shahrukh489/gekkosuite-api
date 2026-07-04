@@ -344,185 +344,171 @@ avoids leaking that it exists at all.
 
 ### The authorization query
 
-A user can have **several memberships at once** (Cashier at one store, Manager at another, maybe an org
-membership too). So the check isn't "look at *the* membership" — it's:
+**The one big idea:** a user can hold **several memberships at once** — Cashier at one store, Stocker
+at another, maybe an organization membership too. So we never ask "what kind of *user* is this?" We go
+through **each membership they hold, one at a time**, and ask "does *this* membership let them do it?"
+**If any single membership passes, the request is allowed.** If none do, it's denied.
 
-> **Go through every membership the user currently has. If *any one* of them grants the required
-> permission for the place being acted on, allow the request. If none do, deny.**
+Think of it like a person holding several **badges**. To let them in, a guard checks each badge against
+the rulebook for *that badge* — and one badge that works is enough.
 
-Each membership is checked **on its own, end to end** — its own role, its own store. A permission that
-comes from one membership can't be combined with the store of another. One membership has to satisfy
-*everything* by itself.
+Each badge (membership) is one of two kinds — **store** or **organization** — and each kind has its own
+rulebook. A membership passes only if **every** rule in its rulebook is **true**.
 
-**Pseudocode.** Written as a loop so the "check each membership" part is explicit — in practice this is
-one SQL query, but it behaves exactly like this:
+**The STORE rulebook** (for a store membership):
 
-The order is: first weed out memberships that can't apply (dead, malformed, or wrong place), then — of
-the ones that survive — check whether any actually grants the permission.
+| # | Question | Must be |
+|---|----------|---------|
+| 1 | Is the membership live? (not removed, suspended, or expired) | true |
+| 2 | Is the request a **store action**? (URL is `/stores/{id}/...`) | true |
+| 3 | Is the store in the URL **this membership's own store**? | true |
+| 4 | Is that store in the caller's **own company**? (from the token) | true |
+| 5 | Is the permission an **everyday** one? (`is_elevated = false`) | true |
+| 6 | Does this membership's **role actually have** the permission? | true |
+
+A store badge is boxed in: **its own store only, everyday actions only, never the org, never another
+company.**
+
+**The ORGANIZATION rulebook** (for an org membership):
+
+| # | Question | Must be |
+|---|----------|---------|
+| 1 | Is the membership live? | true |
+| 2 | Is it in the caller's **own company**? (from the token) | true |
+| 3 | Is the request an **org action**, OR a store action on **any store in that company**? | true |
+| 4 | Does this membership's **role actually have** the permission? (elevated allowed) | true |
+
+An org badge is broad: **any store in the company, org actions too, elevated permissions allowed** —
+but still never another company.
+
+The single thing both rulebooks share is the **company wall**: the membership's company must equal the
+company in the caller's token. That's what stops anyone ever reaching another company's data.
+
+**As pseudocode** (one SQL query in practice, but it behaves exactly like this loop):
 
 ```
 allowed = false
 
-for each membership M the user holds:                     -- every membership, checked separately
+for each membership M the user holds:            -- check every membership on its own
     role = the role on M for this request
 
-    # ── (1) live? skip anything removed, suspended, or expired ──
-    if M.is_active is false:            continue
-    if M.deleted_at is set:             continue
-    if role is missing or expired:      continue
+    -- shared checks: is this membership even usable, and does it apply to this request?
+    if M is not live (removed / suspended / role expired):   continue
+    if role.user_type != M.user_type:                        continue   -- ignore mismatched data
 
-    # ── (2) internally consistent? role and membership must be the same kind ──
-    if role.user_type != M.user_type:   continue     -- rejects any bad/mismatched data
+    if M is a STORE membership:            -- run the STORE rulebook
+        pass = request is a STORE action
+               and M.store_id == {storeId from the path}
+               and M.organization_id == context.organizationId
+               and requiredPermission.is_elevated == false
 
-    # ── (3) does this membership even apply to this request (right kind, place, and org)? ──
-    if M.user_type == 'STORE':
-        # a store membership: only store actions, only at ITS store, only everyday permissions
-        if not ( request is a STORE action
-                 and M.store_id == {storeId from the path}
-                 and M.organization_id == context.organizationId
-                 and requiredPermission.is_elevated == false ):
-            continue
+    if M is an ORGANIZATION membership:    -- run the ORG rulebook
+        pass = M.organization_id == context.organizationId
+               and ( request is an ORG action
+                     or ( request is a STORE action
+                          and store({storeId}).organization_id == context.organizationId ) )
 
-    if M.user_type == 'ORGANIZATION':
-        # an org membership: org actions, OR a store action on ANY store in its org (elevated ok)
-        if not ( M.organization_id == context.organizationId
-                 and ( request is an ORG action
-                       or ( request is a STORE action
-                            and store({storeId}).organization_id == context.organizationId ) ) ):
-            continue
-
-    # ── (4) the real question: does this membership's role actually grant the permission? ──
-    if role has requiredPermission:
+    -- the final question, for a membership that applies: does its role grant the permission?
+    if pass and role has requiredPermission:
         allowed = true; break
 
-return allowed        # true = one membership passed everything → allow ; false → 403
+return allowed        -- one membership passed everything → allow ; otherwise → 403
 ```
 
-**What each step means:**
-
-The **loop** is the key idea — we test *each* membership on its own; the first one that clears every
-step wins, and we stop. Steps (1)–(3) ask *"is this membership even a candidate?"*; step (4) is the
-real permission check, asked last.
-
-- **(1) Live?** — Skip any membership that's been removed (`deleted_at`), switched off
-  (`is_active = false`), or whose role assignment has expired. A dead membership grants nothing, so
-  there's no point looking further at it.
-
-- **(2) Internally consistent? (role kind == membership kind).** Every membership has a *kind*
-  (`STORE` or `ORGANIZATION`), and so does every role. This step requires them to match — a store role
-  only counts on a store membership, an org role only on an org membership. Normally this is already
-  guaranteed when the role is assigned; re-checking here means a *mismatched* record (say, an org role
-  somehow attached to a store seat) is simply ignored, so it can't grant the store seat org-level power.
-
-- **(3) Does this membership apply to this request?** — This is where a **store** membership and an
-  **organization** membership are checked differently, because they can do different things:
-
-  - A request is either a **store action** (it targets a specific store — the URL is
-    `/stores/{storeId}/...`) or an **org action** (it targets the organization — e.g.
-    `/organization/...`).
-  - A **STORE** membership may satisfy *only a store action*, and *only for its own store*
-    (`M.store_id` must equal the `{storeId}` in the URL), and *only with an non elevated permission*
-    (`is_elevated == false`). It can never do org actions and never reach another store.
-  - An **ORGANIZATION** membership may satisfy an *org action*, **or** a store action on *any* store —
-    as long as that store is inside its own org (`store.organization_id == M.organization_id`). It may
-    also use elevated permissions.
-  - In *both* cases, `M.organization_id == context.organizationId` must hold — this is the wall that
-    keeps every caller inside their own company; a store or org in another company never matches.
-
-  A membership that doesn't fit the request (wrong kind, wrong store, another company) is skipped here,
-  before we ever look at its permissions.
-
-- **(4) Does its role actually grant the permission?** — Of the memberships that survived (1)–(3),
-  this asks the real question: does one hold `requiredPermission`? The first that does → **allow**.
-
-**Why steps (2) and (3) double as safety nets.** The role-kind match in (2) and the
-`is_elevated == false` guard in (3) re-verify rules that are *also* enforced when data is saved (see
-*Write-time security*). If a bad record ever slipped into the database — an org-only permission inside
-a store role, or a role on the wrong kind of seat — these steps make the loop ignore it. The check
-never trusts that the stored data is already correct; it re-proves it on every request.
+Two of these checks are also **safety nets**: `role.user_type == M.user_type` and the
+`is_elevated == false` rule re-verify things that are *also* guaranteed when data is saved (see
+*Write-time security*). So even if a bad record ever got into the database — an org-only permission in
+a store role, or a role on the wrong kind of membership — the loop simply ignores it. We never trust
+the stored data blindly; we re-check it on every request.
 
 ---
 
-**Example 1 — a user with two store memberships.**
+Now let's run some real requests through the rulebooks — passes **and** fails.
 
-Maria has two store memberships and no org membership:
+**Our cast:**
+- **Maria** holds two store memberships: *Seattle* (Cashier — has `order:refund`) and *Portland*
+  (Stocker — does **not** have `order:refund`).
+- **Diego** holds one org membership: *Acme* (Org Admin — has everything).
+- **Sara** holds one store membership: *Store A* (Cashier — has `customer:create`), and her org has
+  `share_customers` turned **on**.
 
-| membership | kind  | store    | roles it grants          |
-|------------|-------|----------|--------------------------|
-| M1         | STORE | Seattle  | Cashier — has `order:refund` |
-| M2         | STORE | Portland | Stocker — has `product:read`, *not* `order:refund` |
+**Example 1 — PASS (store): Maria refunds at her own store.**
+Request: `POST /stores/{Seattle}/refunds` (store action, needs `order:refund`). Check her Seattle
+badge against the **STORE rulebook**:
 
-**Request A — she calls `POST /stores/{Seattle}/refunds`** (a store action, needs `order:refund`). The
-loop tries her memberships:
+| Question | Answer |
+|----------|--------|
+| 1 Live? | ✅ true |
+| 2 Store action? | ✅ true |
+| 3 URL store (Seattle) = my store (Seattle)? | ✅ true |
+| 4 In my company? | ✅ true |
+| 5 `order:refund` everyday? | ✅ true |
+| 6 Does Cashier have `order:refund`? | ✅ true |
 
-**M1 — Seattle / Cashier:**
-- (1) Live? — yes, active and not removed → continue.
-- (2) Same kind? — store role on a store membership → yes → continue.
-- (3) Applies? — it's a store action ✅, `M1.store_id` (Seattle) matches the URL's `{Seattle}` ✅,
-  same company ✅, and `order:refund` is non-elevated ✅ → this membership applies → continue.
-- (4) Has the permission? — Cashier holds `order:refund` ✅ → **allow.** The loop stops here.
+All true → **ALLOWED.** (The loop stops; her Portland badge is never even needed.)
 
-M2 is never reached. (Even if it were, it applies only to *Portland*, so it wouldn't help a Seattle
-request.)
+**Example 2 — FAIL (wrong store): Maria refunds at a store she isn't in.**
+Request: `POST /stores/{Portland}/refunds`.
 
-→ **Allowed.**
+- **Seattle badge** → STORE rulebook, Q3: URL store is *Portland*, my store is *Seattle* → ❌ false →
+  this badge doesn't apply, skip.
+- **Portland badge** → STORE rulebook: Q1–Q5 all true… but Q6: does *Stocker* have `order:refund`? →
+  ❌ false → skip.
 
-**Request B — she calls `POST /stores/{Portland}/refunds`** (same permission, different store):
+No badge passed → **403.** Correct — at Portland she's only a Stocker. Notice her Seattle role's
+refund power can't be borrowed to act on Portland; each badge is judged whole.
 
-**M1 — Seattle / Cashier:**
-- (3) Applies? — `M1.store_id` is Seattle, but the URL asks for Portland → **doesn't apply → skip.**
-  (A Seattle membership can't act on Portland.)
+**Example 3 — FAIL (store tries an org action): Maria creates a user.**
+Request: `POST /organization/users` (an **org action**, needs `user:create`).
 
-**M2 — Portland / Stocker:**
-- (3) Applies? — it's Portland ✅ and a store action ✅ → applies → continue.
-- (4) Has the permission? — Stocker does **not** hold `order:refund` ❌ → skip.
+- **Seattle badge** → STORE rulebook, Q2: is this a *store* action? → ❌ false (it's an org action) →
+  skip.
+- **Portland badge** → same, ❌ false → skip.
+- Maria has no org membership, so the ORG rulebook is never run.
 
-No membership cleared every step → **403.** Correct: at Portland she's only a Stocker. Notice a
-permission from her *Seattle* role can't be combined with the *Portland* store — each membership is
-judged whole, on its own.
+→ **403.** A store employee can never perform org actions — there's simply no badge that can pass.
 
----
+**Example 4 — PASS (org reaches a store): Diego edits a store's product.**
+Request: `POST /stores/{Portland}/products/91` (store action, needs `product:edit`). Diego's badge is
+an org one → **ORG rulebook**:
 
-**Example 2 — an organization user reaching into a store.**
+| Question | Answer |
+|----------|--------|
+| 1 Live? | ✅ true |
+| 2 In my company (Acme)? | ✅ true |
+| 3 Store action on a store in my company (Portland ∈ Acme)? | ✅ true |
+| 4 Does Org Admin have `product:edit`? | ✅ true |
 
-Diego has a single **organization** membership with the Org Admin role (which holds `product:edit`). He
-calls `POST /stores/{Portland}/products/91` (a store action, needs `product:edit`).
+All true → **ALLOWED — with no Portland membership at all.** That's the point of an org badge: it
+reaches every store in its company. (Note Q3 only asks "is the store in my company?", not "is it my one
+store" — that's the difference from the store rulebook.)
 
-**M — Diego's org membership:**
-- (1) Live? — yes → continue.
-- (2) Same kind? — org role on an org membership → yes → continue.
-- (3) Applies? — it's an ORGANIZATION membership, so it may act on a store action at *any* store,
-  provided that store is in his company: `store(Portland).organization_id == his org` ✅, and it's his
-  own company ✅ → applies → continue.
-- (4) Has the permission? — Org Admin holds `product:edit` ✅ → **allow.**
+**Example 5 — FAIL (org, another company): Diego edits a product in a rival's store.**
+Request: `POST /stores/{RivalStore}/products/12`, where RivalStore belongs to a **different** company.
 
-→ **Allowed — with no Portland membership at all.** That's the whole point of an org membership: it
-reaches every store in the org. The identical request from Maria (store-only) would be skipped at step
-(3) unless she had a Portland membership.
+- Diego's org badge → ORG rulebook, Q3: store action on a store *in my company*? RivalStore ∈ Acme? →
+  ❌ false → skip.
 
----
+→ **404** (we don't even reveal the other company's store exists). The company wall holds even for an
+org admin.
 
-**Example 3 — a store cashier creating a *shared* customer.**
+**Example 6 — PASS (shared): Sara creates a shared customer.**
+Request: `POST /stores/{StoreA}/customers` (store action, needs `customer:create`), sharing **on**.
+Her badge is a store one → the **ordinary STORE rulebook** (sharing changes nothing here):
 
-Sara is a Cashier at Store A, and her org has `share_customers` turned **on**. She calls
-`POST /stores/{StoreA}/customers` (a store action, needs `customer:create`). The important point:
-authorization runs exactly like any other store action — "shared" changes nothing here.
+| Question | Answer |
+|----------|--------|
+| 1 Live? | ✅ true |
+| 2 Store action? | ✅ true |
+| 3 URL store (Store A) = my store (Store A)? | ✅ true |
+| 4 In my company? | ✅ true |
+| 5 `customer:create` everyday? | ✅ true (non-elevated on purpose) |
+| 6 Does Cashier have `customer:create`? | ✅ true |
 
-**M — Sara's Store A membership:**
-- (1) Live? — yes → continue.
-- (2) Same kind? — store role on a store membership → yes → continue.
-- (3) Applies? — store action ✅, `M.store_id` = Store A = the URL's store ✅, same company ✅, and
-  `customer:create` is non-elevated (an everyday action) ✅ → applies → continue.
-- (4) Has the permission? — her role holds `customer:create` ✅ → **allow.**
-
-→ **Allowed** by the ordinary store check. The *only* thing the `share_customers` setting affects is
-what gets **written** afterward: with sharing on, the save records both the store's own copy and the
-org-wide shared copy (see *Write-time security → Working with Shared Resources*). The permission check
-is identical whether sharing is on or off.
-
-The "shared" part changes only what gets *written*, not who's allowed: because sharing is on, the save
-writes both the store's own copy and the org-wide shared record (see *Write-time security → Working
-with Shared Resources*). The permission check is identical whether sharing is on or off.
+All true → **ALLOWED** by the plain store rulebook. The `share_customers` setting is **not** one of the
+questions — it only changes what gets **written** afterward: with sharing on, the save records both the
+store's own copy *and* the org-wide shared copy (see *Write-time security → Working with Shared
+Resources*). Authorization is identical whether sharing is on or off.
 
 
 
