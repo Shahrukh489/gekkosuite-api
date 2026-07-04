@@ -57,15 +57,18 @@ org-level users) and the store (the selling unit, store users). Each row is a si
 | Feature | What it allows |
 |---|---|
 | Act on any store | Perform any store action on any of the org's stores — an org role reaches all of them. |
-| Manage store products | View and edit any store's products (SKUs, stock, price). |
-| Manage store customers | View and edit any store's customers. |
 | Cross-store reports | Aggregate reports rolled up across all stores (sales, inventory, performance); the org Dashboard is the company-wide overview. |
 | Purchase orders | Buy inventory from suppliers; each purchase optionally attributed to a store. |
 | Expenses | Record non-inventory spending; each expense optionally attributed to a store. |
 | Suppliers | Create and manage the org's suppliers. |
 | Users | Create and manage users (both org and store users). |
+| Roles | Assign roles to users |
 | Stores | Create and manage stores. |
+| Products | Manage Products across all stores. |
+| Customers | Manage Customers across all stores. |
 | Plan | Hold the org's plan; every store inherits its features. |
+| AI Chatbot | Feed KB to AI chatbot, and let each store owner chat with it. |
+| AI Recommendations | Get Organization Based Recommendations. |
 | Sharing settings | Turn org-wide sharing of products and/or customers on or off (off by default). On = an item created at one store is recognized org-wide; stock and price stay per-store. |
 | Org-level updates | Only org users can make org-level changes — store users can never reach the org. |
 
@@ -74,14 +77,20 @@ org-level users) and the store (the selling unit, store users). Each row is a si
 | Feature | What it allows |
 |---|---|
 | Sell | Ring up sales at the store. |
-| Returns & refunds | Process returns and refunds for the store's own orders. |
+| Returns | Process returns and refunds for the store's own orders. |
 | Products | Manage the store's own products (SKUs, stock, price). With sharing on, a new product is also added to the org-wide catalog; stock and price stay the store's own. |
+| AI Chatbot | Chat with Organization AI KB for support. |
+| AI Recommendations | Get Store Based Recommendations. |
 | Customers | Manage the store's own customers. With sharing on, a new customer is also recognized org-wide. |
+| Customer Requests | Make requests about what they need and want. |
 | Reports | View the store's own reports, plus the purchases/expenses attributed to it. |
 | Store-only scope | A store user only ever acts on their own store's data — never another store's, never the org's. |
 
 **Onboarding note:** during onboarding, ask the org whether it wants products and/or customers shared,
 so the sharing settings are set from the start. They can be changed later.
+
+
+**Customers Portal** — Customers can login, see order history, make requests, get alerts on deals with AI.
 
 
 # Key design decisions
