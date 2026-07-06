@@ -5,6 +5,39 @@ CREATE TYPE store_type AS ENUM ('ONLINE', 'PHYSICAL');
 -- The scope a membership/role operates at: the two kinds of place a person can act at.
 CREATE TYPE scope AS ENUM ('ORGANIZATION', 'STORE');
 
+-- A plan: what an org subscribes to. Priced per store; every store inherits the plan's features.
+CREATE TABLE plan (
+    -- plan id
+    plan_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- display name, e.g. 'Basic', 'Pro' (unique across plans)
+    name            TEXT NOT NULL UNIQUE,
+    -- optional blurb about the plan
+    description     TEXT
+);
+
+-- A feature: one capability a plan can include (reports, returns, multi-store, ...).
+CREATE TABLE feature (
+    -- feature id
+    feature_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- fixed key the app looks up in code, e.g. 'store_reporting, ai_chatbot' — never rename it or feature checks break
+    code        TEXT NOT NULL UNIQUE,
+    -- what users see, e.g. 'Multi-store' — safe to rename anytime
+    label       TEXT NOT NULL,
+    -- optional longer description
+    description TEXT
+);
+
+-- plan_feature: which features a plan includes (many-to-many). Adding a row gives every org on that
+-- plan the feature instantly (see plans.md).
+CREATE TABLE plan_feature (
+    -- the plan
+    plan_id    UUID NOT NULL REFERENCES plan (plan_id),
+    -- the feature it includes
+    feature_id UUID NOT NULL REFERENCES feature (feature_id),
+    -- a plan can't list the same feature twice
+    PRIMARY KEY (plan_id, feature_id)
+);
+
 -- The organization: the business and the tenant (unit of isolation). Owns stores, users, and settings.
 CREATE TABLE organization (
     -- tenant id; 
@@ -122,7 +155,7 @@ CREATE TABLE role (
     -- owning org for a custom role; NULL for managed roles (see CHECK)
     organization_id UUID REFERENCES organization (organization_id),
     -- ORGANIZATION | STORE: the level this role attaches at (must match the membership's scope)
-    scope scope NOT NULL,
+    scope           scope NOT NULL,
     -- managed roles have no org; custom roles must have one
     CHECK (
         (is_managed = TRUE  AND organization_id IS NULL)
@@ -166,77 +199,141 @@ CREATE TABLE role_permission (
     PRIMARY KEY (role_id, permission_id)
 );
 
+-- Invariant: an elevated (org-only) permission may only sit in an ORGANIZATION role. Optional DB
+-- backstop; the service method is the main guard, the authz query re-checks on read (see auth.md).
+CREATE FUNCTION enforce_elevated_in_org_role() RETURNS trigger AS $$
+BEGIN
+    IF (SELECT p.is_elevated FROM permission p WHERE p.permission_id = NEW.permission_id)
+       AND (SELECT r.scope FROM role r WHERE r.role_id = NEW.role_id) = 'STORE'
+    THEN
+        RAISE EXCEPTION 'elevated permission % cannot be added to STORE role %',
+            NEW.permission_id, NEW.role_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
-```
-
-# Auth / RBAC
-
-```sql
+CREATE TRIGGER role_permission_elevated_guard
+    BEFORE INSERT OR UPDATE ON role_permission
+    FOR EACH ROW EXECUTE FUNCTION enforce_elevated_in_org_role();
 
 
-
-
+-- A membership: a place a user belongs — the whole ORGANIZATION, or one STORE. Sets their reach there.
 CREATE TABLE membership (
+    -- membership id
     membership_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- the user this membership belongs to
     user_id         UUID NOT NULL REFERENCES "user" (user_id),
-    scope scope NOT NULL,     -- ORGANIZATION | STORE: the kind of place
+    -- ORGANIZATION | STORE: the kind of place (see CHECK for the store_id rule)
+    scope           scope NOT NULL,
+    -- the tenant this membership is in (the boundary every request is checked against)
     organization_id UUID NOT NULL REFERENCES organization (organization_id),
+    -- the store, for a STORE membership; NULL for an ORGANIZATION membership
     store_id        UUID REFERENCES store (store_id),
+    -- suspend switch for this one place; false = access off here but kept
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    -- when the membership was granted (stored UTC)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- soft-delete flag; TRUE = removed from this place but kept for history
+    is_deleted      BOOLEAN NOT NULL DEFAULT FALSE,
+    -- when it was soft-deleted (stored UTC); NULL while active
     deleted_at      TIMESTAMPTZ,
+    -- org membership has no store; store membership must have one
     CHECK ((scope = 'ORGANIZATION' AND store_id IS NULL)
         OR (scope = 'STORE'        AND store_id IS NOT NULL))
 );
 
+-- a user can hold only one live membership at a given store
 CREATE UNIQUE INDEX membership_store_uq
     ON membership (user_id, store_id)
-    WHERE store_id IS NOT NULL AND deleted_at IS NULL;
+    WHERE store_id IS NOT NULL AND NOT is_deleted;
 
+-- a user can hold only one live organization membership
 CREATE UNIQUE INDEX membership_org_uq
     ON membership (user_id)
-    WHERE scope = 'ORGANIZATION' AND deleted_at IS NULL;
+    WHERE scope = 'ORGANIZATION' AND NOT is_deleted;
 
+-- When the org has allow_user_cross_memberships OFF, a user may hold EITHER an org membership OR
+-- store memberships in that org — not both. A CHECK can't see sibling rows + the org setting, so
+-- it's a trigger (checks siblings atomically, safer than an app-level check-then-insert). See auth.md.
+CREATE FUNCTION enforce_cross_membership() RETURNS trigger AS $$
+BEGIN
+    IF NOT (SELECT o.allow_user_cross_memberships
+              FROM organization o WHERE o.organization_id = NEW.organization_id)
+       AND EXISTS (SELECT 1 FROM membership m
+                    WHERE m.user_id = NEW.user_id
+                      AND m.organization_id = NEW.organization_id
+                      AND NOT m.is_deleted
+                      AND m.scope <> NEW.scope)
+    THEN
+        RAISE EXCEPTION 'user % already holds a different-scope membership; cross-membership is disabled for org %',
+            NEW.user_id, NEW.organization_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER membership_cross_guard
+    BEFORE INSERT OR UPDATE ON membership
+    FOR EACH ROW EXECUTE FUNCTION enforce_cross_membership();
+
+-- membership_assignment: a role granted to a membership (many-to-many). Role scope must match the
+-- membership scope, enforced on write (see auth.md).
 CREATE TABLE membership_assignment (
+    -- the membership the role is granted to
     membership_id UUID NOT NULL REFERENCES membership (membership_id),
+    -- the role granted
     role_id       UUID NOT NULL REFERENCES role (role_id),
-    expires_at    TIMESTAMPTZ,   -- NULL = never expires
-    PRIMARY KEY (membership_id, role_id)   -- same role can't be granted twice here
+    -- when the role was granted (stored UTC)
+    assigned_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- who granted it (the admin) — for audit; NULL if system-seeded
+    assigned_by_user_id UUID REFERENCES "user" (user_id),
+    -- optional expiry; NULL = never expires
+    expires_at    TIMESTAMPTZ,
+    -- same role can't be granted to the same membership twice
+    PRIMARY KEY (membership_id, role_id)
 );
 
+-- Invariant: a role's scope must match the membership it's assigned to (store role → store
+-- membership, org role → org membership). Optional DB backstop; service method is the main guard,
+-- authz query re-checks on read (see auth.md).
+CREATE FUNCTION enforce_role_matches_membership() RETURNS trigger AS $$
+BEGIN
+    IF (SELECT r.scope FROM role r       WHERE r.role_id       = NEW.role_id)
+     <> (SELECT m.scope FROM membership m WHERE m.membership_id = NEW.membership_id)
+    THEN
+        RAISE EXCEPTION 'role % scope does not match membership % scope',
+            NEW.role_id, NEW.membership_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER membership_assignment_type_guard
+    BEFORE INSERT OR UPDATE ON membership_assignment
+    FOR EACH ROW EXECUTE FUNCTION enforce_role_matches_membership();
+
+
+-- Fields that only apply to a STORE membership (1:1 with membership). Keeps store-only columns off
+-- the shared table; org memberships simply have no row here.
 CREATE TABLE store_membership_detail (
+    -- the store membership this detail belongs to
     membership_id  UUID PRIMARY KEY REFERENCES membership (membership_id),
-    store_pin_hash TEXT   -- register PIN, stored as a salted KDF hash (never plaintext) — see auth.md
+    -- register PIN, stored as a salted KDF hash (never plaintext) — see auth.md
+    store_pin TEXT
     -- ...other store-only member fields go here
 );
 
+-- Fields that only apply to an ORGANIZATION membership (1:1 with membership). Empty for now.
 CREATE TABLE organization_membership_detail (
+    -- the org membership this detail belongs to
     membership_id UUID PRIMARY KEY REFERENCES membership (membership_id)
     -- ...org-only member fields go here
 );
 
+
 ```
 
-## Plans / Features
-
-```sql
-CREATE TABLE plan (
-    plan_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    price_per_store NUMERIC(12, 2) NOT NULL   -- billed per store: total = price_per_store × store count
-);
-
-CREATE TABLE feature (
-    feature_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code        TEXT NOT NULL UNIQUE,   -- stable machine identifier, e.g. 'multi_store' (code checks this; never rename)
-    label       TEXT NOT NULL,          -- human display text, e.g. 'Multi-store' (safe to change)
-    description TEXT
-);
-
-CREATE TABLE plan_feature (
-    plan_id    UUID NOT NULL REFERENCES plan (plan_id),
-    feature_id UUID NOT NULL REFERENCES feature (feature_id),
-    PRIMARY KEY (plan_id, feature_id)
-);
-```
 
 ## Products and customers (two tables per entity: store-level + shared)
 
@@ -377,14 +474,9 @@ CREATE INDEX ON role            (organization_id);  -- an org's custom roles (NU
 -- store_membership_detail / organization_membership_detail: membership_id is the PK,
 -- already indexed; no extra index needed
 CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
-CREATE INDEX ON permission_condition       (permission_id);   -- the menu for a permission (UI)
-CREATE INDEX ON role_permission_condition  (organization_id, role_id);   -- a tenant's conditions for a role (enforcement lookup)
-CREATE INDEX ON role_permission_condition  (permission_condition_id);
-CREATE INDEX ON role_permission_condition  (store_id);   -- store-specific overrides
 
 -- Organization
 CREATE INDEX ON store        (organization_id, region);   -- group an org's stores by region
-CREATE INDEX ON store_tag    (tag);                       -- find stores by tag (store_id covered by PK)
 CREATE INDEX ON organization (owner_user_id);
 CREATE INDEX ON organization (plan_id);
 CREATE INDEX ON organization (default_store_id);
