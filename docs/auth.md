@@ -17,10 +17,10 @@ user  ──<  membership  ──<  membership_assignment  >──  role  ──
   hold; the `user` row itself carries no org-vs-store distinction.
 - **membership** — a user's membership is either at the `ORGANIZATION` or at a `STORE`.
     - Every membership carries an `organization_id` (the tenant boundary).
-    - A **store** membership sets `store_id` (the one store it's at) and sets `user_type` to `STORE`.
-    - An **organization** membership leaves `store_id` NULL and sets `user_type` to `ORGANIZATION`.
+    - A **store** membership sets `store_id` (the one store it's at) and sets `scope` to `STORE`.
+    - An **organization** membership leaves `store_id` NULL and sets `scope` to `ORGANIZATION`.
 - **membership_assignment** — a role given to that membership (optionally with an expiration).
-- **role** — a named bundle of permissions we ship. Each role has a `user_type` (`STORE` or
+- **role** — a named bundle of permissions we ship. Each role has a `scope` (`STORE` or
   `ORGANIZATION`) — its level. A role's type must match the membership it's attached to: store roles
   go on store memberships, org roles on org memberships.
 - **permission** — one allowed action, like `product:read`. Carries an `is_elevated` flag: an
@@ -209,11 +209,11 @@ Maria's access
 ## Showing the right roles in the UI
 
 When an org admin attaches a role to a membership, the role picker should only offer roles that fit
-that place. Because each role carries a `user_type`, this is a direct filter — no guessing from a
+that place. Because each role carries a `scope`, this is a direct filter — no guessing from a
 role's permissions:
 
-- Attaching to a **store** membership → list only **store roles** (`role.user_type = STORE`).
-- Attaching to an **organization** membership → list only **org roles** (`role.user_type =
+- Attaching to a **store** membership → list only **store roles** (`role.scope = STORE`).
+- Attaching to an **organization** membership → list only **org roles** (`role.scope =
   ORGANIZATION`).
 
 ---
@@ -394,7 +394,7 @@ for each membership M the user holds:            -- check every membership on it
 
     -- shared checks: is this membership even usable, and does it apply to this request?
     if M is not live (removed / suspended / role expired):   continue
-    if role.user_type != M.user_type:                        continue   -- ignore mismatched data
+    if role.scope != M.scope:          continue   -- ignore mismatched data
 
     if M is a STORE membership:            -- run the STORE rulebook
         pass = request is a STORE action
@@ -415,7 +415,7 @@ for each membership M the user holds:            -- check every membership on it
 return allowed        -- one membership passed everything → allow ; otherwise → 403
 ```
 
-Two of these checks are also **safety nets**: `role.user_type == M.user_type` and the
+Two of these checks are also **safety nets**: `role.scope == M.scope` and the
 `is_elevated == false` rule re-verify things that are *also* guaranteed when data is saved (see
 *Write-time security*). So even if a bad record ever got into the database — an org-only permission in
 a store role, or a role on the wrong kind of membership — the loop simply ignores it. We never trust
@@ -630,7 +630,7 @@ bad combinations so they never get saved.
 
 **2. A role can only be assigned to a membership of the same kind.**
 - When saving: `assignRoleToMembership()` refuses to put an org role on a store seat (or vice versa).
-- Also caught when reading: the query requires `role.user_type = membership.user_type`.
+- Also caught when reading: the query requires `role.scope = membership.scope`.
 - Why it matters: without it, an org role on a store seat would give a store employee org-wide reach.
 
 **Optional: enforce these in the database too (triggers).** The two service methods above are the main
@@ -642,7 +642,7 @@ a migration or a raw SQL script can't create one — we add a **trigger** on eac
 CREATE FUNCTION enforce_elevated_in_org_role() RETURNS trigger AS $$
 BEGIN
   IF (SELECT p.is_elevated FROM permission p WHERE p.permission_id = NEW.permission_id)
-     AND (SELECT r.user_type FROM role r WHERE r.role_id = NEW.role_id) = 'STORE'
+     AND (SELECT r.scope FROM role r WHERE r.role_id = NEW.role_id) = 'STORE'
   THEN
     RAISE EXCEPTION 'elevated permission % cannot be added to STORE role %',
       NEW.permission_id, NEW.role_id;
@@ -658,8 +658,8 @@ CREATE TRIGGER role_permission_elevated_guard
 -- Invariant 2: a role's type must match the membership it's assigned to.
 CREATE FUNCTION enforce_role_matches_membership() RETURNS trigger AS $$
 BEGIN
-  IF (SELECT r.user_type FROM role r       WHERE r.role_id       = NEW.role_id)
-   <> (SELECT m.user_type FROM membership m WHERE m.membership_id = NEW.membership_id)
+  IF (SELECT r.scope FROM role r       WHERE r.role_id       = NEW.role_id)
+   <> (SELECT m.scope FROM membership m WHERE m.membership_id = NEW.membership_id)
   THEN
     RAISE EXCEPTION 'role % type does not match membership % type',
       NEW.role_id, NEW.membership_id;
@@ -838,10 +838,10 @@ the tenant on writes*. Q1, Q2, and Q4 from the original review are **resolved** 
                     WHERE m.user_id = NEW.user_id
                       AND m.organization_id = NEW.organization_id
                       AND m.deleted_at IS NULL
-                      AND m.user_type <> NEW.user_type)
+                      AND m.scope <> NEW.scope)
     THEN
       RAISE EXCEPTION 'user % already holds a % membership; cross-membership is disabled for org %',
-        NEW.user_id, (SELECT m.user_type FROM membership m WHERE m.user_id = NEW.user_id
+        NEW.user_id, (SELECT m.scope FROM membership m WHERE m.user_id = NEW.user_id
                        AND m.organization_id = NEW.organization_id AND m.deleted_at IS NULL LIMIT 1),
         NEW.organization_id;
     END IF;

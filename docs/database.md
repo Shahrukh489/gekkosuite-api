@@ -1,63 +1,191 @@
-## Tables
-
-PostgreSQL `CREATE TABLE` statements. Only keys and structurally-important fields are
-included; descriptive columns (name, description, address, etc.) are added later.
-
-Note: `user` is a reserved word in Postgres, so the table name is quoted as `"user"` in DDL.
-
-## Auth / RBAC
-
 ```sql
-CREATE TABLE user_type (
-    user_type TEXT PRIMARY KEY CHECK (user_type IN ('ORGANIZATION', 'STORE'))
+-- How a store sells: a storefront kind. 
+CREATE TYPE store_type AS ENUM ('ONLINE', 'PHYSICAL');
+
+-- The scope a membership/role operates at: the two kinds of place a person can act at.
+CREATE TYPE scope AS ENUM ('ORGANIZATION', 'STORE');
+
+-- The organization: the business and the tenant (unit of isolation). Owns stores, users, and settings.
+CREATE TABLE organization (
+    -- tenant id; 
+    organization_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- the business's display name (required)
+    name             TEXT NOT NULL,
+    -- optional free-text note about the business
+    description      TEXT,
+    -- the owner; full access that can't be stripped (transfer only)
+    owner_user_id    UUID REFERENCES "user" (user_id),
+    -- the org's one plan; every store inherits its features
+    plan_id          UUID REFERENCES plan (plan_id),
+    -- store to land in by default (e.g. single-store orgs)
+    default_store_id UUID REFERENCES store (store_id),
+    -- can one user hold both org and store memberships? (off = locked to one kind)
+    allow_user_cross_memberships BOOLEAN NOT NULL DEFAULT FALSE,
+    -- org-wide product sharing (off = each store's catalog is its own)
+    allow_share_products  BOOLEAN NOT NULL DEFAULT FALSE,
+    -- org-wide customer sharing (off = each store's customers are its own)
+    allow_share_customers BOOLEAN NOT NULL DEFAULT FALSE,
+    -- when the org was onboarded (stored UTC)
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- soft-delete flag; TRUE = org removed but kept for history
+    is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at       TIMESTAMPTZ
 );
 
+-- A store: the business unit where selling happens. Owned by one org;
+CREATE TABLE store (
+    -- store id; 
+    store_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- owning org (the tenant)
+    organization_id  UUID NOT NULL REFERENCES organization (organization_id),
+    -- store display name 
+    name             TEXT NOT NULL,
+    -- ONLINE | PHYSICAL: how the store sells
+    type             store_type NOT NULL DEFAULT 'PHYSICAL',
+    -- the org's default store; must agree with organization.default_store_id
+    is_default       BOOLEAN NOT NULL DEFAULT FALSE,
+    -- description / notes about the store
+    description      TEXT,
+    -- physical location (all NULL for an ONLINE store) --
+    -- street address
+    address    TEXT,
+    -- geographic city
+    city             TEXT,
+    -- geographic state/province
+    state            TEXT,
+    -- postal/zip code — TEXT to preserve leading zeros and non-numeric formats
+    postal_code      TEXT,
+    -- ISO country code, e.g. 'US'
+    country          TEXT,
+    -- ISO 4217 currency the store sells in, e.g. 'USD'
+    currency         TEXT,
+    -- store contact phone (TEXT: '+', spaces, extensions)
+    phone            TEXT,
+    -- store contact email
+    email            TEXT,
+    -- when the store was created (stored UTC)
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- soft-delete flag; TRUE = store removed but kept for history
+    is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at       TIMESTAMPTZ,
+    -- can't delete the default store; reassign the default to another store first
+    CHECK (NOT (is_default AND is_deleted))
+);
 
+-- At most one default store per org. 
+CREATE UNIQUE INDEX store_one_default_per_org
+    ON store (organization_id)
+    WHERE is_default;
+
+
+-- A user: one login per person. Where they can act comes from their memberships (see auth.md).
 CREATE TABLE "user" (
-    user_id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id    BIGINT NOT NULL REFERENCES organization (organization_id),  -- home org (set once, immutable)
-    is_active          BOOLEAN NOT NULL DEFAULT TRUE,   -- account kill switch; false = all memberships suspended
-    created_by_user_id BIGINT REFERENCES "user" (user_id),     -- the org admin who created this account
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- user id
+    user_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- home org (set once, immutable) — the tenant boundary
+    organization_id    UUID NOT NULL REFERENCES organization (organization_id),
+    -- login identifier; globally unique — one email = one account (see UNIQUE below)
+    email              TEXT NOT NULL,
+    -- password hash — slow salted KDF (argon2id/bcrypt); NEVER store plaintext (see auth.md)
+    password      TEXT NOT NULL,
+    -- display name for the UI (e.g. the access-list views)
+    name               TEXT NOT NULL,
+    -- contact phone (TEXT: '+', spaces, extensions)
+    phone              TEXT,
+    -- account kill switch; false = all memberships suspended (the way to revoke, not delete)
+    is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+    -- the org admin who created this account
+    created_by_user_id UUID REFERENCES "user" (user_id),
+    -- when the account was created (stored UTC)
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- soft-delete flag; TRUE = removed but kept for history
+    is_deleted         BOOLEAN NOT NULL DEFAULT FALSE,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at         TIMESTAMPTZ,
+    -- one email = one account across the whole system
+    UNIQUE (email)
 );
 
+
+-- A role: a named bundle of permissions. Either a managed role we ship, or an org's own custom role.
 CREATE TABLE role (
-    role_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    -- role id
+    role_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- display name shown in the role picker, e.g. 'Cashier', 'Org Admin'
+    name            TEXT NOT NULL,
+    -- optional human description of what the role is for
+    description     TEXT,
+    -- TRUE = system role we ship (org-wide); FALSE = an org's own custom role
     is_managed      BOOLEAN NOT NULL DEFAULT TRUE,
-    organization_id BIGINT REFERENCES organization (organization_id),   -- NULL for managed roles
-    user_type       TEXT NOT NULL REFERENCES user_type (user_type),     -- ORGANIZATION | STORE
-    -- managed roles are ours (no owning org); custom roles belong to one org
+    -- owning org for a custom role; NULL for managed roles (see CHECK)
+    organization_id UUID REFERENCES organization (organization_id),
+    -- ORGANIZATION | STORE: the level this role attaches at (must match the membership's scope)
+    scope scope NOT NULL,
+    -- managed roles have no org; custom roles must have one
     CHECK (
         (is_managed = TRUE  AND organization_id IS NULL)
         OR (is_managed = FALSE AND organization_id IS NOT NULL)
     )
 );
 
+-- no two custom roles in the same org share a name
+CREATE UNIQUE INDEX role_org_name_uq
+    ON role (organization_id, name)
+    WHERE organization_id IS NOT NULL;
+
+-- managed (system) role names are unique among themselves
+CREATE UNIQUE INDEX role_managed_name_uq
+    ON role (name)
+    WHERE is_managed;
+
+-- A permission: one allowed action, like product:read. The atomic unit roles are built from.
 CREATE TABLE permission (
-    permission_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    resource      TEXT NOT NULL,   -- e.g. product, order, role
-    action        TEXT NOT NULL,   -- e.g. read, create, refund, assign
-    is_elevated   BOOLEAN NOT NULL DEFAULT FALSE,   -- TRUE = org roles only
+    -- permission id
+    permission_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- the thing acted on, e.g. product, order, role
+    resource      TEXT NOT NULL,
+    -- what may be done to it, e.g. read, create, refund, assign
+    action        TEXT NOT NULL,
+    -- optional human description for the role-builder UI
+    description   TEXT,
+    -- TRUE = for org roles only, FALSE = Can be added to both Store and Org Roles;
+    is_elevated   BOOLEAN NOT NULL DEFAULT FALSE,
+    -- resource + action is the permission's natural key, e.g. (product, read)
     UNIQUE (resource, action)
 );
 
+-- role_permission: which permissions a role grants (many-to-many). Guarded on write (see auth.md).
 CREATE TABLE role_permission (
-    role_id       BIGINT NOT NULL REFERENCES role (role_id),
-    permission_id BIGINT NOT NULL REFERENCES permission (permission_id),
+    -- the role
+    role_id       UUID NOT NULL REFERENCES role (role_id),
+    -- the permission it grants
+    permission_id UUID NOT NULL REFERENCES permission (permission_id),
+    -- a role can't list the same permission twice
     PRIMARY KEY (role_id, permission_id)
 );
 
 
+```
+
+# Auth / RBAC
+
+```sql
+
+
+
+
 CREATE TABLE membership (
-    membership_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id         BIGINT NOT NULL REFERENCES "user" (user_id),
-    user_type       TEXT NOT NULL REFERENCES user_type (user_type),   -- ORGANIZATION | STORE: the kind of place
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
-    store_id        BIGINT REFERENCES store (store_id),
+    membership_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES "user" (user_id),
+    scope scope NOT NULL,     -- ORGANIZATION | STORE: the kind of place
+    organization_id UUID NOT NULL REFERENCES organization (organization_id),
+    store_id        UUID REFERENCES store (store_id),
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    deleted_at      TIMESTAMPTZ,   
-    CHECK ((user_type = 'ORGANIZATION' AND store_id IS NULL)
-        OR (user_type = 'STORE'        AND store_id IS NOT NULL))
+    deleted_at      TIMESTAMPTZ,
+    CHECK ((scope = 'ORGANIZATION' AND store_id IS NULL)
+        OR (scope = 'STORE'        AND store_id IS NOT NULL))
 );
 
 CREATE UNIQUE INDEX membership_store_uq
@@ -66,23 +194,23 @@ CREATE UNIQUE INDEX membership_store_uq
 
 CREATE UNIQUE INDEX membership_org_uq
     ON membership (user_id)
-    WHERE user_type = 'ORGANIZATION' AND deleted_at IS NULL;
+    WHERE scope = 'ORGANIZATION' AND deleted_at IS NULL;
 
 CREATE TABLE membership_assignment (
-    membership_id BIGINT NOT NULL REFERENCES membership (membership_id),
-    role_id       BIGINT NOT NULL REFERENCES role (role_id),
+    membership_id UUID NOT NULL REFERENCES membership (membership_id),
+    role_id       UUID NOT NULL REFERENCES role (role_id),
     expires_at    TIMESTAMPTZ,   -- NULL = never expires
     PRIMARY KEY (membership_id, role_id)   -- same role can't be granted twice here
 );
 
 CREATE TABLE store_membership_detail (
-    membership_id BIGINT PRIMARY KEY REFERENCES membership (membership_id),
-    store_pin     TEXT
+    membership_id  UUID PRIMARY KEY REFERENCES membership (membership_id),
+    store_pin_hash TEXT   -- register PIN, stored as a salted KDF hash (never plaintext) — see auth.md
     -- ...other store-only member fields go here
 );
 
 CREATE TABLE organization_membership_detail (
-    membership_id BIGINT PRIMARY KEY REFERENCES membership (membership_id)
+    membership_id UUID PRIMARY KEY REFERENCES membership (membership_id)
     -- ...org-only member fields go here
 );
 
@@ -92,52 +220,21 @@ CREATE TABLE organization_membership_detail (
 
 ```sql
 CREATE TABLE plan (
-    plan_id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    plan_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     price_per_store NUMERIC(12, 2) NOT NULL   -- billed per store: total = price_per_store × store count
 );
 
 CREATE TABLE feature (
-    feature_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    feature_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code        TEXT NOT NULL UNIQUE,   -- stable machine identifier, e.g. 'multi_store' (code checks this; never rename)
     label       TEXT NOT NULL,          -- human display text, e.g. 'Multi-store' (safe to change)
     description TEXT
 );
 
 CREATE TABLE plan_feature (
-    plan_id    BIGINT NOT NULL REFERENCES plan (plan_id),
-    feature_id BIGINT NOT NULL REFERENCES feature (feature_id),
+    plan_id    UUID NOT NULL REFERENCES plan (plan_id),
+    feature_id UUID NOT NULL REFERENCES feature (feature_id),
     PRIMARY KEY (plan_id, feature_id)
-);
-```
-
-## Organization
-
-```sql
-CREATE TABLE organization (
-    organization_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    owner_user_id    BIGINT REFERENCES "user" (user_id),
-    plan_id          BIGINT REFERENCES plan (plan_id),     -- the org's one plan; every store inherits its features
-    default_store_id BIGINT REFERENCES store (store_id),
-    allow_user_cross_memberships BOOLEAN NOT NULL DEFAULT FALSE,
-    share_products  BOOLEAN NOT NULL DEFAULT FALSE,
-    share_customers BOOLEAN NOT NULL DEFAULT FALSE
-);
-```
-
-## Store
-
-```sql
-CREATE TABLE store (
-    store_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id  BIGINT NOT NULL REFERENCES organization (organization_id),
-    region           TEXT,     
-    sub_region       TEXT      
-);
-
-CREATE TABLE store_tag (
-    store_id BIGINT NOT NULL REFERENCES store (store_id),
-    tag      TEXT   NOT NULL,
-    PRIMARY KEY (store_id, tag)   -- a store can't have the same tag twice
 );
 ```
 
@@ -156,54 +253,54 @@ the model and `auth.md` for the write flow.
 
 ```sql
 CREATE TABLE store_product (
-    store_product_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id         BIGINT NOT NULL REFERENCES store (store_id),
-    organization_id  BIGINT NOT NULL REFERENCES organization (organization_id), 
-    product_id       BIGINT REFERENCES product (product_id),  
+    store_product_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id         UUID NOT NULL REFERENCES store (store_id),
+    organization_id  UUID NOT NULL REFERENCES organization (organization_id),
+    product_id       UUID REFERENCES product (product_id),
     sku              TEXT,
-    quantity         INTEGER NOT NULL DEFAULT 0,   
-    price            NUMERIC(12, 2),             
-    UNIQUE (store_id, sku) 
+    quantity         INTEGER NOT NULL DEFAULT 0,
+    price            NUMERIC(12, 2),
+    UNIQUE (store_id, sku)
 );
 
 CREATE TABLE product (
-    product_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
+    product_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organization (organization_id),
     sku             TEXT,
     UNIQUE (organization_id, sku)
 );
 
 CREATE TABLE store_customer (
-    store_customer_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id          BIGINT NOT NULL REFERENCES store (store_id),
-    organization_id   BIGINT NOT NULL REFERENCES organization (organization_id),
-    customer_id       BIGINT REFERENCES customer (customer_id)   -- NULL = store-only; set = shared
+    store_customer_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id          UUID NOT NULL REFERENCES store (store_id),
+    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
+    customer_id       UUID REFERENCES customer (customer_id)   -- NULL = store-only; set = shared
 );
 
 CREATE TABLE customer (
-    customer_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
+    customer_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organization (organization_id)
 );
 
 CREATE TABLE supplier (
-    supplier_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id)
+    supplier_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organization (organization_id)
 );
 
 CREATE TABLE purchase_order (
-    purchase_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id   BIGINT NOT NULL REFERENCES organization (organization_id),
-    store_id          BIGINT REFERENCES store (store_id),        
-    supplier_id       BIGINT NOT NULL REFERENCES supplier (supplier_id),
-    description       TEXT,                    
-    total             NUMERIC(12, 2) NOT NULL, 
-    status            TEXT NOT NULL,          
+    purchase_order_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
+    store_id          UUID REFERENCES store (store_id),
+    supplier_id       UUID NOT NULL REFERENCES supplier (supplier_id),
+    description       TEXT,
+    total             NUMERIC(12, 2) NOT NULL,
+    status            TEXT NOT NULL,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE purchase_order_product (
-    purchase_order_id BIGINT NOT NULL REFERENCES purchase_order (purchase_order_id),
-    store_product_id  BIGINT NOT NULL REFERENCES store_product (store_product_id),
+    purchase_order_id UUID NOT NULL REFERENCES purchase_order (purchase_order_id),
+    store_product_id  UUID NOT NULL REFERENCES store_product (store_product_id),
     quantity          INTEGER NOT NULL,
     unit_cost         NUMERIC(12, 2) NOT NULL,
     PRIMARY KEY (purchase_order_id, store_product_id)
@@ -211,12 +308,12 @@ CREATE TABLE purchase_order_product (
 
 
 CREATE TABLE expense (
-    expense_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    organization_id BIGINT NOT NULL REFERENCES organization (organization_id),
-    store_id        BIGINT REFERENCES store (store_id),  
-    supplier_id     BIGINT REFERENCES supplier (supplier_id),  
-    category        TEXT NOT NULL,          
-    description     TEXT,                   
+    expense_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organization (organization_id),
+    store_id        UUID REFERENCES store (store_id),
+    supplier_id     UUID REFERENCES supplier (supplier_id),
+    category        TEXT NOT NULL,
+    description     TEXT,
     amount          NUMERIC(12, 2) NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -230,29 +327,30 @@ customers, and the transaction belongs to the store.
 
 ```sql
 CREATE TABLE sales_order (
-    order_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id          BIGINT NOT NULL REFERENCES store (store_id),
-    store_customer_id BIGINT REFERENCES store_customer (store_customer_id),  
-    status            TEXT NOT NULL   
+    order_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id          UUID NOT NULL REFERENCES store (store_id),
+    store_customer_id UUID REFERENCES store_customer (store_customer_id),
+    status            TEXT NOT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()   -- newest-first sorting (UUID PKs aren't time-ordered)
 );
 
 CREATE TABLE sales_order_product (
-    order_id         BIGINT NOT NULL REFERENCES sales_order (order_id),
-    store_product_id BIGINT NOT NULL REFERENCES store_product (store_product_id), 
+    order_id         UUID NOT NULL REFERENCES sales_order (order_id),
+    store_product_id UUID NOT NULL REFERENCES store_product (store_product_id),
     quantity         INTEGER NOT NULL,
-    unit_price       NUMERIC(12, 2) NOT NULL,  
+    unit_price       NUMERIC(12, 2) NOT NULL,
     PRIMARY KEY (order_id, store_product_id)
 );
 
 CREATE TABLE sales_order_return (
-    return_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    store_id  BIGINT NOT NULL REFERENCES store (store_id),
-    order_id  BIGINT NOT NULL REFERENCES sales_order (order_id)
+    return_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id  UUID NOT NULL REFERENCES store (store_id),
+    order_id  UUID NOT NULL REFERENCES sales_order (order_id)
 );
 
 CREATE TABLE sales_order_return_product (
-    return_id        BIGINT NOT NULL REFERENCES sales_order_return (return_id),
-    store_product_id BIGINT NOT NULL REFERENCES store_product (store_product_id),
+    return_id        UUID NOT NULL REFERENCES sales_order_return (return_id),
+    store_product_id UUID NOT NULL REFERENCES store_product (store_product_id),
     quantity         INTEGER NOT NULL,
     PRIMARY KEY (return_id, store_product_id)
 );
@@ -317,10 +415,12 @@ CREATE INDEX ON sales_order_return         (store_id);
 CREATE INDEX ON sales_order_return         (order_id);
 CREATE INDEX ON sales_order_return_product (store_product_id);   -- return_id covered by PK
 
--- Composite indexes for the common sorted lists (list newest-first / alphabetical)
-CREATE INDEX ON store_product   (store_id, sku);         -- a store's products, by SKU
-CREATE INDEX ON sales_order     (store_id, order_id DESC);
-CREATE INDEX ON purchase_order  (organization_id, purchase_order_id DESC);   -- an org's purchases, newest first
+-- Composite indexes for the common sorted lists (list newest-first / alphabetical).
+-- Note: UUID primary keys are random, NOT time-ordered, so "newest first" must sort on
+-- created_at, never on the id column (the old BIGINT `... _id DESC` trick no longer works).
+CREATE INDEX ON store_product   (store_id, sku);                       -- a store's products, by SKU
+CREATE INDEX ON sales_order     (store_id, created_at DESC);           -- a store's orders, newest first
+CREATE INDEX ON purchase_order  (organization_id, created_at DESC);    -- an org's purchases, newest first
 ```
 
 ## Row-Level Security (tenant isolation floor)
@@ -351,24 +451,24 @@ CREATE ROLE app_user LOGIN;
 ALTER TABLE supplier ENABLE ROW LEVEL SECURITY;
 ALTER TABLE supplier FORCE  ROW LEVEL SECURITY;
 CREATE POLICY supplier_tenant ON supplier
-    USING (organization_id = current_setting('app.current_org')::bigint);
+    USING (organization_id = current_setting('app.current_org')::uuid);
 
 ALTER TABLE sales_order ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_order FORCE  ROW LEVEL SECURITY;
 CREATE POLICY sales_order_tenant ON sales_order
-    USING (store_id = current_setting('app.current_store')::bigint);
+    USING (store_id = current_setting('app.current_store')::uuid);
 
 -- The store-level copies are always store-scoped; the shared records are org-scoped (so every store
 -- in the org can resolve them). Both carry organization_id, so both are safe under RLS either way.
 ALTER TABLE store_customer ENABLE ROW LEVEL SECURITY;
 ALTER TABLE store_customer FORCE  ROW LEVEL SECURITY;
 CREATE POLICY store_customer_tenant ON store_customer
-    USING (store_id = current_setting('app.current_store')::bigint);
+    USING (store_id = current_setting('app.current_store')::uuid);
 
 ALTER TABLE customer ENABLE ROW LEVEL SECURITY;    -- the SHARED record
 ALTER TABLE customer FORCE  ROW LEVEL SECURITY;
 CREATE POLICY customer_tenant ON customer
-    USING (organization_id = current_setting('app.current_org')::bigint);
+    USING (organization_id = current_setting('app.current_org')::uuid);
 
 -- Apply the same pattern to every tenant-scoped table:
 --   store-scoped (filter on store_id):        store_product, store_customer, sales_order,
@@ -380,6 +480,7 @@ CREATE POLICY customer_tenant ON customer
 ```
 
 Notes:
+
 - **Defense in depth, not a replacement** — keep the app-level scoping; RLS catches the query that slips.
 - **org vs store context** — an org user acts with `app.current_org` set (and reaches store rows because
   those stores are in their org — store policies can also allow `store.organization_id = app.current_org`);
