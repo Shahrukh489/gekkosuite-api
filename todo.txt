@@ -3,3 +3,4 @@ database and ui doc review
 ux mockup high level
 simplify post-mvp file
 security review of auth.md
+supabase db backups and replication
