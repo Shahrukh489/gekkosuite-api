@@ -110,6 +110,8 @@ CREATE UNIQUE INDEX store_one_default_per_org
     ON store (organization_id)
     WHERE is_default;
 
+CREATE INDEX ON store (organization_id);   -- an org's stores
+
 
 -- A user: one login per person. Where they can act comes from their memberships (see auth.md).
 CREATE TABLE "user" (
@@ -138,6 +140,8 @@ CREATE TABLE "user" (
     -- one email = one account across the whole system
     UNIQUE (email)
 );
+
+CREATE INDEX ON "user" (organization_id);   -- users in their home org
 
 
 -- A role: a named bundle of permissions. Either a managed role we ship, or an org's own custom role.
@@ -251,6 +255,9 @@ CREATE UNIQUE INDEX membership_org_uq
     ON membership (user_id)
     WHERE scope = 'ORGANIZATION' AND NOT is_deleted;
 
+-- all of a user's memberships (the authz query walks these every request)
+CREATE INDEX ON membership (user_id);
+
 -- When the org has allow_user_cross_memberships OFF, a user may hold EITHER an org membership OR
 -- store memberships in that org — not both. A CHECK can't see sibling rows + the org setting, so
 -- it's a trigger (checks siblings atomically, safer than an app-level check-then-insert). See auth.md.
@@ -355,6 +362,7 @@ CREATE TABLE sales_order (
     -- when the sale was created (stored UTC; newest-first sorting — UUID PKs aren't time-ordered)
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX ON sales_order (store_id);   -- a store's orders
 
 -- A line on a sale: one product, its quantity, and the price/tax/discount at time of sale.
 CREATE TABLE sales_order_product (
@@ -393,6 +401,7 @@ CREATE TABLE sales_order_return (
     -- when the return was created (stored UTC)
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX ON sales_order_return (store_id);   -- a store's returns
 
 -- A line on a return: which product and how many units came back.
 CREATE TABLE sales_order_return_product (
@@ -461,10 +470,8 @@ CREATE TABLE purchase_order (
     -- when the purchase was created (stored UTC)
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX ON purchase_order (organization_id, created_at DESC);   -- an org's purchases, newest first
-CREATE INDEX ON purchase_order (store_id);      -- a store's purchases (when attributed)
-CREATE INDEX ON purchase_order (supplier_id);
-CREATE INDEX ON purchase_order (created_by_user_id);
+CREATE INDEX ON purchase_order (organization_id);   -- an org's purchases
+CREATE INDEX ON purchase_order (store_id);          -- a store's purchases (when attributed)
 
 -- Line items on a purchase order: which store product, how many, at what cost.
 CREATE TABLE purchase_order_product (
@@ -479,7 +486,6 @@ CREATE TABLE purchase_order_product (
     -- one row per product per purchase order
     PRIMARY KEY (purchase_order_id, store_product_id)
 );
-CREATE INDEX ON purchase_order_product (store_product_id);   -- purchase_order_id covered by PK
 
 -- Non-inventory spending (furniture, utilities, ...), optionally attributed to a store.
 CREATE TABLE expense (
@@ -502,10 +508,8 @@ CREATE TABLE expense (
     -- when the expense was recorded (stored UTC)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX ON expense (organization_id, created_at DESC);   -- an org's expenses, newest first
-CREATE INDEX ON expense (store_id);      -- a store's expenses (when attributed)
-CREATE INDEX ON expense (supplier_id);
-CREATE INDEX ON expense (created_by_user_id);
+CREATE INDEX ON expense (organization_id);   -- an org's expenses
+CREATE INDEX ON expense (store_id);          -- a store's expenses (when attributed)
 
 
 
@@ -548,8 +552,7 @@ CREATE TABLE store_customer (
     UNIQUE (store_id, customer_id)
 );
 CREATE INDEX ON store_customer (store_id);
-CREATE INDEX ON store_customer (organization_id);
-CREATE INDEX ON store_customer (customer_id);   -- link to the shared identity
+CREATE INDEX ON store_customer (customer_id);   -- loyalty: every store a customer shops at
 
 
 
@@ -592,69 +595,18 @@ CREATE TABLE product (
 ```
 
 
-## Indexes
+## A note on indexes
 
-Postgres indexes primary keys and unique constraints automatically, but **not** foreign-key
-columns. Every FK we filter or join on needs an explicit index, or queries on the big tables
-become full-table scans. (See the Performance section for why each is needed.)
+Indexes are declared **inline, right after each table** above, so it's obvious what each table has.
+Guidelines used throughout:
 
-A composite primary key already indexes its **leftmost** column, so `sales_order_product`
-and `sales_order_return_product` don't need an extra index on `order_id` / `return_id`, only on
-the other column.
-
-```sql
--- RBAC
-CREATE INDEX ON store           (organization_id);
-CREATE INDEX ON "user"          (organization_id);   -- users in their home org
-CREATE INDEX ON "user"          (created_by_user_id);
-CREATE INDEX ON membership      (user_id);
-CREATE INDEX ON membership_assignment (role_id);    -- membership_id covered by PK
-CREATE INDEX ON role            (organization_id);  -- an org's custom roles (NULL for managed)
--- store_membership_detail / organization_membership_detail: membership_id is the PK,
--- already indexed; no extra index needed
-CREATE INDEX ON role_permission (permission_id);   -- role_id covered by PK
-
--- Organization
-CREATE INDEX ON store        (organization_id, region);   -- group an org's stores by region
-CREATE INDEX ON organization (owner_user_id);
-CREATE INDEX ON organization (plan_id);
-CREATE INDEX ON organization (default_store_id);
-CREATE INDEX ON plan_feature (feature_id);         -- plan_id covered by PK
-
--- Org-level entities (suppliers; org-level money: purchases, expenses)
-CREATE INDEX ON supplier (organization_id);
-CREATE INDEX ON purchase_order (organization_id);
-CREATE INDEX ON purchase_order (store_id);     -- a store's purchases (when attributed)
-CREATE INDEX ON purchase_order (supplier_id);
-CREATE INDEX ON expense        (organization_id);
-CREATE INDEX ON expense        (store_id);     -- a store's expenses (when attributed)
-CREATE INDEX ON expense        (supplier_id);
-
--- Products & customers (store-level + shared) + store sales (the big tables — these matter most)
-CREATE INDEX ON store_product          (store_id);           -- a store's own products
-CREATE INDEX ON store_product          (organization_id);
-CREATE INDEX ON store_product          (product_id);         -- link to the shared record (when shared)
-CREATE INDEX ON product                (organization_id);    -- the org's shared catalog
-CREATE INDEX ON store_customer         (store_id);           -- a store's own customers
-CREATE INDEX ON store_customer         (organization_id);
-CREATE INDEX ON store_customer         (customer_id);        -- link to the shared record (when shared)
-CREATE INDEX ON customer               (organization_id);    -- the org's shared customers
-CREATE INDEX ON sales_order            (store_id);
-CREATE INDEX ON sales_order            (store_customer_id);
-CREATE INDEX ON sales_order            (sold_by_user_id);
-CREATE INDEX ON sales_order_product    (store_product_id);   -- order_id covered by PK
-CREATE INDEX ON sales_order_return         (store_id);
-CREATE INDEX ON sales_order_return         (order_id);
-CREATE INDEX ON sales_order_return         (processed_by_user_id);
-CREATE INDEX ON sales_order_return_product (store_product_id);   -- return_id covered by PK
-
--- Composite indexes for the common sorted lists (list newest-first / alphabetical).
--- Note: UUID primary keys are random, NOT time-ordered, so "newest first" must sort on
--- created_at, never on the id column (the old BIGINT `... _id DESC` trick no longer works).
-CREATE INDEX ON store_product   (store_id, sku);                       -- a store's products, by SKU
-CREATE INDEX ON sales_order     (store_id, created_at DESC);           -- a store's orders, newest first
-CREATE INDEX ON purchase_order  (organization_id, created_at DESC);    -- an org's purchases, newest first
-```
+- Postgres auto-indexes primary keys and `UNIQUE` constraints, but **not** foreign-key columns — so we
+  add an explicit `CREATE INDEX` for the FK columns we actually filter or join on (mostly tenant scoping:
+  `organization_id`, `store_id`), or big-table queries become full scans.
+- A composite index (or composite PK) already covers its **leftmost** column, so we don't add a
+  separate single-column index a composite already handles.
+- We index deliberately, not reflexively — an FK column with no query that filters on it (e.g. an
+  actor/`created_by` column) gets no index until a report needs it.
 
 ## Row-Level Security (tenant isolation floor)
 
