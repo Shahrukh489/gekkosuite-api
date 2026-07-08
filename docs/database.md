@@ -412,6 +412,123 @@ CREATE TABLE sales_order_return_product (
     PRIMARY KEY (return_id, store_product_id)
 );
 
+
+
+
+-- Lifecycle of a purchase order. DRAFT = being prepared; ORDERED = placed with supplier;
+-- RECEIVED = goods arrived; CANCELLED = voided.
+CREATE TYPE purchase_order_status AS ENUM ('DRAFT', 'ORDERED', 'RECEIVED', 'CANCELLED');
+
+-- A supplier (vendor). Org-level — the org holds the vendor relationships and does all buying.
+CREATE TABLE supplier (
+    -- supplier id
+    supplier_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- owning org (the tenant)
+    organization_id UUID NOT NULL REFERENCES organization (organization_id),
+    -- vendor display name (required)
+    name            TEXT NOT NULL,
+    -- optional notes about the supplier
+    description     TEXT,
+    -- vendor contact email
+    email           TEXT,
+    -- vendor contact phone (TEXT: '+', spaces, extensions)
+    phone           TEXT,
+    -- when the supplier was added (stored UTC)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- soft-delete flag; TRUE = removed but kept for history
+    is_deleted      BOOLEAN NOT NULL DEFAULT FALSE,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at      TIMESTAMPTZ
+);
+CREATE INDEX ON supplier (organization_id);
+
+-- A purchase order: the org buys inventory from a supplier, optionally attributed to a store.
+CREATE TABLE purchase_order (
+    -- purchase order id
+    purchase_order_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- owning org (the tenant); the money always belongs to the org
+    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
+    -- store this purchase is attributed to, if any (NULL = org-wide)
+    store_id          UUID REFERENCES store (store_id),
+    -- the supplier bought from
+    supplier_id       UUID NOT NULL REFERENCES supplier (supplier_id),
+    -- the org user who created it
+    created_by_user_id UUID REFERENCES "user" (user_id),
+    -- why/what (shown to store admins when attributed)
+    description       TEXT,
+    -- DRAFT | ORDERED | RECEIVED | CANCELLED
+    status            purchase_order_status NOT NULL DEFAULT 'DRAFT',
+    -- order total (sum of line unit_cost × qty)
+    total             NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    -- when the purchase was created (stored UTC)
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ON purchase_order (organization_id, created_at DESC);   -- an org's purchases, newest first
+CREATE INDEX ON purchase_order (store_id);      -- a store's purchases (when attributed)
+CREATE INDEX ON purchase_order (supplier_id);
+CREATE INDEX ON purchase_order (created_by_user_id);
+
+-- Line items on a purchase order: which store product, how many, at what cost.
+CREATE TABLE purchase_order_product (
+    -- the purchase order this line belongs to
+    purchase_order_id UUID NOT NULL REFERENCES purchase_order (purchase_order_id),
+    -- the store product being bought (stock lands at that store)
+    store_product_id  UUID NOT NULL REFERENCES store_product (store_product_id),
+    -- how many units
+    quantity          INTEGER NOT NULL CHECK (quantity > 0),
+    -- cost per unit (what the org paid the supplier)
+    unit_cost         NUMERIC(12, 2) NOT NULL,
+    -- one row per product per purchase order
+    PRIMARY KEY (purchase_order_id, store_product_id)
+);
+CREATE INDEX ON purchase_order_product (store_product_id);   -- purchase_order_id covered by PK
+
+-- Non-inventory spending (furniture, utilities, ...), optionally attributed to a store.
+CREATE TABLE expense (
+    -- expense id
+    expense_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- owning org (the tenant); the money always belongs to the org
+    organization_id UUID NOT NULL REFERENCES organization (organization_id),
+    -- store this expense is attributed to, if any (NULL = org-wide)
+    store_id        UUID REFERENCES store (store_id),
+    -- supplier/vendor, if the spend was to one (optional)
+    supplier_id     UUID REFERENCES supplier (supplier_id),
+    -- the org user who recorded it
+    created_by_user_id UUID REFERENCES "user" (user_id),
+    -- free-text category (e.g. 'utilities', 'equipment')
+    category        TEXT NOT NULL,
+    -- why/what
+    description     TEXT,
+    -- amount spent
+    amount          NUMERIC(12, 2) NOT NULL,
+    -- when the expense was recorded (stored UTC)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ON expense (organization_id, created_at DESC);   -- an org's expenses, newest first
+CREATE INDEX ON expense (store_id);      -- a store's expenses (when attributed)
+CREATE INDEX ON expense (supplier_id);
+CREATE INDEX ON expense (created_by_user_id);
+
+
+
+CREATE TABLE store_customer (
+    store_customer_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id          UUID NOT NULL REFERENCES store (store_id),
+    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
+    customer_id       UUID REFERENCES customer (customer_id)   -- NULL = store-only; set = shared
+);
+
+CREATE TABLE customer (
+    customer_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organization (organization_id)
+    email -> unique identigier
+    phone 
+    name
+    
+);
+
+
+
 ```
 
 
@@ -447,53 +564,7 @@ CREATE TABLE product (
     UNIQUE (organization_id, sku)
 );
 
-CREATE TABLE store_customer (
-    store_customer_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id          UUID NOT NULL REFERENCES store (store_id),
-    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
-    customer_id       UUID REFERENCES customer (customer_id)   -- NULL = store-only; set = shared
-);
 
-CREATE TABLE customer (
-    customer_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organization (organization_id)
-);
-
-CREATE TABLE supplier (
-    supplier_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organization (organization_id)
-);
-
-CREATE TABLE purchase_order (
-    purchase_order_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
-    store_id          UUID REFERENCES store (store_id),
-    supplier_id       UUID NOT NULL REFERENCES supplier (supplier_id),
-    description       TEXT,
-    total             NUMERIC(12, 2) NOT NULL,
-    status            TEXT NOT NULL,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE purchase_order_product (
-    purchase_order_id UUID NOT NULL REFERENCES purchase_order (purchase_order_id),
-    store_product_id  UUID NOT NULL REFERENCES store_product (store_product_id),
-    quantity          INTEGER NOT NULL,
-    unit_cost         NUMERIC(12, 2) NOT NULL,
-    PRIMARY KEY (purchase_order_id, store_product_id)
-);
-
-
-CREATE TABLE expense (
-    expense_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organization (organization_id),
-    store_id        UUID REFERENCES store (store_id),
-    supplier_id     UUID REFERENCES supplier (supplier_id),
-    category        TEXT NOT NULL,
-    description     TEXT,
-    amount          NUMERIC(12, 2) NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
 
 ```
 
