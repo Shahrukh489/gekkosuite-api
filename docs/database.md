@@ -356,7 +356,7 @@ CREATE TABLE sales_order_product (
     -- the store product sold
     store_product_id UUID NOT NULL REFERENCES store_product (store_product_id),
     -- how many units
-    quantity         INTEGER NOT NULL CHECK (quantity > 0),
+    quantity         INTEGER NOT NULL,
     -- price per unit, snapshotted at sale time (not read live from store_product)
     unit_price       NUMERIC(12, 2) NOT NULL,
     -- discount applied to this line
@@ -395,7 +395,7 @@ CREATE TABLE sales_order_return_product (
     -- the store product being returned (must be one that was on the original order)
     store_product_id UUID NOT NULL REFERENCES store_product (store_product_id),
     -- how many units returned (app/trigger enforces: total returned ≤ quantity originally sold)
-    quantity         INTEGER NOT NULL CHECK (quantity > 0),
+    quantity         INTEGER NOT NULL,
     -- the price the unit was sold for (snapshot of the order line's unit_price)
     sold_price   NUMERIC(12, 2) NOT NULL,
     -- amount refunded for this line
@@ -465,7 +465,7 @@ CREATE TABLE purchase_order_product (
     -- the store product being bought (stock lands at that store)
     store_product_id  UUID NOT NULL REFERENCES store_product (store_product_id),
     -- how many units
-    quantity          INTEGER NOT NULL CHECK (quantity > 0),
+    quantity          INTEGER NOT NULL,
     -- cost per unit (what the org paid the supplier)
     unit_cost         NUMERIC(12, 2) NOT NULL,
     -- one row per product per purchase order
@@ -747,9 +747,6 @@ that must look at *other* rows or tables, which a `CHECK` can't do). The declara
 |---|---|---|---|
 | `role` | `CHECK ((is_managed = TRUE AND organization_id IS NULL) OR (is_managed = FALSE AND organization_id IS NOT NULL))` | A role is either **managed** (a system role we ship — belongs to no org, so `organization_id` must be NULL) or **custom** (an org built it — so `organization_id` must be set). One or the other, never mixed. | a managed role wrongly tied to one org, or a custom role floating with no owner |
 | `membership` | `CHECK ((scope = 'ORGANIZATION' AND store_id IS NULL) OR (scope = 'STORE' AND store_id IS NOT NULL))` | A membership is either at the **org** (so `store_id` must be NULL) or at a **store** (so `store_id` must be set). The `store_id` has to match the `scope`. | an org membership with a store set, or a store membership with no store |
-| `sales_order_product` | `CHECK (quantity > 0)` | a sold line must be for at least one unit | selling zero or negative units |
-| `sales_order_return_product` | `CHECK (quantity > 0)` | a returned line must be for at least one unit | returning zero or negative units |
-| `purchase_order_product` | `CHECK (quantity > 0)` | an ordered line must be for at least one unit | ordering zero or negative units |
 
 ## Triggers (multi-row / cross-table rules)
 
