@@ -52,8 +52,6 @@ CREATE TABLE organization (
     plan_id          UUID REFERENCES plan (plan_id),
     -- store to land in by default (e.g. single-store orgs)
     default_store_id UUID REFERENCES store (store_id),
-    -- can one user hold both org and store memberships? (off = locked to one kind)
-    allow_user_cross_memberships BOOLEAN NOT NULL DEFAULT FALSE,
     -- org-wide product sharing (off = each store's catalog is its own)
     allow_share_products  BOOLEAN NOT NULL DEFAULT FALSE,
     -- when the org was onboarded (stored UTC)
@@ -74,8 +72,6 @@ CREATE TABLE store (
     name             TEXT NOT NULL,
     -- ONLINE | PHYSICAL: how the store sells
     type             store_type NOT NULL DEFAULT 'PHYSICAL',
-    -- the org's default store; must agree with organization.default_store_id
-    is_default       BOOLEAN NOT NULL DEFAULT FALSE,
     -- description / notes about the store
     description      TEXT,
     -- physical location (all NULL for an ONLINE store) --
@@ -100,16 +96,8 @@ CREATE TABLE store (
     -- soft-delete flag; TRUE = store removed but kept for history
     is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,
     -- when it was soft-deleted (stored UTC); NULL while active
-    deleted_at       TIMESTAMPTZ,
-    -- can't delete the default store; reassign the default to another store first
-    CHECK (NOT (is_default AND is_deleted))
+    deleted_at       TIMESTAMPTZ
 );
-
--- At most one default store per org. 
-CREATE UNIQUE INDEX store_one_default_per_org
-    ON store (organization_id)
-    WHERE is_default;
-
 CREATE INDEX ON store (organization_id);   -- an org's stores
 
 
@@ -258,29 +246,26 @@ CREATE UNIQUE INDEX membership_org_uq
 -- all of a user's memberships (the authz query walks these every request)
 CREATE INDEX ON membership (user_id);
 
--- When the org has allow_user_cross_memberships OFF, a user may hold EITHER an org membership OR
--- store memberships in that org — not both. A CHECK can't see sibling rows + the org setting, so
--- it's a trigger (checks siblings atomically, safer than an app-level check-then-insert). See auth.md.
-CREATE FUNCTION enforce_cross_membership() RETURNS trigger AS $$
+-- A user is either a store member OR an org member — never both. A CHECK can't see sibling rows, so
+-- it's a trigger (checks the user's other memberships atomically). See auth.md.
+CREATE FUNCTION enforce_single_membership_kind() RETURNS trigger AS $$
 BEGIN
-    IF NOT (SELECT o.allow_user_cross_memberships
-              FROM organization o WHERE o.organization_id = NEW.organization_id)
-       AND EXISTS (SELECT 1 FROM membership m
-                    WHERE m.user_id = NEW.user_id
-                      AND m.organization_id = NEW.organization_id
-                      AND NOT m.is_deleted
-                      AND m.scope <> NEW.scope)
+    IF EXISTS (SELECT 1 FROM membership m
+                WHERE m.user_id = NEW.user_id
+                  AND NOT m.is_deleted
+                  AND m.scope <> NEW.scope)
     THEN
-        RAISE EXCEPTION 'user % already holds a different-scope membership; cross-membership is disabled for org %',
-            NEW.user_id, NEW.organization_id;
+        RAISE EXCEPTION 'user % already holds a % membership; a user cannot be both a store and an org member',
+            NEW.user_id, (SELECT m.scope FROM membership m
+                           WHERE m.user_id = NEW.user_id AND NOT m.is_deleted LIMIT 1);
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER membership_cross_guard
+CREATE TRIGGER membership_single_kind_guard
     BEFORE INSERT OR UPDATE ON membership
-    FOR EACH ROW EXECUTE FUNCTION enforce_cross_membership();
+    FOR EACH ROW EXECUTE FUNCTION enforce_single_membership_kind();
 
 -- membership_assignment: a role granted to a membership (many-to-many). Role scope must match the
 -- membership scope, enforced on write (see auth.md).
@@ -671,3 +656,114 @@ Notes:
   those stores are in their org — store policies can also allow `store.organization_id = app.current_org`);
   a store action sets `app.current_store`. Pick one consistent policy shape per table and document it.
 - **Migrations bypass RLS** by design (run as the owner/privileged role), so schema changes aren't blocked.
+
+
+# Indexes
+
+Reference for every index in the schema and the query it exists for. The declarations live **inline
+under each table** above; this section is the map. Primary keys and `UNIQUE` constraints are indexed
+automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns we chose to index.
+
+## Primary keys (auto-indexed)
+
+| Table | Primary key | Query it serves |
+|---|---|---|
+| `plan` | `plan_id` | get a plan by id |
+| `feature` | `feature_id` | get a feature by id |
+| `plan_feature` | `(plan_id, feature_id)` | list the features in a given plan |
+| `organization` | `organization_id` | get an org by id (resolve the tenant) |
+| `store` | `store_id` | get a store by id (`/stores/{storeId}/...`) |
+| `user` | `user_id` | get a user by id (token resolution) |
+| `role` | `role_id` | get a role by id |
+| `permission` | `permission_id` | get a permission by id |
+| `role_permission` | `(role_id, permission_id)` | list the permissions granted to a given role |
+| `membership` | `membership_id` | get a membership by id |
+| `membership_assignment` | `(membership_id, role_id)` | list the roles on a given membership |
+| `store_membership_detail` | `membership_id` | get the store-only detail (PIN) for a membership |
+| `organization_membership_detail` | `membership_id` | get the org-only detail for a membership |
+| `sales_order` | `order_id` | get an order by id |
+| `sales_order_product` | `(order_id, store_product_id)` | list the line items on a given order |
+| `sales_order_return` | `return_id` | get a return by id |
+| `sales_order_return_product` | `(return_id, store_product_id)` | list the line items on a given return |
+| `supplier` | `supplier_id` | get a supplier by id |
+| `purchase_order` | `purchase_order_id` | get a purchase order by id |
+| `purchase_order_product` | `(purchase_order_id, store_product_id)` | list the line items on a given purchase order |
+| `expense` | `expense_id` | get an expense by id |
+| `customer` | `customer_id` | get a customer by id |
+| `store_customer` | `store_customer_id` | get a store-customer link by id |
+| `store_product` | `store_product_id` | get a store product by id |
+| `product` | `product_id` | get a shared product by id |
+
+## Unique constraints (auto-indexed + enforce a rule)
+
+| Constraint | Query / rule it serves |
+|---|---|
+| `plan.name` | look up a plan by name / no two plans share a name |
+| `feature.code` | look up a feature by its code / codes don't collide |
+| `user.email` | **login: find the account for an email** / one account per email |
+| `permission (resource, action)` | look up a permission like `product:read` / no duplicates |
+| `customer (organization_id, email)` | find a customer by email in an org / one identity per email |
+| `store_customer (store_id, customer_id)` | is this customer already linked to this store? / no duplicate link |
+| `store_product (store_id, sku)` | find a store's product by SKU (barcode scan) / no duplicate SKU per store |
+| `product (organization_id, sku)` | find the shared product by SKU in an org / no duplicate |
+
+## Unique partial indexes (rule + query)
+
+| Index | Query / rule it serves |
+|---|---|
+| `role_org_name_uq` — `role(organization_id, name) WHERE organization_id IS NOT NULL` | find an org's custom role by name / no duplicate name per org |
+| `role_managed_name_uq` — `role(name) WHERE is_managed` | find a system role by name / managed names unique |
+| `membership_store_uq` — `membership(user_id, store_id) WHERE store_id IS NOT NULL AND NOT is_deleted` | is this user a live member of this store? / one live membership per store |
+| `membership_org_uq` — `membership(user_id) WHERE scope='ORGANIZATION' AND NOT is_deleted` | does this user have a live org membership? / at most one |
+
+## Plain indexes
+
+| Index | Query it serves |
+|---|---|
+| `store (organization_id)` | all stores in an org |
+| `"user" (organization_id)` | all users in an org (admin user list) |
+| `membership (user_id)` | **all of a user's memberships (authz, every request)** |
+| `sales_order (store_id)` | a store's orders |
+| `sales_order_return (store_id)` | a store's returns |
+| `supplier (organization_id)` | an org's suppliers |
+| `purchase_order (organization_id)` | an org's purchase orders |
+| `purchase_order (store_id)` | the POs attributed to a store |
+| `expense (organization_id)` | an org's expenses |
+| `expense (store_id)` | the expenses attributed to a store |
+| `customer (organization_id)` | an org's customers |
+| `store_customer (store_id)` | a store's customers |
+| `store_customer (customer_id)` | **every store a customer shops at (loyalty)** |
+
+
+# Checks
+
+Reference for every integrity rule the database enforces beyond keys and foreign keys. Two kinds:
+**`CHECK` constraints** (rules a row can verify by looking at its own columns) and **triggers** (rules
+that must look at *other* rows or tables, which a `CHECK` can't do). The declarations live inline above.
+
+## CHECK constraints (single-row rules)
+
+| Table | The CHECK | Rule in plain words | What it prevents |
+|---|---|---|---|
+| `role` | `CHECK ((is_managed = TRUE AND organization_id IS NULL) OR (is_managed = FALSE AND organization_id IS NOT NULL))` | A role is either **managed** (a system role we ship — belongs to no org, so `organization_id` must be NULL) or **custom** (an org built it — so `organization_id` must be set). One or the other, never mixed. | a managed role wrongly tied to one org, or a custom role floating with no owner |
+| `membership` | `CHECK ((scope = 'ORGANIZATION' AND store_id IS NULL) OR (scope = 'STORE' AND store_id IS NOT NULL))` | A membership is either at the **org** (so `store_id` must be NULL) or at a **store** (so `store_id` must be set). The `store_id` has to match the `scope`. | an org membership with a store set, or a store membership with no store |
+| `sales_order_product` | `CHECK (quantity > 0)` | a sold line must be for at least one unit | selling zero or negative units |
+| `sales_order_return_product` | `CHECK (quantity > 0)` | a returned line must be for at least one unit | returning zero or negative units |
+| `purchase_order_product` | `CHECK (quantity > 0)` | an ordered line must be for at least one unit | ordering zero or negative units |
+
+## Triggers (multi-row / cross-table rules)
+
+These guard invariants a `CHECK` can't express because they read *sibling rows* or *other tables*. Each
+is an **optional database backstop** — the app service method is the primary guard and the authz query
+re-checks on read (see `auth.md`); the trigger makes even a raw SQL write fail.
+
+| Trigger | On | Rule | What it prevents |
+|---|---|---|---|
+| `role_permission_elevated_guard` | `role_permission` insert/update | an elevated (org-only) permission may only sit in an ORGANIZATION role | putting `user:create` into a store role, so a cashier could create users |
+| `membership_assignment_type_guard` | `membership_assignment` insert/update | a role's scope must match the membership's scope (store role → store membership, org role → org membership) | an org role on a store seat, giving a store employee org-wide reach |
+| `membership_single_kind_guard` | `membership` insert/update | a user is **either** a store member **or** an org member — never both | giving an org user a store seat (or vice versa), mixing the two membership kinds |
+
+Why these are triggers, not CHECKs: `role_permission_elevated_guard` joins to `permission` and `role`;
+`membership_assignment_type_guard` joins to `role` and `membership`; `membership_single_kind_guard`
+reads the user's other `membership` rows. A `CHECK` can only see the row being written, so none of these
+can be expressed as one.

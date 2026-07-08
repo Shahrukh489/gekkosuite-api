@@ -49,14 +49,13 @@ An org admin sets someone up in three steps:
 3. **Give them a role** — choose what they can do at that place. The role's type must match the
    membership: store roles on store memberships, org roles on org memberships.
 
-A person can hold an org membership *and* store memberships (unless the org's cross-membership setting
-forbids it — see *Can a user be both an org and a store user?*).
+A person is **either** an org member **or** a store member — never both (see *Can a user be both an org
+and a store user?*). A store person can still belong to several stores.
 
 **Example**
 Maria is added to the Seattle store as a Cashier, then later to Portland as a Manager — one login, two
-store memberships, a different role at each. If the owner later wants Maria to oversee the whole
-company, they **add an organization membership** with an org role; she now belongs at the org too,
-with no change to the user record itself.
+store memberships, a different role at each. She's a store person at both; she can't also be given an
+organization membership.
 
 
 ## How do I revoke or suspend someone's access?
@@ -146,21 +145,15 @@ have no org membership to attach it to.
 
 ## Can a user be both an org and a store user?
 
-That's an **org-level choice**, controlled by one setting:
+**No.** A user is **either** an org member **or** a store member — never both. At the moment a
+membership is *added*, the write path enforces it:
 
-> **`allow_user_cross_memberships`** (an organization setting)
-> - **ON** — a user may hold an organization membership *and* store memberships at the same time.
-> - **OFF (the default)** — each user is locked to a single kind: at the moment a membership is
->   *added*, the write path enforces —
->   - if the user already has an **org** membership → refuse to add a **store** membership;
->   - if the user already has any **store** membership → refuse to add an **org** membership.
+- if the user already has an **org** membership → refuse to add a **store** membership;
+- if the user already has any **store** membership → refuse to add an **org** membership.
 
-With it **OFF** (the default) an org person is an org person and a store employee is a store employee,
-never both — the simplest thing for non-technical customers. With it **ON**, one person can span both
-levels — handy for a small business where an owner also works a register, or where a store employee is
-later given an org membership to help oversee the company.
-
-**Note:** Toggling on and off can result in Organization Admin setting having to choose what membership a user should keep if he has two memberships.
+So an org person is an org person and a store employee is a store employee — the simplest thing for
+non-technical customers. (A store person can still belong to *several stores* — that's many store
+memberships of the same kind, which is fine; the rule only forbids mixing store and org.)
 
 ## How far does a role reach? (store vs org)
 
@@ -676,9 +669,11 @@ So each rule can be guarded in up to three places: the **service method** (main 
 error), the **authorization query** (catches a bad row when reading), and — if we add it — the
 **trigger** (the database refuses to store a bad row at all).
 
+**A third invariant guarded this way — one-membership-kind-per-user:**
+- **One-membership-kind-per-user** — a user is either a store member or an org member, never both.
+  Enforced by the `membership_single_kind_guard` trigger (see `database.md`); 
+
 **Other rules that could use the same trigger pattern later (noted, not built yet):**
-- **One-membership-kind-per-user (Q3)** — stop a user getting both an org and a store membership when
-  the org has that turned off. Trigger sketched in *Security Review Notes → Q3* below.
 - **Permission limits, e.g. refund caps (post-MVP)** — a chosen limit must stay within the allowed
   range we ship. Same two-table shape; add when that feature is built.
 - **Setting the tenant on writes** is *not* here — it only checks one column against the caller's org,
@@ -817,47 +812,6 @@ The write-path integrity rules (elevated-in-org-role, role-matches-membership, t
 now documented in the design under **Write-time security** — see *Write-path invariants* and *Setting
 the tenant on writes*. Q1, Q2, and Q4 from the original review are **resolved** there (write chokepoint
 + read-time backstop). One item remains open:
-
-**Q3. How do we enforce the cross-membership rule when `allow_user_cross_memberships` is OFF?**
-- Bad row if skipped: a user with a store membership is given an org membership (or vice versa) while
-  the org setting is OFF.
-- Breaks: the "one kind per person" guarantee the org chose is silently violated.
-- Spans: `membership` (vs sibling `membership` rows + the `organization` setting).
-- Note: this is a **policy** invariant, not a privilege escalation — each membership is individually
-  valid and correctly scoped, so there's no unsafe row to neutralize at read time (a blanket 403 would
-  wrongly deny the user's legitimate access too). Treatment: a write-time chokepoint on membership
-  creation, plus optionally a consistency report for admins rather than a per-request block.
-- *(Optional DB backstop — trigger, if we build Q3.)* Like invariants 1–2, this spans rows/tables a
-  `CHECK` can't reach (sibling `membership` rows + the `organization` setting), so the DB-level version
-  is a trigger:
-  ```sql
-  -- Reject a membership whose kind conflicts with one the user already holds, when the org disallows crossing.
-  CREATE FUNCTION enforce_cross_membership() RETURNS trigger AS $$
-  BEGIN
-    IF NOT (SELECT o.allow_user_cross_memberships
-              FROM organization o WHERE o.organization_id = NEW.organization_id)
-       AND EXISTS (SELECT 1 FROM membership m
-                    WHERE m.user_id = NEW.user_id
-                      AND m.organization_id = NEW.organization_id
-                      AND m.deleted_at IS NULL
-                      AND m.scope <> NEW.scope)
-    THEN
-      RAISE EXCEPTION 'user % already holds a % membership; cross-membership is disabled for org %',
-        NEW.user_id, (SELECT m.scope FROM membership m WHERE m.user_id = NEW.user_id
-                       AND m.organization_id = NEW.organization_id AND m.deleted_at IS NULL LIMIT 1),
-        NEW.organization_id;
-    END IF;
-    RETURN NEW;
-  END;
-  $$ LANGUAGE plpgsql;
-
-  CREATE TRIGGER membership_cross_guard
-    BEFORE INSERT OR UPDATE ON membership
-    FOR EACH ROW EXECUTE FUNCTION enforce_cross_membership();
-  ```
-  (A trigger is a *good* fit here specifically because it checks sibling rows atomically — safer
-  against a race than an app-level "check then insert".)
-- **Status: open.**
 
 ### Other medium items
 
