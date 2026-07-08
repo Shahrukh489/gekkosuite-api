@@ -331,6 +331,86 @@ CREATE TABLE organization_membership_detail (
     -- ...org-only member fields go here
 );
 
+-- Lifecycle of a sale. OPEN = in progress; COMPLETED = paid/finalized; VOIDED = cancelled.
+CREATE TYPE order_status AS ENUM ('OPEN', 'COMPLETED', 'VOIDED');
+
+-- Lifecycle of a return. PENDING = raised; COMPLETED = refunded; VOIDED = cancelled.
+CREATE TYPE return_status AS ENUM ('PENDING', 'COMPLETED', 'VOIDED');
+
+-- A sale rung up at a store.
+CREATE TABLE sales_order (
+    -- order id
+    order_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- the store the sale belongs to 
+    store_id          UUID NOT NULL REFERENCES store (store_id),
+    -- the customer, if attached; NULL for a walk-in / anonymous sale
+    store_customer_id UUID REFERENCES store_customer (store_customer_id),
+    -- the user (cashier) who rang the sale
+    sold_by_user_id   UUID REFERENCES "user" (user_id),
+    -- OPEN | COMPLETED | VOIDED
+    status            order_status NOT NULL DEFAULT 'OPEN',
+    -- money breakdown (all snapshotted; total = subtotal - discount_total + tax_total)
+    subtotal          NUMERIC(12, 2) NOT NULL DEFAULT 0,   -- sum of line (unit_price × qty)
+    discount_total    NUMERIC(12, 2) NOT NULL DEFAULT 0,   -- order-level + line discounts applied
+    tax_total         NUMERIC(12, 2) NOT NULL DEFAULT 0,   -- tax charged
+    total             NUMERIC(12, 2) NOT NULL DEFAULT 0,   -- what the customer pays
+    -- when the sale was created (stored UTC; newest-first sorting — UUID PKs aren't time-ordered)
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- A line on a sale: one product, its quantity, and the price/tax/discount at time of sale.
+CREATE TABLE sales_order_product (
+    -- the order this line belongs to
+    order_id         UUID NOT NULL REFERENCES sales_order (order_id),
+    -- the store product sold
+    store_product_id UUID NOT NULL REFERENCES store_product (store_product_id),
+    -- how many units
+    quantity         INTEGER NOT NULL CHECK (quantity > 0),
+    -- price per unit, snapshotted at sale time (not read live from store_product)
+    unit_price       NUMERIC(12, 2) NOT NULL,
+    -- discount applied to this line
+    discount         NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    -- tax charged on this line
+    tax              NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    -- one row per product per order
+    PRIMARY KEY (order_id, store_product_id)
+);
+
+-- A return against a prior sale (refunds some or all of its lines).
+CREATE TABLE sales_order_return (
+    -- return id
+    return_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- the store the return belongs to 
+    store_id            UUID NOT NULL REFERENCES store (store_id),
+    -- the sale being returned against
+    order_id            UUID NOT NULL REFERENCES sales_order (order_id),
+    -- the user who processed the return
+    processed_by_user_id UUID REFERENCES "user" (user_id),
+    -- PENDING | COMPLETED | VOIDED
+    status              return_status NOT NULL DEFAULT 'PENDING',
+    -- free-text reason for the return
+    reason              TEXT,
+    -- total amount refunded to the customer
+    refund_total        NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    -- when the return was created (stored UTC)
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- A line on a return: which product and how many units came back.
+CREATE TABLE sales_order_return_product (
+    -- the return this line belongs to
+    return_id        UUID NOT NULL REFERENCES sales_order_return (return_id),
+    -- the store product being returned (must be one that was on the original order)
+    store_product_id UUID NOT NULL REFERENCES store_product (store_product_id),
+    -- how many units returned (app/trigger enforces: total returned ≤ quantity originally sold)
+    quantity         INTEGER NOT NULL CHECK (quantity > 0),
+    -- the price the unit was sold for (snapshot of the order line's unit_price)
+    sold_price   NUMERIC(12, 2) NOT NULL,
+    -- amount refunded for this line
+    refund_amount    NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    -- one row per product per return
+    PRIMARY KEY (return_id, store_product_id)
+);
 
 ```
 
@@ -417,41 +497,6 @@ CREATE TABLE expense (
 
 ```
 
-## Store transactions (sales, returns)
-
-Selling happens at a store. Sales reference the store's own products (`store_product`) and its own
-customers, and the transaction belongs to the store.
-
-```sql
-CREATE TABLE sales_order (
-    order_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id          UUID NOT NULL REFERENCES store (store_id),
-    store_customer_id UUID REFERENCES store_customer (store_customer_id),
-    status            TEXT NOT NULL,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()   -- newest-first sorting (UUID PKs aren't time-ordered)
-);
-
-CREATE TABLE sales_order_product (
-    order_id         UUID NOT NULL REFERENCES sales_order (order_id),
-    store_product_id UUID NOT NULL REFERENCES store_product (store_product_id),
-    quantity         INTEGER NOT NULL,
-    unit_price       NUMERIC(12, 2) NOT NULL,
-    PRIMARY KEY (order_id, store_product_id)
-);
-
-CREATE TABLE sales_order_return (
-    return_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id  UUID NOT NULL REFERENCES store (store_id),
-    order_id  UUID NOT NULL REFERENCES sales_order (order_id)
-);
-
-CREATE TABLE sales_order_return_product (
-    return_id        UUID NOT NULL REFERENCES sales_order_return (return_id),
-    store_product_id UUID NOT NULL REFERENCES store_product (store_product_id),
-    quantity         INTEGER NOT NULL,
-    PRIMARY KEY (return_id, store_product_id)
-);
-```
 
 ## Indexes
 
@@ -502,9 +547,11 @@ CREATE INDEX ON store_customer         (customer_id);        -- link to the shar
 CREATE INDEX ON customer               (organization_id);    -- the org's shared customers
 CREATE INDEX ON sales_order            (store_id);
 CREATE INDEX ON sales_order            (store_customer_id);
+CREATE INDEX ON sales_order            (sold_by_user_id);
 CREATE INDEX ON sales_order_product    (store_product_id);   -- order_id covered by PK
 CREATE INDEX ON sales_order_return         (store_id);
 CREATE INDEX ON sales_order_return         (order_id);
+CREATE INDEX ON sales_order_return         (processed_by_user_id);
 CREATE INDEX ON sales_order_return_product (store_product_id);   -- return_id covered by PK
 
 -- Composite indexes for the common sorted lists (list newest-first / alphabetical).

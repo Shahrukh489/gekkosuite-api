@@ -6,9 +6,6 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// NOTE: database migrations are NOT run here. They live in the GekkoSuite.Database project and are
-// run manually / by CI as the DB owner role. The API connects with a limited (non-owner) role.
-
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
