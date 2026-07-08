@@ -60,14 +60,9 @@ What the `share_products` setting changes is only whether stores share one *cata
 
 ## Are customers per-store or shared?
 
-**By default per-store; the org can flip on sharing so a customer is recognized at every store.**
+**Shared org-wide.**
 
-A store's customers always live in `store_customer`. The `share_customers` setting decides whether they also become an org-wide account:
-
-- **Off (default):** a customer belongs to one store. The same person shopping at two stores is two separate records, and stores don't see each other's.
-- **On:** creating a customer also writes a shared `customer` row that the store's row links to, so the customer is recognized at every store in the org (the basis for cross-store loyalty).
-
-Either way the store keeps its own `store_customer` row; sharing just adds the org-wide `customer` link on top.
+A store's customers live in `store_customer`, and each row links to a shared org-level `customer`. So a customer created at one store is recognized at every store in the org — one identity, the basis for cross-store loyalty. The store keeps its own `store_customer` row, with the shared `customer` link on top.
 
 
 ## How does buying inventory and spending work?
@@ -84,9 +79,9 @@ Both are created by **organization users**. Each can optionally be **attributed 
 
 ## Can a store see or use another store's products or customers?
 
-**Not by default — and only if the organization allows it.**
+**Customers, yes; products, only if the organization allows it.**
 
-With sharing off, a store is fully isolated: it can't see another store's products or customers at all. Two ways the org can open that up:
+Customers are shared org-wide, so every store already recognizes the same customer. Products are per-store by default — a store can't see another store's products. Two ways the org can open products up:
 
-- **Turn on sharing** (`share_products` / `share_customers`) — then the catalog or customer base is org-wide and every store sees it.
+- **Turn on product sharing** (`allow_share_products`) — then the catalog is org-wide and every store sees it.
 - **Grant scoped access** — the org can give a user a role (e.g. read-only products) at a *second* store, so they can view that store's data without sharing being on for everyone. Access to another store always comes from a membership there; there's no back door.

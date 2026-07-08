@@ -168,9 +168,9 @@ screen — a shared product or customer is still managed from a store; sharing o
 other stores also recognize it (see `tenancy.md` and the dual-write in `auth.md`).
 
 **Example**
-With `share_customers` on, Sara adds a customer at Store A. That customer is now recognized at Stores B
-and C too — but everyone still edits it from a **store's** Customers tab. There's no "org customers"
-screen; the owner who wants to see it just switches into any store.
+Sara adds a customer at Store A. Because customers are shared org-wide, that customer is now recognized
+at Stores B and C too — but everyone still edits it from a **store's** Customers tab. There's no "org
+customers" screen; the owner who wants to see it just switches into any store.
 
 
 ## Why can one user see a tab when another can't?

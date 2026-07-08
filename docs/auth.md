@@ -429,8 +429,8 @@ Now let's run some real requests through the rulebooks — passes **and** fails.
 - **Maria** holds two store memberships: *Seattle* (Cashier — has `order:refund`) and *Portland*
   (Stocker — does **not** have `order:refund`).
 - **Diego** holds one org membership: *Acme* (Org Admin — has everything).
-- **Sara** holds one store membership: *Store A* (Cashier — has `customer:create`), and her org has
-  `share_customers` turned **on**.
+- **Sara** holds one store membership: *Store A* (Cashier — has `customer:create`). Customers are
+  shared org-wide.
 
 **Example 1 — PASS (store): Maria refunds at her own store.**
 Request: `POST /stores/{Seattle}/refunds` (store action, needs `order:refund`). Check her Seattle
@@ -505,10 +505,9 @@ Her badge is a store one → the **ordinary STORE rulebook** (sharing changes no
 | 5 `customer:create` everyday? | ✅ true (non-elevated on purpose) |
 | 6 Does Cashier have `customer:create`? | ✅ true |
 
-All true → **ALLOWED** by the plain store rulebook. The `share_customers` setting is **not** one of the
-questions — it only changes what gets **written** afterward: with sharing on, the save records both the
-store's own copy *and* the org-wide shared copy (see *Write-time security → Working with Shared
-Resources*). Authorization is identical whether sharing is on or off.
+All true → **ALLOWED** by the plain store rulebook. Sharing is **not** one of the questions — it only
+changes what gets **written** afterward: the save records both the store's `store_customer` row *and*
+the org-wide shared `customer` it links to (see *Write-time security → Working with Shared Resources*).
 
 
 
@@ -691,9 +690,9 @@ error), the **authorization query** (catches a bad row when reading), and — if
 Normally a store's products and customers are its own. But an org can turn on **sharing**, and then a
 customer or product created at one store is visible to *every* store in the org (see `tenancy.md`).
 
-1. **The org setting is the switch — nothing else changes.** The store user's create is only allowed
-   to write the *shared* (org-level) record when the org's **`share_customers` / `share_products`
-   setting is on**. Off (the default) → the item stays the store's own. 
+1. **Customers are shared; products depend on a setting.** A customer create writes the shared
+   `customer` record. A product create writes the shared `product` record only when the org's
+   **`allow_share_products`** setting is on (off by default → the product stays the store's own).
    
 2. **The permission stays non-elevated.** `customer:create` / `product:create` are **non-elevated**, so
    they can live in a **store role** — a cashier can hold them. (If they were elevated they couldn't be
@@ -718,13 +717,16 @@ customer or product created at one store is visible to *every* store in the org 
    is **org-scoped** — every store in the org resolves it. So sharing-on shows the item org-wide,
    sharing-off keeps it to the store, and neither can leak across orgs (see `database.md`).
 
-Mechanically that means the store-level row is **always** written, and when sharing is on the shared
-row is written too — in the **same transaction**, with the store row linking up to it:
+Mechanically the store-level row is written; the shared row is written in the **same transaction**,
+with the store row linking up to it — for customers, and for products when `allow_share_products` is on:
 
 ```
 create customer on /stores/{storeId}/customers:
-  share_customers OFF → INSERT store_customer (links to no shared row)
-  share_customers ON  → INSERT customer (shared) , then INSERT store_customer linked to it   -- one txn
+  INSERT customer (shared) , then INSERT store_customer linked to it   -- one txn
+
+create product on /stores/{storeId}/products:
+  allow_share_products OFF → INSERT store_product (links to no shared row)
+  allow_share_products ON  → INSERT product (shared) , then INSERT store_product linked to it   -- one txn
 ```
 
 > **⚠️ Open risk — editing/deleting a *shared* record is not yet specified.** The above covers

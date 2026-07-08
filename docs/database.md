@@ -56,8 +56,6 @@ CREATE TABLE organization (
     allow_user_cross_memberships BOOLEAN NOT NULL DEFAULT FALSE,
     -- org-wide product sharing (off = each store's catalog is its own)
     allow_share_products  BOOLEAN NOT NULL DEFAULT FALSE,
-    -- org-wide customer sharing (off = each store's customers are its own)
-    allow_share_customers BOOLEAN NOT NULL DEFAULT FALSE,
     -- when the org was onboarded (stored UTC)
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- soft-delete flag; TRUE = org removed but kept for history
@@ -511,21 +509,47 @@ CREATE INDEX ON expense (created_by_user_id);
 
 
 
-CREATE TABLE store_customer (
-    store_customer_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id          UUID NOT NULL REFERENCES store (store_id),
-    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
-    customer_id       UUID REFERENCES customer (customer_id)   -- NULL = store-only; set = shared
-);
-
+-- The shared, org-level customer — one identity recognized across every store (cross-store loyalty).
 CREATE TABLE customer (
+    -- customer id
     customer_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organization (organization_id)
-    email -> unique identigier
-    phone 
-    name
-    
+    -- owning org (the tenant)
+    organization_id UUID NOT NULL REFERENCES organization (organization_id),
+    -- the identity key: same email in an org = the same customer (required, unique per org)
+    email           TEXT NOT NULL,
+    -- display name
+    name            TEXT NOT NULL,
+    -- contact phone (TEXT: '+', spaces, extensions)
+    phone           TEXT,
+    -- when the customer was created (stored UTC)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- soft-delete flag; TRUE = removed but kept for history
+    is_deleted      BOOLEAN NOT NULL DEFAULT FALSE,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at      TIMESTAMPTZ,
+    -- one customer per email within an org (the org-wide identity)
+    UNIQUE (organization_id, email)
 );
+CREATE INDEX ON customer (organization_id);
+
+-- A store's link to a shared customer — one row per store the customer has shopped at.
+CREATE TABLE store_customer (
+    -- store-customer link id
+    store_customer_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- the store
+    store_id          UUID NOT NULL REFERENCES store (store_id),
+    -- owning org (the tenant)
+    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
+    -- the shared org-wide customer this links to (always set)
+    customer_id       UUID NOT NULL REFERENCES customer (customer_id),
+    -- when first linked at this store (stored UTC)
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- a customer links to a given store at most once
+    UNIQUE (store_id, customer_id)
+);
+CREATE INDEX ON store_customer (store_id);
+CREATE INDEX ON store_customer (organization_id);
+CREATE INDEX ON store_customer (customer_id);   -- link to the shared identity
 
 
 
@@ -534,16 +558,15 @@ CREATE TABLE customer (
 
 ## Products and customers (two tables per entity: store-level + shared)
 
-Products and customers use **two tables each** — a store-level one and an org-level shared one:
+Products and customers each use **two tables** — a store-level one and an org-level shared one:
 
 - **Store-level** (`store_product`, `store_customer`) — always written; a row owned by one store.
-- **Shared** (`product`, `customer`) — org-level records visible to every store in the org, written
-  only when the org has turned sharing on (`organization.share_products` / `share_customers`).
+- **Shared** (`product`, `customer`) — org-level records recognized across every store in the org.
 
-By default sharing is off and each store keeps its own products and customers, isolated from the
-others. When an org turns sharing on, a store's create dual-writes: the store-level row **and** a
-shared org-level row it links up to, so the item is recognized at every store. See `tenancy.md` for
-the model and `auth.md` for the write flow.
+**Customers** are shared org-wide: every `store_customer` links to a shared `customer`, so a person is
+recognized across all the org's stores. **Products** share only when the org turns on
+`organization.allow_share_products` (off by default → each store's catalog is its own). See
+`tenancy.md` for the model and `auth.md` for the write flow.
 
 ```sql
 CREATE TABLE store_product (
