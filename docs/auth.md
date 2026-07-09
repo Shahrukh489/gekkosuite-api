@@ -3,32 +3,23 @@
 > A user is just a login. *Where* they can act comes from the **memberships** they hold; *what* they
 > can do there comes from the **roles** on those memberships.
 
-A user isn't labelled "an org person" or "a store person" — that's decided entirely by **which
-places they have a membership to**. The same person can belong to a store, to the organization, or to
-both, and that's what sets their reach. Roles, on the other hand, *are* typed (store or organization),
-so you can't attach an organization-level role to a store membership. Any role holding an
-`is_elevated = true` permission is necessarily an organization-level role.
-
 ```
 user  ──<  membership  ──<  membership_assignment  >──  role  ──<  role_permission  >──  permission
 ```
 
-- **user** — one login per person (organization identity). A user is placed by the memberships they
-  hold; the `user` row itself carries no org-vs-store distinction.
-- **membership** — a user's membership is either at the `ORGANIZATION` or at a `STORE`.
-    - Every membership carries an `organization_id` (the tenant boundary).
-    - A **store** membership sets `store_id` (the one store it's at) and sets `scope` to `STORE`.
-    - An **organization** membership leaves `store_id` NULL and sets `scope` to `ORGANIZATION`.
-- **membership_assignment** — a role given to that membership (optionally with an expiration).
-- **role** — a named bundle of permissions we ship. Each role has a `scope` (`STORE` or
-  `ORGANIZATION`) — its level. A role's type must match the membership it's attached to: store roles
-  go on store memberships, org roles on org memberships.
-- **permission** — one allowed action, like `product:read`. Carries an `is_elevated` flag: an
-  elevated permission is a company-level action that may only live in an organization role (and so is
-  only ever reachable through an organization membership).
+- **user** — an identity of a person
 
-So an "org user" is simply **a person who holds an organization membership**; a "store user" is
-someone who holds only store memberships. 
+- **membership** — a membership gives acess to a user at the `ORGANIZATION`, a `STORE`, or both.
+    - If the user has a `ORGANIZATION` membership, they are allowed to have an `ORGANIZATION` role, these are more powerful roles, and give the user access to all stores in the `ORGANIZATION` and also the `ORGANIZATION` itself.
+      - An **organization** membership leaves `store_id` NULL and sets `scope` to `ORGANIZATION`.
+    - If the user has a `STORE` membership, they are allowed to have an `STORE` role, these are roles that give the user access only to the `STORE` the membership is a part of.
+      - A **store** membership sets `store_id` and sets `scope` to `STORE`.
+
+- **membership_assignment** — an assignment attaches a role on the user's membership.
+
+- **role** — a bundle of permissions. Each role has a `scope` (`STORE` or `ORGANIZATION`), the main difference is that an `ORGANIZATION` role can have permissions that have the flag `is_elevated` to true. Assigning a scope to a role also makes it easy to filter which roles can be assigned to `STORE` or `ORGANIZATION` memberships. For example, you can not assign a role with scope `ORGANIZATION` to a membership of type `STORE` and vice versa. This will prevent a `STORE` user from ever accidentally getting an `ORGANIZATION` role.
+
+- **permission** — this is an action, like `product:read`. It carries an `is_elevated` flag, which lets users know that this permission can ONLY be set on a role with the scope of `Organization`.
 
 ---
 
@@ -39,132 +30,25 @@ someone who holds only store memberships.
 A person's login and what they can do are two separate things. Creating a user just makes the login —
 they can do nothing until you give them a place and a role there.
 
-An org admin sets someone up in three steps:
-
-1. **Create the user** — make their login. That's all. A fresh user belongs nowhere and can do
-   nothing.
-2. **Give them a membership** — add them to a place: the **organization** if they should oversee the
-   whole business, or one or more **stores** if they're an employee. This single choice is what makes
-   someone an org person or a store person.
-3. **Give them a role** — choose what they can do at that place. The role's type must match the
-   membership: store roles on store memberships, org roles on org memberships.
-
-A person can hold an org membership *and* store memberships at the same time (see *Can a user be both an
-org and a store user?*).
-
-**Example**
-Maria is added to the Seattle store as a Cashier, then later to Portland as a Manager — one login, two
-store memberships, a different role at each. If the owner later wants Maria to oversee the whole
-company, they **add an organization membership** with an org role; she now belongs at the org too, with
-no change to the user record itself.
+1. **Create the user**
+2. **Give them a membership** 
+3. **Give them a role**
 
 
 ## How do I revoke or suspend someone's access?
 
 You can remove access by how permanent you want it — without ever deleting the person.
 
-- **Take away one role** — delete the `membership_assignment` (or let `expires_at` end it). They still
-  belong at the place, just with less ability there.
-- **Suspend at one place (temporary)** — `membership.is_active = false`. Switches their access off at a
-  single place but keeps everything, so you can switch it back on.
-- **Disable the whole account (temporary)** — `user.is_active = false`. One switch turns the person off
-  *everywhere* at once. Effective access needs both `user.is_active` and the place's
-  `membership.is_active`.
-- **Remove from a place (permanent)** — soft-delete the membership (`deleted_at`). The record is kept
-  for history; the `user` row itself is never deleted.
+- If you want to remove a user's specific role at a `STORE` or `ORGANIZATION`, just delete the `membership_assignment`.
+- If you want to deactive the user temporarily at a specific `STORE` or `ORGANIZATION`, but NOT delete any of there existing memberships, set the flag `membership.is_active = false`. 
+- If you want to deactive the user temporarily from everywhere, but NOT delete any of there existing memberships,  set `user.is_active = false`
+-  If you want to remove the user completely, can soft delete the user, this will set the flag `is_deleted = true` and log the timestamp `deleted_at`. Since it is a soft delete, the user will still remain in the database for record keeping as opposed to a hard delete where all data is deleted permenantly from the database. 
 
 
-## What is a role, and where do roles come from?
+## What is the scope of membership's assigned role ? (`STORE` vs `ORGANIZATION`)
 
-A role is a named bundle of things a person is allowed to do (like "Cashier" or "Org Admin"). We build
-and ship the roles; customers assign them — they don't author their own yet.
-
-- A **permission** is one allowed action — e.g. read a product, refund an order, create a user.
-- A **role** is a set of permissions, plus a **type**: every role is either a **store role** or an
-  **organization role**. That type sets where the role may be attached and the system rejects any invalid role assignments, for example assigning an organization level role to a user with a store membership. 
-- We don't do "allow everything" — a role lists its permissions explicitly, so a new feature reaches
-  nobody until it's deliberately added to a role.
-
-
-## What does `is_elevated` permission mean?
-
-`is_elevated` is a single true/false flag on each **permission** answering one question: *is this a
-powerful, company-level action, or an everyday one?* It splits every permission into two piles:
-
-| Permission        | `is_elevated` | Why                                                   |
-|-------------------|---------------|-------------------------------------------------------|
-| `product:read`    | **false**     | A cashier does this all day. Everyday store work.     |
-| `order:refund`    | **false**     | A store manager does this. Everyday store work.       |
-| `customer:create` | **false**     | Happens at the register. Everyday store work.         |
-| `store:create`    | **true**      | Creating a whole store is a company-owner action.     |
-| `user:create`     | **true**      | Making new logins is a company-owner action.          |
-| `supplier:create` | **true**      | Managing the org's suppliers is company-level.        |
-
-- **`is_elevated = false`** → an ordinary action; fine for a store employee.
-- **`is_elevated = true`** → a company-level action; only someone acting *for the whole org* may do it.
-
-So `is_elevated` marks *which permissions are org-only*, independently of any role.
-
-
-## How does `is_elevated` keep org-only powers out of stores?
-
-Two guards work together — the role's type, and the permission's flag — so the bad combination can't
-even be built:
-
-> An **elevated permission can only sit in an org role.** And an **org role can only be attached to an
-> organization membership.** So an elevated permission can never reach a store.
-
-It's a one-way gate enforced on the write path:
-
-- **Building a role:** adding an elevated permission to a role requires that role to be an org role.
-  A store role simply can't contain `user:create` or `store:create`.
-- **Assigning a role:** an org role can only be attached to an org membership; a store role only to a
-  store membership. The role type must match the membership kind.
-
-**Example.** `store:create` is elevated, so it can only live in an org role:
-
-- A "Cashier" (store role) **cannot contain** `store:create` — the write path rejects it. So a cashier
-  can never hold it, on any membership. ✅ safe.
-- Diego's "Org Admin" (org role) contains `store:create` and sits on his **Acme org** membership →
-  it works. He's acting for the whole company, which is exactly who may create stores. ✅ correct.
-
-The two checks reinforce each other: even if one were misconfigured, the other still stands between a
-store and an org-only power.
-
-
-## Can a store user ever gain organization-level access?
-
-Only by being **given an organization membership** — which only an org admin can do, by assigning an
-org role to an org membership. Someone with only store memberships has no org reach: store roles can't
-hold elevated permissions, and org roles can't be attached to their store memberships. So an everyday
-employee can never act on the organization.
-
-**Example**
-A cashier who belongs only to Store A, can't be handed "Org Admin," because that's an org role and they
-have no org membership to attach it to.
-
-
-## Can a user be both an org and a store user?
-
-**Yes.** A user can hold an organization membership *and* one or more store memberships at the same
-time — for example an owner who also works a register. Each membership stands on its own; the
-authorization query walks them all and any one that passes allows the request.
-
-There's no restriction on mixing the two kinds in the MVP. (If a business ever wants to lock users to a
-single kind, that becomes an org setting later — see `post-mvp.md`.)
-
-## How far does a role reach? (store vs org)
-
-Reach follows the **membership the role hangs on**:
-
-- A role on a **store** membership reaches that **one store**.
-- A role on the **organization** membership reaches the **whole org and every store in it**.
-
-The *same* permission reaches differently depending on the membership it's exercised through:
-`order:refund` in a Cashier role on the Seattle membership refunds at Seattle only; `order:refund` in
-an Org Admin role on the org membership refunds at *any* store. An org admin acts everywhere not
-because of special permissions, but because their membership is at the org — org reach includes all
-the stores.
+- A role on a **store** membership has access to ONLY that **one store**. It can not perform any action on another store.
+- A role on the **organization** membership has access to the **entire org and every store in it**. A `user` with an `ORGANIZATION` membership can act on any store in the organization.
 
 **Example**
 - Store Manager at Seattle with `product:edit` → edits Seattle's products only.
@@ -179,7 +63,7 @@ one else can take it from them.
 The owner is marked on the organization itself — `organization.owner_user_id`, a column, not a
 `membership_assignment` — so it can't be deleted out from under them. The only way ownership changes is
 a deliberate **transfer**: the current owner hands it to someone who's already an org admin. No other
-admin can revoke the owner's access or seize ownership. Transfer is a privileged, audited action.
+admin can revoke the owner's access or seize ownership. 
 
 
 ## How do we know everything a user can do, and where?
@@ -205,161 +89,78 @@ role's permissions:
 
 - Attaching to a **store** membership → list only **store roles** (`role.scope = STORE`).
 - Attaching to an **organization** membership → list only **org roles** (`role.scope =
-  ORGANIZATION`).
+  `ORGANIZATION`).
 
 ---
 
 # API Authentication and Authorization Flow
 
-This section is the request lifecycle: what happens, in order, from the moment an API call arrives to
-the moment it's allowed to touch data. Everything above described the *model* (users, memberships,
-roles); this describes how a single request is checked against it.
+This section goes in-depth on the entire AUTH process that happens when an API request is made.
 
+## 1. Authentication 
 
-Every request passes through the same pipeline:
+Authentication is the process of verifying the user is who they say they are. This is the first thing to verify, we do this by validating if the JWT token is legit and not tampered with. If it is not valid, then return **401** immediately to prevent a user from acting like someone else.
 
-```
-request
-  │
-  ├─ 1. Authenticate ──  Who are you?  Validate the JWT, load the account, build the request context.
-  │                      Fail → 401.
-  │
-  └─ 2. Authorize ─────  May you do THIS, HERE?  Runs in two halves:
-         │
-         ├─ Read-time security  ── decide allow/deny and which rows come back (the permission
-         │                          check and scoping the data to what the caller may see).
-         │
-         └─ Write-time security ── when the action saves data, keep invalid rows out of the
-                                    database in the first place (tenant stamping, RBAC integrity).
-```
+If the JWT token is valid then read from the database if  `user.is_active = true`. If the user was disabled then return **401** immediately.
 
-The two authorization halves exist because a request has two distinct moments to protect: **reading**
-(deciding whether to serve the request and what data it may see) and **writing** (making sure whatever
-gets saved is valid and correctly owned). 
-
-## 1. Authentication — validate the JWT, load identity, build context
-
-A middleware validates the JWT — signature, expiry, **pinned algorithm** (reject `alg: none`), a
-strong **rotated** signing key, and **real revocation / short-lived tokens + refresh** so a suspended
-user's token stops working promptly. If anything fails, stop and return **401**.
-
-On success, read **`is_active` fresh from the `user` row** — one DB read per request — so a disabled
-account is judged on what's true now, never on a stale token. If the user is not active then return 401, else build the request **context**:
-
+Finally, if the user is authorized then create a request context object with user_id and organization_id from the JWT token. We only take these user details from the JWT token and never from anywhere else.
 
 ```
-if context.isActive = false                 →  401
-else:
   context = {
     userId,            // from the token
-    organizationId,    // from the token — the tenant boundary, never client input
-    isActive           // account kill switch — read FRESH from the user row
+    organizationId,    // from the token
   }
 ```
 
-The context holds only **verified identity** — who the user is, their home org (the tenant), and the
-freshly-read account status. It carries **no target**: the thing being acted on comes from the route,
-not from a header the client set.
+## 2. Authorization
 
-## 2. Authorization — may this user do this action, here?
+Authorization decides if an authenticated user can perform the action they are requesting to do. For instance, if a store admin wants to create a product, he is authorized to do so, but a store reader can never create anything, so they are unauthorized to create a product. Both of them are legit authenticated user's in the organization, but they have different roles and access in the organization.
 
-1. A person is just a login. By itself, an account can do nothing.
-2. Access comes from "memberships" — a membership is a place you belong (a specific store, or the organization as a whole).
-3. On each membership you're given a role, and a role is just a named bundle of permissions (a permission is one allowed action,
-like "refund an order").
-4. A person can have several memberships at once — Cashier at one store, Manager at another, maybe an org-wide membership too.
-5. Every request carries a signed token that says who you are and which company you're in. The company is read from the token,
-never from anything the client can type — so nobody can pretend to be in a different company.
-6. To decide "can you do this?", the system looks at every membership you currently have and checks each one on its own: is it
-live, is it the right kind of place for this action, is it in your company, and does its role actually grant the permission needed?
-If any one membership passes all of that, you're allowed. If none do, you're denied.
-7. A store membership can only touch its own store; an org membership reaches every store in the company. That difference is the entire store-vs-org model.
-8. When you save data, the row is stamped with your company from the token — so you can only ever write into your own company, never someone else's.
+To verify if the user is authorized, we need two criticial pieces of information:
 
-Each endpoint declares the one permission it needs. Store actions carry the store in the **path**
-(`/stores/{storeId}/...`); org actions (`/organization/...`) carry no place id — the org comes from
-the token.
+1. The target `STORE` or `ORGANIZATION` the user is requesting to perform the action on, this will allow us to verify if they have a valid membership and role at this place.
+  - If the user is requesting to perform an action on a store, then we need the `store_id`, each API endpoint that acts on a store must have `{storeId}` in the path variable. For example: `POST /stores/{storeId}/products`.
+  - If the user is requesting to perform an action on a organization, then we need to get the `organizationId` from the request context from Step 1, since this is coming from the JWT token, we can verify that the user actually belongs to this `organizationId`. For exmaple `POST /organization/purchases`,  get the `organizationId` from `request.context.organizationId` 
 
-Selling and everything a store owns (its products, customers, sales) are **store actions**.
-Procurement, suppliers, expenses, and managing stores/users are **org actions**.
+2. The required permission the user must have to call this API endpoint, this will allow us to verify if we can execute  the logic in this endpoint. For example if the logic in the endpoint is to delete a product, then we must check if the user has a role with the permission `product:delete`. 
 
-- `POST /stores/{storeId}/products`   → permission `product:create` (store action)
-- `POST /stores/{storeId}/refunds`    → permission `order:refund`    (store action)
-- `POST /organization/purchases`      → permission `purchase:create` (org action)
 
 **Error convention:** anything outside the user's organization — a store in another org, or a resource
 not in the acted-on place — returns **404, never 403**, so existence isn't leaked. 403 is reserved for
 "this is yours, but you lack the permission."
 
-## 2a. Read-time security
 
-**Purpose:** decide whether the request is allowed, and scope every read so it can only return rows
-the caller is entitled to. It has two parts: the **authorization query** (does the caller hold the
-required permission, at the right place?) and **resource scoping** (when a specific record is named by
-id, make sure it belongs to that place).
+### Process
 
-```mermaid
-flowchart TD
-    A([Authenticated request]) --> B{Does a role the caller holds<br/>grant the required permission<br/>for this place?}
-    B -->|no| D[403 Deny]
-    B -->|yes| C{Does the action point at a<br/>specific record by id?}
-    C -->|no| E([Allow])
-    C -->|yes| F{Is that record in this place?}
-    F -->|no| G[404 Not Found]
-    F -->|yes| E
+Once we have the target the user is requesting to perform the action on, and the permission needed to use this endpoint. We need to now check the user's membership's and the role on each membership. This is what will let us decide if the  user is actually authorized. For example if the user is requesting to create a product at `store_abc`, then we need to verify he has a membership at `store_abc`, and a role with the permission `product:create`. 
 
-    style D fill:#fee2e2,stroke:#ef4444
-    style G fill:#fee2e2,stroke:#ef4444
-    style E fill:#dcfce7,stroke:#22c55e
-```
 
-**Reading the diagram, box by box:**
 
-- **Authenticated request** — we've already checked *who* the caller is (step 1). Now we check what
-  they may do.
-- **"Does a role the caller holds grant the required permission for this place?"** — the
-  **authorization query**. Every endpoint declares one permission it needs (e.g. `order:refund`). This
-  asks whether the caller has that permission, through a role, at the store or org the request targets.
-  If not → **403 Deny** (you're a valid user, but you can't do this here).
-- **"Does the action point at a specific record by id?"** — some requests are general ("list my
-  orders"); others name one exact record ("refund order 4382"). Only the second kind needs the next
-  check.
-- **"Is that record in this place?"** — **resource scoping**. It makes sure the named record actually
-  belongs to the store/org in the request, so nobody can reach another store's order by guessing its
-  id. If it doesn't belong here → **404 Not Found** (we don't even admit it exists).
-- **Allow** — reached only by passing every check on the path.
+- If the user is requesting to perform an action on the store then the following rules must ALL be satisified in order:
 
-The two failure colors mean different things: **403** = "this is a real thing but not yours to do,"
-**404** = "as far as you're concerned, it doesn't exist." Using 404 (not 403) for another tenant's data
-avoids leaking that it exists at all.
+1. Does the store in the request path `/stores/{storeId}/`, belong in the  `organizationId` that is in the request context built from the JWT token?
+  -  If not, then return 404 to let the user know this store does not exist in his organization. He can not act on it.
 
-### The authorization query
+2. If the API endpoint permission is elevated, `is_elevated = true`, does the user have an `ORGANIZATION` scope membership in this `organizationId`? 
+  - If yes, check if the user has an unexpired assigned role with the permission.
+      - If yes, user is authorized.
+      - If no, return 403.
+  - If no, return 403, only users with an `ORGANIZATION` membership can perform elevated actions. 
 
-**The one big idea:** a user can hold **several memberships at once** — Cashier at one store, Stocker
-at another, maybe an organization membership too. So we never ask "what kind of *user* is this?" We go
-through **each membership they hold, one at a time**, and ask "does *this* membership let them do it?"
-**If any single membership passes, the request is allowed.** If none do, it's denied.
+3. If the API endpoint permission is not elevated, `is_elevated = false`, does the user have an `ORGANIZATION` scope membership in this `organizationId`?
+  - If yes, check if the user has an unexpired assigned role with the permission.
+      - If yes, user is authorized.
+      - If no, proceed to check 5.
+  - If no, proceed to check 5
 
-Think of it like a person holding several **badges**. To let them in, a guard checks each badge against
-the rulebook for *that badge* — and one badge that works is enough.
+4. If the API endpoint permission is not elevated, `is_elevated = false`,  does the user have a `STORE` scope membership on the requested store in the path variable in this `organizationId`?
+  - If yes, check if the user has an unexpired assigned role with the permission.
+      - If yes, user is authorized.
+      - If return 403.
+  - If no, return 403,  the user does not have an `ORGANIZATION` role that has access to all the stores from Step 4, nor does he have a valid `STORE` membership.
 
-Each badge (membership) is one of two kinds — **store** or **organization** — and each kind has its own
-rulebook. A membership passes only if **every** rule in its rulebook is **true**.
 
-**The STORE rulebook** (for a store membership):
-
-| # | Question | Must be |
-|---|----------|---------|
-| 1 | Is the membership live? (not removed, suspended, or expired) | true |
-| 2 | Is the request a **store action**? (URL is `/stores/{id}/...`) | true |
-| 3 | Is the store in the URL **this membership's own store**? | true |
-| 4 | Is that store in the caller's **own company**? (from the token) | true |
-| 5 | Is the permission an **everyday** one? (`is_elevated = false`) | true |
-| 6 | Does this membership's **role actually have** the permission? | true |
-
-A store badge is boxed in: **its own store only, everyday actions only, never the org, never another
-company.**
-
+TODO: 
 **The ORGANIZATION rulebook** (for an org membership):
 
 | # | Question | Must be |
@@ -375,7 +176,8 @@ but still never another company.
 The single thing both rulebooks share is the **company wall**: the membership's company must equal the
 company in the caller's token. That's what stops anyone ever reaching another company's data.
 
-**As pseudocode** (one SQL query in practice, but it behaves exactly like this loop):
+
+- Sample Query depicting the authorization check:
 
 ```
 allowed = false
@@ -412,233 +214,21 @@ Two of these checks are also **safety nets**: `role.scope == M.scope` and the
 a store role, or a role on the wrong kind of membership — the loop simply ignores it. We never trust
 the stored data blindly; we re-check it on every request.
 
----
-
-Now let's run some real requests through the rulebooks — passes **and** fails.
-
-**Our cast:**
-- **Maria** holds two store memberships: *Seattle* (Cashier — has `order:refund`) and *Portland*
-  (Stocker — does **not** have `order:refund`).
-- **Diego** holds one org membership: *Acme* (Org Admin — has everything).
-- **Sara** holds one store membership: *Store A* (Cashier — has `customer:create`). Customers are
-  shared org-wide.
-
-**Example 1 — PASS (store): Maria refunds at her own store.**
-Request: `POST /stores/{Seattle}/refunds` (store action, needs `order:refund`). Check her Seattle
-badge against the **STORE rulebook**:
-
-| Question | Answer |
-|----------|--------|
-| 1 Live? | ✅ true |
-| 2 Store action? | ✅ true |
-| 3 URL store (Seattle) = my store (Seattle)? | ✅ true |
-| 4 In my company? | ✅ true |
-| 5 `order:refund` everyday? | ✅ true |
-| 6 Does Cashier have `order:refund`? | ✅ true |
-
-All true → **ALLOWED.** (The loop stops; her Portland badge is never even needed.)
-
-**Example 2 — FAIL (wrong store): Maria refunds at a store she isn't in.**
-Request: `POST /stores/{Portland}/refunds`.
-
-- **Seattle badge** → STORE rulebook, Q3: URL store is *Portland*, my store is *Seattle* → ❌ false →
-  this badge doesn't apply, skip.
-- **Portland badge** → STORE rulebook: Q1–Q5 all true… but Q6: does *Stocker* have `order:refund`? →
-  ❌ false → skip.
-
-No badge passed → **403.** Correct — at Portland she's only a Stocker. Notice her Seattle role's
-refund power can't be borrowed to act on Portland; each badge is judged whole.
-
-**Example 3 — FAIL (store tries an org action): Maria creates a user.**
-Request: `POST /organization/users` (an **org action**, needs `user:create`).
-
-- **Seattle badge** → STORE rulebook, Q2: is this a *store* action? → ❌ false (it's an org action) →
-  skip.
-- **Portland badge** → same, ❌ false → skip.
-- Maria has no org membership, so the ORG rulebook is never run.
-
-→ **403.** A store employee can never perform org actions — there's simply no badge that can pass.
-
-**Example 4 — PASS (org reaches a store): Diego edits a store's product.**
-Request: `POST /stores/{Portland}/products/91` (store action, needs `product:edit`). Diego's badge is
-an org one → **ORG rulebook**:
-
-| Question | Answer |
-|----------|--------|
-| 1 Live? | ✅ true |
-| 2 In my company (Acme)? | ✅ true |
-| 3 Store action on a store in my company (Portland ∈ Acme)? | ✅ true |
-| 4 Does Org Admin have `product:edit`? | ✅ true |
-
-All true → **ALLOWED — with no Portland membership at all.** That's the point of an org badge: it
-reaches every store in its company. (Note Q3 only asks "is the store in my company?", not "is it my one
-store" — that's the difference from the store rulebook.)
-
-**Example 5 — FAIL (org, another company): Diego edits a product in a rival's store.**
-Request: `POST /stores/{RivalStore}/products/12`, where RivalStore belongs to a **different** company.
-
-- Diego's org badge → ORG rulebook, Q3: store action on a store *in my company*? RivalStore ∈ Acme? →
-  ❌ false → skip.
-
-→ **404** (we don't even reveal the other company's store exists). The company wall holds even for an
-org admin.
-
-**Example 6 — PASS (shared): Sara creates a shared customer.**
-Request: `POST /stores/{StoreA}/customers` (store action, needs `customer:create`), sharing **on**.
-Her badge is a store one → the **ordinary STORE rulebook** (sharing changes nothing here):
-
-| Question | Answer |
-|----------|--------|
-| 1 Live? | ✅ true |
-| 2 Store action? | ✅ true |
-| 3 URL store (Store A) = my store (Store A)? | ✅ true |
-| 4 In my company? | ✅ true |
-| 5 `customer:create` everyday? | ✅ true (non-elevated on purpose) |
-| 6 Does Cashier have `customer:create`? | ✅ true |
-
-All true → **ALLOWED** by the plain store rulebook. Sharing is **not** one of the questions — it only
-changes what gets **written** afterward: the save records both the store's `store_customer` row *and*
-the org-wide shared `customer` it links to (see *Write-time security → Working with Shared Resources*).
 
 
+##  Further additional security
 
-### Resource scoping (IDOR)
+There are many scenarios where even if the user is authenticated and authorized, invalid operations and actions can be performed, the following section describes key areas where to add proper guardrails.
 
-The permission check above answers "may you do this *kind* of action here?" But many actions name a
-**specific record by id** — refund *order 4382*, edit *product 91*. We must also ensure that record
-actually belongs to the place in the request, or a caller could pass someone else's id (an *insecure
-direct object reference*, IDOR).
+- When doing a Read/Update/Delete operations on a requested resource. We must ensure that the resource
+actually belongs to the target in the request. For example if the user requests to delete `order_abc`, we must check if the `order_abc` belongs in the target store.   
 
-The rule: **scope every by-id query with the place**, so a foreign record simply isn't found rather
-than being fetched and then checked.
+- When inserting a new row, the `organization_id` is always taken from the request context object built in the Authentication step when validating the JWT token. This will prevent us from ever allowing a user to save data in a different `organization_id`. 
 
-```
-UPDATE / SELECT ... WHERE order_id = {orderId} AND store_id = {storeId}
-  → no row → 404
-```
+- When assigning permissions to a role with the scope `STORE`, denying any permissions with `is_elevated = true`. This will prevent a store membership from every having elevated access.
 
-An order belonging to another store doesn't match `store_id = {storeId}`, so it returns **404** with no
-special handling — the isolation is the `WHERE` clause, not something a developer must remember after
-loading. For an **organization** action the same idea scopes to the org (`... AND organization_id =
-context.organizationId`). **Every endpoint that takes a resource id must do this.**
+- When assigning a role to a membership, check if the scope of the role matches the scope of the membership. For example a role with scope `STORE` can only exist on a membership with scope `STORE`. This will prevent from ever assigning a role with scope `ORGANIZATION` to a membership with scope `STORE`.
 
-
-## 2b. Write-time security
-
-**Purpose:** when a request *saves* data, make sure whatever gets written is valid and correctly owned
-— because everything read-time does depends on the stored data being trustworthy in the first place.
-
-A useful way to see it: read-time security is the guard at the door checking each visitor; write-time
-security is what makes sure no bad visitor was ever let into the building. If a corrupt row reaches the
-database, read-time has to keep catching it forever; if we stop it at write, it never exists.
-
-This half has two concerns:
-
-1. **Tenant ownership** — every new row must be stamped with the caller's own org (never a value the
-   client supplied), so nobody can write into another tenant. *(Setting the tenant on writes.)*
-2. **RBAC integrity** — the role/permission rows the authorization query walks must themselves be
-   valid (e.g. an org-only permission never lands in a store role). *(Write-path invariants.)*
-
-```mermaid
-flowchart TD
-    A([Request wants to save a row]) --> B[Stamp the owner from context<br/>org from token, store from path<br/>never from the request body]
-    B --> C{Is this a role/permission row?}
-    C -->|no · ordinary data| E([Save])
-    C -->|yes| D{Is the combination allowed?<br/>org-only power stays in org roles ·<br/>role kind matches membership kind}
-    D -->|no| F[Reject]
-    D -->|yes| E
-    E -.->|optional safety floor| G[[Database also refuses bad rows:<br/>RLS WITH CHECK, triggers]]
-
-    style F fill:#fee2e2,stroke:#ef4444
-    style E fill:#dcfce7,stroke:#22c55e
-    style G fill:#f1f5f9,stroke:#94a3b8
-```
-
-**Reading the diagram, box by box:**
-
-- **Request wants to save a row** — the caller has already passed authorization (read-time) and is now
-  writing something.
-- **Stamp the owner from context** — before saving, the system sets *who owns this row* itself, from
-  trusted sources: the **org** comes from the caller's signed token, and the **store** comes from the
-  URL path (`/stores/{storeId}/...`). Neither is taken from the request body. The store id is safe to
-  use here because authorization already ran and *proved the caller may act on that store* — a store
-  they don't belong to would have been rejected (403) long before this write. So a caller can only ever
-  write a row into their own org, and into a store they're actually entitled to.
-  *(This is "Setting the tenant on writes" below.)*
-- **"Is this a role/permission row?"** — most saves are ordinary business data (a customer, an order).
-  A few saves change the access rules themselves — giving a role a permission, or assigning a role to a
-  person. Only those need the next check.
-- **"Is the combination allowed?"** — for those access-rule rows, we verify the pairing is legal: an
-  org-only power can only go into an org role, and a role can only go on a matching kind of membership.
-  A bad pairing is **Reject**ed. *(This is "Write-path invariants" below.)*
-- **Save** — the row is written.
-- **Database also refuses bad rows (optional)** — a last-resort floor *inside* the database (RLS write
-  checks and triggers) that rejects a bad row even if the app code above ever slipped. Dotted because
-  it's optional defense-in-depth, not the primary guard.
-
-So: everything gets the right owner stamped; only access-rule rows get the extra legality check; and
-the database can optionally back up both.
-
-
-### Setting the tenant on writes
-
-**The rule:** when inserting a new row, its `organization_id` is always taken **from the context (the
-token)** — never from the request body. (`store_id`, on store routes, comes from the `{storeId}` in
-the path, already validated by the authorization query — likewise never from the body.)
-
-```
-row.organization_id = context.organizationId    // ✅ from the token, always
-// NOT: row = request.body   → a client could slip in "organization_id": <another org>
-```
-
-**Why this matters:** if the code lazily copies the whole request into the new row (`save(request.body)`),
-a client could include `"organization_id": <some other org>` in their request and have their data
-written into a *different* company. The token says org 7, but the saved row lands in org 9. Reads can't
-catch this afterward — the row genuinely looks like it belongs to org 9 — so it has to be prevented at
-write time.
-
-Two ways to make the rule impossible to break:
-
-- **Don't let the client send it at all.** The request's data shape has no `organization_id` /
-  `store_id` field, so there's nothing for code to accidentally copy onto the row. (Main defense.)
-- **Have the database refuse it too (optional).** Add `WITH CHECK (organization_id = app.current_org)`
-  to each table's RLS policy. This is the write-side version of the read filter: Postgres rejects any
-  insert whose org doesn't match the caller's, even if the app code got it wrong. See `database.md`.
-
-
-### Keeping role data valid
-
-When the authorization query reads a user's roles and permissions, it *assumes* those were set up
-correctly — it doesn't stop to ask "should this role even be allowed to have this permission?" That
-"should" is guaranteed here instead: at the moment someone builds a role or assigns one, we block the
-bad combinations so they never get saved.
-
-**1. An org-only permission can only go into an org role.**
-- When saving: `addPermissionToRole()` refuses to add an `is_elevated` permission to a store role.
-- Also caught when reading: the query requires `permission.is_elevated = false` for a store person.
-- Why it matters: without it, a store role could hold `user:create`, and a cashier could create users.
-
-**2. A role can only be assigned to a membership of the same kind.**
-- When saving: `assignRoleToMembership()` refuses to put an org role on a store seat (or vice versa).
-- Also caught when reading: the query requires `role.scope = membership.scope`.
-- Why it matters: without it, an org role on a store seat would give a store employee org-wide reach.
-
-So each rule is guarded in two places: the **service method** (the main check, on the write path, with
-a clear error) and the **authorization query** (which re-checks on read, so a bad row would be ignored
-rather than trusted). These are the *Write Guards* listed in `database.md`.
-
-**Optional later: a database backstop.** If a second writer ever touches the tables directly (a raw SQL
-script, a migration, another service), the same two rules can be added as DB triggers so even those
-writes are refused. Not built for the MVP — the single app is the only writer, so the service-method
-check plus the read-time re-check are enough.
-
-**Other rules that could use the same trigger pattern later (noted, not built yet):**
-- **One-membership-kind-per-user (post-MVP)** — optionally lock a user to *either* org *or* store
-  memberships, not both. Not enforced in the MVP (a user may hold both); add if a business wants it.
-- **Permission limits, e.g. refund caps (post-MVP)** — a chosen limit must stay within the allowed
-  range we ship. Same two-table shape; add when that feature is built.
-- **Setting the tenant on writes** is *not* here — it only checks one column against the caller's org,
-  so the database handles it with an RLS `WITH CHECK` (above), not a trigger.
 
 
 ### Working with Shared Resources (Product/Customer/..)

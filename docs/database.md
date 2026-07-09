@@ -701,8 +701,5 @@ These rules span *other* rows or tables — an insert has to look at a related `
 also re-checks them on read as a backstop (see `auth.md`), so a bad row (if one ever slipped in) is
 ignored rather than trusted.
 
-| Guard | On write to | Rule | What it prevents |
-|---|---|---|---|
-| elevated-in-org-role | `role_permission` | an elevated (org-only) permission may only be added to an ORGANIZATION role | putting `user:create` into a store role, so a cashier could create users |
 | role-matches-membership | `membership_assignment` | a role's scope must match the membership's scope (store role → store membership, org role → org membership) | an org role on a store seat, giving a store employee org-wide reach |
 
