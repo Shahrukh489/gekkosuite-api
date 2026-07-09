@@ -49,13 +49,14 @@ An org admin sets someone up in three steps:
 3. **Give them a role** — choose what they can do at that place. The role's type must match the
    membership: store roles on store memberships, org roles on org memberships.
 
-A person is **either** an org member **or** a store member — never both (see *Can a user be both an org
-and a store user?*). A store person can still belong to several stores.
+A person can hold an org membership *and* store memberships at the same time (see *Can a user be both an
+org and a store user?*).
 
 **Example**
 Maria is added to the Seattle store as a Cashier, then later to Portland as a Manager — one login, two
-store memberships, a different role at each. She's a store person at both; she can't also be given an
-organization membership.
+store memberships, a different role at each. If the owner later wants Maria to oversee the whole
+company, they **add an organization membership** with an org role; she now belongs at the org too, with
+no change to the user record itself.
 
 
 ## How do I revoke or suspend someone's access?
@@ -145,15 +146,12 @@ have no org membership to attach it to.
 
 ## Can a user be both an org and a store user?
 
-**No.** A user is **either** an org member **or** a store member — never both. At the moment a
-membership is *added*, the write path enforces it:
+**Yes.** A user can hold an organization membership *and* one or more store memberships at the same
+time — for example an owner who also works a register. Each membership stands on its own; the
+authorization query walks them all and any one that passes allows the request.
 
-- if the user already has an **org** membership → refuse to add a **store** membership;
-- if the user already has any **store** membership → refuse to add an **org** membership.
-
-So an org person is an org person and a store employee is a store employee — the simplest thing for
-non-technical customers. (A store person can still belong to *several stores* — that's many store
-memberships of the same kind, which is fine; the rule only forbids mixing store and org.)
+There's no restriction on mixing the two kinds in the MVP. (If a business ever wants to lock users to a
+single kind, that becomes an org setting later — see `post-mvp.md`.)
 
 ## How far does a role reach? (store vs org)
 
@@ -625,55 +623,18 @@ bad combinations so they never get saved.
 - Also caught when reading: the query requires `role.scope = membership.scope`.
 - Why it matters: without it, an org role on a store seat would give a store employee org-wide reach.
 
-**Optional: enforce these in the database too (triggers).** The two service methods above are the main
-guard, and the query re-checks them. If we also want the database itself to refuse a bad row — so even
-a migration or a raw SQL script can't create one — we add a **trigger** on each table. 
+So each rule is guarded in two places: the **service method** (the main check, on the write path, with
+a clear error) and the **authorization query** (which re-checks on read, so a bad row would be ignored
+rather than trusted). These are the *Write Guards* listed in `database.md`.
 
-```sql
--- Invariant 1: an elevated permission may only sit in an ORGANIZATION role.
-CREATE FUNCTION enforce_elevated_in_org_role() RETURNS trigger AS $$
-BEGIN
-  IF (SELECT p.is_elevated FROM permission p WHERE p.permission_id = NEW.permission_id)
-     AND (SELECT r.scope FROM role r WHERE r.role_id = NEW.role_id) = 'STORE'
-  THEN
-    RAISE EXCEPTION 'elevated permission % cannot be added to STORE role %',
-      NEW.permission_id, NEW.role_id;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER role_permission_elevated_guard
-  BEFORE INSERT OR UPDATE ON role_permission
-  FOR EACH ROW EXECUTE FUNCTION enforce_elevated_in_org_role();
-
--- Invariant 2: a role's type must match the membership it's assigned to.
-CREATE FUNCTION enforce_role_matches_membership() RETURNS trigger AS $$
-BEGIN
-  IF (SELECT r.scope FROM role r       WHERE r.role_id       = NEW.role_id)
-   <> (SELECT m.scope FROM membership m WHERE m.membership_id = NEW.membership_id)
-  THEN
-    RAISE EXCEPTION 'role % type does not match membership % type',
-      NEW.role_id, NEW.membership_id;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER membership_assignment_type_guard
-  BEFORE INSERT OR UPDATE ON membership_assignment
-  FOR EACH ROW EXECUTE FUNCTION enforce_role_matches_membership();
-```
-
-So each rule can be guarded in up to three places: the **service method** (main check, gives a clear
-error), the **authorization query** (catches a bad row when reading), and — if we add it — the
-**trigger** (the database refuses to store a bad row at all).
-
-**A third invariant guarded this way — one-membership-kind-per-user:**
-- **One-membership-kind-per-user** — a user is either a store member or an org member, never both.
-  Enforced by the `membership_single_kind_guard` trigger (see `database.md`); 
+**Optional later: a database backstop.** If a second writer ever touches the tables directly (a raw SQL
+script, a migration, another service), the same two rules can be added as DB triggers so even those
+writes are refused. Not built for the MVP — the single app is the only writer, so the service-method
+check plus the read-time re-check are enough.
 
 **Other rules that could use the same trigger pattern later (noted, not built yet):**
+- **One-membership-kind-per-user (post-MVP)** — optionally lock a user to *either* org *or* store
+  memberships, not both. Not enforced in the MVP (a user may hold both); add if a business wants it.
 - **Permission limits, e.g. refund caps (post-MVP)** — a chosen limit must stay within the allowed
   range we ship. Same two-table shape; add when that feature is built.
 - **Setting the tenant on writes** is *not* here — it only checks one column against the caller's org,
@@ -811,8 +772,7 @@ attacker would target the login, not the permission chain. Ranked by severity.
 The write-path integrity rules (elevated-in-org-role, role-matches-membership, tenant-from-token) are
 now documented in the design under **Write-time security** — see *Write-path invariants* and *Setting
 the tenant on writes*. Q1, Q2, and Q4 from the original review are **resolved** there (write chokepoint
-+ read-time backstop). One item remains open:
-
++ read-time backstop).
 ### Other medium items
 
 - ~~**RLS is a guarantee only if deployed exactly right.**~~ **RESOLVED** — callout added in *Reducing
@@ -836,7 +796,7 @@ the tenant on writes*. Q1, Q2, and Q4 from the original review are **resolved** 
 |---|---|---|
 | Tenant isolation / IDOR | A | token-sourced org, structural WHERE-scoping, RLS floor |
 | Authorization model | A− | deny-by-default, single-chain, two membership cases |
-| Write-path invariant rigor | B+ | write chokepoints + read-time backstops (Q3 policy item open) |
+| Write-path invariant rigor | B+ | write chokepoints + read-time backstops |
 | Privilege-escalation controls | C+ | no subset/ceiling rule on role assignment |
 | Authentication (login) | D | hashing, lockout, MFA, revocation, PIN all unspecified |
 | Auditing | D | referenced but not required anywhere |

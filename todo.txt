@@ -1,6 +1,8 @@
-the api design for shared resources like customers
-database and ui doc review
+the api design 
+final doc review
 ux mockup high level
 simplify post-mvp file
 security review of auth.md
-supabase db backups and replication
+see how to do supabase db backups and replication
+cost analysis of infra and db breakdown and estimates
+finalize on products shared or not design 

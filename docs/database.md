@@ -189,24 +189,6 @@ CREATE TABLE role_permission (
     PRIMARY KEY (role_id, permission_id)
 );
 
--- Invariant: an elevated (org-only) permission may only sit in an ORGANIZATION role. Optional DB
--- backstop; the service method is the main guard, the authz query re-checks on read (see auth.md).
-CREATE FUNCTION enforce_elevated_in_org_role() RETURNS trigger AS $$
-BEGIN
-    IF (SELECT p.is_elevated FROM permission p WHERE p.permission_id = NEW.permission_id)
-       AND (SELECT r.scope FROM role r WHERE r.role_id = NEW.role_id) = 'STORE'
-    THEN
-        RAISE EXCEPTION 'elevated permission % cannot be added to STORE role %',
-            NEW.permission_id, NEW.role_id;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER role_permission_elevated_guard
-    BEFORE INSERT OR UPDATE ON role_permission
-    FOR EACH ROW EXECUTE FUNCTION enforce_elevated_in_org_role();
-
 
 -- A membership: a place a user belongs — the whole ORGANIZATION, or one STORE. Sets their reach there.
 CREATE TABLE membership (
@@ -246,27 +228,6 @@ CREATE UNIQUE INDEX membership_org_uq
 -- all of a user's memberships (the authz query walks these every request)
 CREATE INDEX ON membership (user_id);
 
--- A user is either a store member OR an org member — never both. A CHECK can't see sibling rows, so
--- it's a trigger (checks the user's other memberships atomically). See auth.md.
-CREATE FUNCTION enforce_single_membership_kind() RETURNS trigger AS $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM membership m
-                WHERE m.user_id = NEW.user_id
-                  AND NOT m.is_deleted
-                  AND m.scope <> NEW.scope)
-    THEN
-        RAISE EXCEPTION 'user % already holds a % membership; a user cannot be both a store and an org member',
-            NEW.user_id, (SELECT m.scope FROM membership m
-                           WHERE m.user_id = NEW.user_id AND NOT m.is_deleted LIMIT 1);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER membership_single_kind_guard
-    BEFORE INSERT OR UPDATE ON membership
-    FOR EACH ROW EXECUTE FUNCTION enforce_single_membership_kind();
-
 -- membership_assignment: a role granted to a membership (many-to-many). Role scope must match the
 -- membership scope, enforced on write (see auth.md).
 CREATE TABLE membership_assignment (
@@ -283,26 +244,6 @@ CREATE TABLE membership_assignment (
     -- same role can't be granted to the same membership twice
     PRIMARY KEY (membership_id, role_id)
 );
-
--- Invariant: a role's scope must match the membership it's assigned to (store role → store
--- membership, org role → org membership). Optional DB backstop; service method is the main guard,
--- authz query re-checks on read (see auth.md).
-CREATE FUNCTION enforce_role_matches_membership() RETURNS trigger AS $$
-BEGIN
-    IF (SELECT r.scope FROM role r       WHERE r.role_id       = NEW.role_id)
-     <> (SELECT m.scope FROM membership m WHERE m.membership_id = NEW.membership_id)
-    THEN
-        RAISE EXCEPTION 'role % scope does not match membership % scope',
-            NEW.role_id, NEW.membership_id;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER membership_assignment_type_guard
-    BEFORE INSERT OR UPDATE ON membership_assignment
-    FOR EACH ROW EXECUTE FUNCTION enforce_role_matches_membership();
-
 
 -- Fields that only apply to a STORE membership (1:1 with membership). Keeps store-only columns off
 -- the shared table; org memberships simply have no row here.
@@ -737,9 +678,10 @@ automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns 
 
 # Checks
 
-Reference for every integrity rule the database enforces beyond keys and foreign keys. Two kinds:
-**`CHECK` constraints** (rules a row can verify by looking at its own columns) and **triggers** (rules
-that must look at *other* rows or tables, which a `CHECK` can't do). The declarations live inline above.
+Reference for the integrity rules that go beyond keys and foreign keys. Two kinds:
+**`CHECK` constraints** — enforced by the database, on a single row's own columns; and
+**Write Guards** — rules that span *other* rows or tables (which a `CHECK` can't see), enforced in
+application code on the write path *before* the row is saved.
 
 ## CHECK constraints (single-row rules)
 
@@ -748,19 +690,19 @@ that must look at *other* rows or tables, which a `CHECK` can't do). The declara
 | `role` | `CHECK ((is_managed = TRUE AND organization_id IS NULL) OR (is_managed = FALSE AND organization_id IS NOT NULL))` | A role is either **managed** (a system role we ship — belongs to no org, so `organization_id` must be NULL) or **custom** (an org built it — so `organization_id` must be set). One or the other, never mixed. | a managed role wrongly tied to one org, or a custom role floating with no owner |
 | `membership` | `CHECK ((scope = 'ORGANIZATION' AND store_id IS NULL) OR (scope = 'STORE' AND store_id IS NOT NULL))` | A membership is either at the **org** (so `store_id` must be NULL) or at a **store** (so `store_id` must be set). The `store_id` has to match the `scope`. | an org membership with a store set, or a store membership with no store |
 
-## Triggers (multi-row / cross-table rules)
 
-These guard invariants a `CHECK` can't express because they read *sibling rows* or *other tables*. Each
-is an **optional database backstop** — the app service method is the primary guard and the authz query
-re-checks on read (see `auth.md`); the trigger makes even a raw SQL write fail.
 
-| Trigger | On | Rule | What it prevents |
+
+## Write Guards (enforced in code)
+
+These rules span *other* rows or tables — an insert has to look at a related `role`, `permission`, or
+`membership` to know if it's valid — so a `CHECK` can't express them. They're enforced in the
+**application service layer**, which validates the combination before saving. The authorization query
+also re-checks them on read as a backstop (see `auth.md`), so a bad row (if one ever slipped in) is
+ignored rather than trusted.
+
+| Guard | On write to | Rule | What it prevents |
 |---|---|---|---|
-| `role_permission_elevated_guard` | `role_permission` insert/update | an elevated (org-only) permission may only sit in an ORGANIZATION role | putting `user:create` into a store role, so a cashier could create users |
-| `membership_assignment_type_guard` | `membership_assignment` insert/update | a role's scope must match the membership's scope (store role → store membership, org role → org membership) | an org role on a store seat, giving a store employee org-wide reach |
-| `membership_single_kind_guard` | `membership` insert/update | a user is **either** a store member **or** an org member — never both | giving an org user a store seat (or vice versa), mixing the two membership kinds |
+| elevated-in-org-role | `role_permission` | an elevated (org-only) permission may only be added to an ORGANIZATION role | putting `user:create` into a store role, so a cashier could create users |
+| role-matches-membership | `membership_assignment` | a role's scope must match the membership's scope (store role → store membership, org role → org membership) | an org role on a store seat, giving a store employee org-wide reach |
 
-Why these are triggers, not CHECKs: `role_permission_elevated_guard` joins to `permission` and `role`;
-`membership_assignment_type_guard` joins to `role` and `membership`; `membership_single_kind_guard`
-reads the user's other `membership` rows. A `CHECK` can only see the row being written, so none of these
-can be expressed as one.
