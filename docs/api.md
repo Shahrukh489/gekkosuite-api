@@ -329,8 +329,9 @@ permissions, and the plan's enabled features are three separate endpoints.
 
 ### Get organization features
 
-- **Description:** Returns the feature codes the organization's plan enables. Used by the UI to show or
-  hide features across the org.
+- **Description:** Returns the **organization-scoped** feature codes the org's plan enables (e.g. billing,
+  multi-store). Used by the UI to show or hide org-level features. Store-scoped features are not returned
+  here — a store reads its own via `GET /stores/{storeId}/features`.
 - **Method:** `GET`
 - **URL:** `/organizations/{organizationId}/features`
 - **Scope:** `ORGANIZATION`
@@ -343,7 +344,7 @@ permissions, and the plan's enabled features are three separate endpoints.
 
   ```json
   {
-    "features": ["reports", "returns", "multi_store", "ai_chatbot"]
+    "features": ["billing", "multi_store", "cross_store_reports", "user_management"]
   }
   ```
 
@@ -351,3 +352,36 @@ permissions, and the plan's enabled features are three separate endpoints.
   - `401` — not authenticated
   - `403` — the caller has no organization membership
   - `404` — the `organizationId` is not the caller's org
+
+---
+
+## Stores
+
+A store is where selling happens. Store endpoints live under `/stores/{storeId}/...`, and the store must
+belong to the caller's org — any other id returns `404`.
+
+### Get store features
+
+- **Description:** Returns the **store-scoped** feature codes the store's plan enables (e.g. returns, AI
+  recommendations). The store inherits its org's plan, but only store-applicable features are returned —
+  a store user never sees the org's features (like billing). Used by the UI to show or hide store tabs.
+- **Method:** `GET`
+- **URL:** `/stores/{storeId}/features`
+- **Scope:** `STORE`
+- **Permission:** _(none beyond access to the store)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "features": ["reports", "returns", "ai_recommendations"]
+  }
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — the caller has no access to this store
+  - `404` — the store is not in the caller's org

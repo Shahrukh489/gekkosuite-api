@@ -23,6 +23,9 @@ CREATE TABLE feature (
     code        TEXT NOT NULL UNIQUE,
     -- what users see, e.g. 'Multi-store' — safe to rename anytime
     label       TEXT NOT NULL,
+    -- where the feature applies: STORE (shown in a store) or ORGANIZATION (org-level, e.g. billing).
+    -- A capability that applies in both places is two separate features (one per scope).
+    scope       scope NOT NULL,
     -- optional longer description
     description TEXT
 );
