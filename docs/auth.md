@@ -91,6 +91,7 @@ role's permissions:
 - Attaching to an **organization** membership → list only **org roles** (`role.scope =
   `ORGANIZATION`).
 
+
 ---
 
 # API Authentication and Authorization Flow
@@ -116,7 +117,7 @@ Finally, if the user is authorized then create a request context object with use
 
 Authorization decides if an authenticated user can perform the action they are requesting to do. For instance, if a store admin wants to create a product, he is authorized to do so, but a store reader can never create anything, so they are unauthorized to create a product. Both of them are legit authenticated user's in the organization, but they have different roles and access in the organization.
 
-To verify if the user is authorized, we need two criticial pieces of information:
+To verify if the user is authorized, we need following criticial pieces of information:
 
 1. The target `STORE` or `ORGANIZATION` the user is requesting to perform the action on, this will allow us to verify if they have a valid membership and role at this place.
   - If the user is requesting to perform an action on a store, then we need the `store_id`, each API endpoint that acts on a store must have `{storeId}` in the path variable. For example: `POST /stores/{storeId}/products`.
@@ -124,10 +125,7 @@ To verify if the user is authorized, we need two criticial pieces of information
 
 2. The required permission the user must have to call this API endpoint, this will allow us to verify if we can execute  the logic in this endpoint. For example if the logic in the endpoint is to delete a product, then we must check if the user has a role with the permission `product:delete`. 
 
-
-**Error convention:** anything outside the user's organization — a store in another org, or a resource
-not in the acted-on place — returns **404, never 403**, so existence isn't leaked. 403 is reserved for
-"this is yours, but you lack the permission."
+3. The required scope the membership (and its role) must have to call this API endpoint. Each endpoint **explicitly declares** its required scope — `STORE` or `ORGANIZATION` — rather than us inferring it from the URL. This tells us which kind of membership the user needs. For example, the delete-a-store endpoint declares `ORGANIZATION` scope, so we must check that the user has an `ORGANIZATION` scope membership.
 
 
 ### Process
@@ -135,47 +133,44 @@ not in the acted-on place — returns **404, never 403**, so existence isn't lea
 Once we have the target the user is requesting to perform the action on, and the permission needed to use this endpoint. We need to now check the user's membership's and the role on each membership. This is what will let us decide if the  user is actually authorized. For example if the user is requesting to create a product at `store_abc`, then we need to verify he has a membership at `store_abc`, and a role with the permission `product:create`. 
 
 
+If the user is requesting to perform an action on the store then the following rules must ALL be satisfied in order:
 
-- If the user is requesting to perform an action on the store then the following rules must ALL be satisified in order:
+**1. Does the store in the request path `/stores/{storeId}/` belong in the `organizationId` that is in the request context built from the JWT token?**
 
-1. Does the store in the request path `/stores/{storeId}/`, belong in the  `organizationId` that is in the request context built from the JWT token?
-  -  If not, then return 404 to let the user know this store does not exist in his organization. He can not act on it.
+- If not, then return **404** to let the user know this store does not exist in his organization. He can not act on it.
 
-@TODO: remove?? what about also check if role and membership scope is same??
-2. If the API endpoint permission is elevated, `is_elevated = true`, does the user have an `ORGANIZATION` scope membership in this `organizationId`? 
-  - If yes, check if the user has an unexpired assigned role with the permission.
-      - If yes, user is authorized.
-      - If no, return 403.
-  - If no, return 403, only users with an `ORGANIZATION` membership can perform elevated actions. 
+**2. If the API endpoint permission is elevated (`is_elevated = true`), does the user have an `ORGANIZATION` scope membership in this `organizationId`?**
 
-3. If the API endpoint permission is not elevated, `is_elevated = false`, does the user have an `ORGANIZATION` scope membership in this `organizationId`?
-  - If yes, check if the user has an unexpired assigned role with the permission.
-      - If yes, user is authorized.
-      - If no, proceed to check 5.
-  - If no, proceed to check 5
+- If yes, check if the user has an unexpired assigned role with the permission (the role's `scope` must match the membership's `scope`; if a mismatched role somehow exists, ignore it).
+    - If yes, user is authorized.
+    - If no, return **403**.
+- If no, return **403** — only users with an `ORGANIZATION` membership can perform elevated actions.
 
-4. If the API endpoint permission is not elevated, `is_elevated = false`,  does the user have a `STORE` scope membership on the requested store in the path variable in this `organizationId`?
-  - If yes, check if the user has an unexpired assigned role with the permission.
-      - If yes, user is authorized.
-      - If return 403.
-  - If no, return 403,  the user does not have an `ORGANIZATION` role that has access to all the stores from Step 4, nor does he have a valid `STORE` membership.
+**3. If the API endpoint permission is not elevated (`is_elevated = false`), does the user have an `ORGANIZATION` scope membership in this `organizationId`?**
+
+- If yes, check if the user has an unexpired assigned role with the permission (the role's `scope` must match the membership's `scope`; if a mismatched role somehow exists, ignore it).
+    - If yes, user is authorized.
+    - If no, proceed to check 4.
+- If no, proceed to check 4.
+
+**4. If the API endpoint permission is not elevated (`is_elevated = false`), does the user have a `STORE` scope membership on the requested store in the path variable in this `organizationId`?**
+
+- If yes, check if the user has an unexpired assigned role with the permission (the role's `scope` must match the membership's `scope`; if a mismatched role somehow exists, ignore it).
+    - If yes, user is authorized.
+    - If no, return **403**.
+- If no, return **403** — the user does not have an `ORGANIZATION` role that has access to all the stores, nor does he have a valid `STORE` membership.
 
 
-TODO: 
-**The ORGANIZATION rulebook** (for an org membership):
+If the user is requesting to perform an action on the organization then the following rules must ALL be satisfied in order:
 
-| # | Question | Must be |
-|---|----------|---------|
-| 1 | Is the membership live? | true |
-| 2 | Is it in the caller's **own company**? (from the token) | true |
-| 3 | Is the request an **org action**, OR a store action on **any store in that company**? | true |
-| 4 | Does this membership's **role actually have** the permission? (elevated allowed) | true |
+**1. Does the user have an `ORGANIZATION` scope membership in the `organizationId` that is in the request context built from the JWT token?**
 
-An org badge is broad: **any store in the company, org actions too, elevated permissions allowed** —
-but still never another company.
+- If not, return **403** — only users with an `ORGANIZATION` membership in the `organizationId` can perform organization actions. 
 
-The single thing both rulebooks share is the **company wall**: the membership's company must equal the
-company in the caller's token. That's what stops anyone ever reaching another company's data.
+**2. Does the user have an unexpired assigned role with the permission required by the endpoint?** (the role's `scope` must match the membership's `scope`; if a mismatched role somehow exists, ignore it)
+
+- If yes, user is authorized.
+- If no, return **403** — the user belongs to the organization but their role does not grant this permission.
 
 
 - Sample Query depicting the authorization check:

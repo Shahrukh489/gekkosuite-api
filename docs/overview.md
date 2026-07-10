@@ -66,5 +66,5 @@ The detail lives in focused docs:
 - **`plans.md`** — plans, features, and billing.
 - **`database.md`** — the database schema (tables, indexes, RLS).
 - **`costs.md`** — estimate of development and maintenance costs.
-- **`openapi-spec.json`** — high level api schema.
+- **`api.md`** — high level api schema.
 - **`post-mvp.md`** — deferred features and the rationale.
