@@ -125,7 +125,9 @@ To verify if the user is authorized, we need following criticial pieces of infor
 
 2. The required permission the user must have to call this API endpoint, this will allow us to verify if we can execute  the logic in this endpoint. For example if the logic in the endpoint is to delete a product, then we must check if the user has a role with the permission `product:delete`. 
 
-3. The required scope the membership (and its role) must have to call this API endpoint. Each endpoint **explicitly declares** its required scope — `STORE` or `ORGANIZATION` — rather than us inferring it from the URL. This tells us which kind of membership the user needs. For example, the delete-a-store endpoint declares `ORGANIZATION` scope, so we must check that the user has an `ORGANIZATION` scope membership.
+3. The **`requiredMembershipScope`** the membership (and its role) must have to call this API endpoint. Each endpoint **explicitly declares** it — `STORE` or `ORGANIZATION` — rather than us inferring it from the URL. This tells us which kind of membership the user needs. For example, the delete-a-store endpoint declares `ORGANIZATION`, so we must check that the user has an `ORGANIZATION` membership.
+
+4. The required **feature** (if any) the org's plan must include to call this API endpoint. Some endpoints back a *paid* capability — e.g. processing a return, or AI recommendations. Those endpoints **explicitly declare a `requiredFeature`** (e.g. `returns`) **and its `requiredFeatureScope`** (`STORE` or `ORGANIZATION`) — the scope is needed because the same feature code can exist at both scopes (they're separate features). We then check the org's plan includes that feature at that scope. Most endpoints (selling, reading) declare no feature and skip this check. This is a **billing gate, separate from the permission check** — the permission asks "may this user do it," the feature asks "does the org's plan include it." See `plans.md`.
 
 
 ### Process
@@ -144,38 +146,44 @@ If the endpoint declares a `STORE` scope (a store action), then the following ru
 **2. Does the user have an `ORGANIZATION` scope membership in this `organizationId`, with an unexpired role that grants the permission (and the role's `scope` is `ORGANIZATION`, matching the membership; if a mismatched role somehow exists, ignore it)?**
 
 - An `ORGANIZATION` membership reaches every store in the org, so it can perform this store action.
-- If yes, user is authorized.
+- If yes, the user is allowed — proceed to check 4.
 - If no, proceed to check 3.
 
 **3. Does the user have a `STORE` scope membership on the requested store (the `{storeId}` in the path), with an unexpired role that grants the permission (and the role's `scope` is `STORE`, matching the membership; if a mismatched role somehow exists, ignore it)?**
 
-- If yes, user is authorized.
+- If yes, the user is allowed — proceed to check 4.
 - If no, return **403** — the user has neither an `ORGANIZATION` membership that reaches this store, nor a valid `STORE` membership on it with the permission.
+
+**4. If the endpoint declares a required feature, does the org's plan include that feature at the declared `requiredFeatureScope`?**
+
+- If the endpoint declares **no** feature → skip this; the action isn't plan-gated (e.g. selling, reading). User is authorized.
+- If the plan **includes** the feature (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
+- If the plan **does not** include it → return **402 Payment Required** — the user is allowed, but their plan doesn't cover this. (Distinct from `403` so the client can prompt an upgrade.)
 
 
 If the endpoint declares an `ORGANIZATION` scope (an org action), then the following rules must ALL be satisfied in order:
 
 **1. Does the user have an `ORGANIZATION` scope membership in the `organizationId` that is in the request context built from the JWT token, with an unexpired role that grants the permission (and the role's `scope` is `ORGANIZATION`, matching the membership; if a mismatched role somehow exists, ignore it)?**
 
-- If yes, user is authorized.
+- If yes, the user is allowed — proceed to check 2.
 - If no, return **403** — only users with an `ORGANIZATION` membership and a role granting the permission can perform organization actions.
+
+**2. If the endpoint declares a required feature, does the org's plan include that feature at the declared `requiredFeatureScope`?**
+
+- If the endpoint declares **no** feature → skip this; the action isn't plan-gated. User is authorized.
+- If the plan **includes** the feature (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
+- If the plan **does not** include it → return **402 Payment Required** — the user is allowed, but their plan doesn't cover this. (Distinct from `403` so the client can prompt an upgrade.)
+
+> The feature check runs **after** the permission checks on purpose: *who you are* (authorization) is the hard boundary, checked first; *what your plan covers* (billing) is only relevant once you're already allowed. So an unauthorized user gets `403` and learns nothing about the plan, and someone who's allowed but under-plan gets `402`. Permissions come from the user's role; features come from the org's plan (see `plans.md`).
 
 
 ### Query
 
 A user can have many memberships. So we go through each one and ask: "does this membership let the user do the action?" If any single membership passes, the user is authorized. If none do, they are denied.
 
-The endpoint gives us two things to check against: its `requiredScope` (`STORE` or `ORGANIZATION`) and its `requiredPermission`.
+The endpoint gives us these to check against: its `requiredMembershipScope` (`STORE` or `ORGANIZATION`), its `requiredPermission`, and — for paid capabilities only — a `requiredFeature` plus its `requiredFeatureScope`.
 
-For each membership the user holds, we check the following in order:
-
-1. **Is the membership usable?** Skip it if it is not live (removed, suspended, or its role expired), if the role's scope does not match the membership's scope (ignore bad data), or if it is not in the user's organization from the token.
-
-2. **Does the membership reach the target?**
-   - For a `STORE` action: an `ORGANIZATION` membership passes (it reaches every store), or a `STORE` membership passes if it is on the requested store.
-   - For an `ORGANIZATION` action: only an `ORGANIZATION` membership passes.
-
-3. **Does its role grant the permission?** If the membership reached the target and its role has the `requiredPermission`, the user is authorized.
+First we decide if the **user** is allowed (membership + role + permission). If they are, and the endpoint declares a feature, we then check the **org's plan** includes it.
 
 ```
 allowed = false
@@ -189,7 +197,7 @@ for each membership M the user holds:
     if M.organization_id != context.organizationId:          continue   -- must be the user's org
 
     -- 2. does M reach what the endpoint targets?
-    if endpoint.requiredScope == 'STORE':
+    if endpoint.requiredMembershipScope == 'STORE':
         reached = ( M.scope == 'ORGANIZATION' )                              -- org reaches every store
                or ( M.scope == 'STORE' and M.store_id == {storeId in path} ) -- or the store itself
     else:  -- ORGANIZATION action
@@ -199,7 +207,15 @@ for each membership M the user holds:
     if reached and role has requiredPermission:
         allowed = true; break
 
-return allowed
+if not allowed:
+    return 403                        -- the user isn't allowed
+
+-- 4. feature gate: is this a paid capability the org's plan must include?
+if endpoint.requiredFeature is set:
+    if org's plan does NOT include (endpoint.requiredFeature, endpoint.requiredFeatureScope):
+        return 402                    -- allowed, but the plan doesn't cover it
+
+return 200                            -- allowed and (if gated) the plan covers it
 ```
 
 
