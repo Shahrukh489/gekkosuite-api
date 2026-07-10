@@ -141,6 +141,7 @@ Once we have the target the user is requesting to perform the action on, and the
 1. Does the store in the request path `/stores/{storeId}/`, belong in the  `organizationId` that is in the request context built from the JWT token?
   -  If not, then return 404 to let the user know this store does not exist in his organization. He can not act on it.
 
+@TODO: remove?? what about also check if role and membership scope is same??
 2. If the API endpoint permission is elevated, `is_elevated = true`, does the user have an `ORGANIZATION` scope membership in this `organizationId`? 
   - If yes, check if the user has an unexpired assigned role with the permission.
       - If yes, user is authorized.
@@ -208,6 +209,7 @@ for each membership M the user holds:            -- check every membership on it
 return allowed        -- one membership passed everything → allow ; otherwise → 403
 ```
 
+@TODO:
 Two of these checks are also **safety nets**: `role.scope == M.scope` and the
 `is_elevated == false` rule re-verify things that are *also* guaranteed when data is saved (see
 *Write-time security*). So even if a bad record ever got into the database — an org-only permission in
@@ -219,6 +221,10 @@ the stored data blindly; we re-check it on every request.
 ##  Further additional security
 
 There are many scenarios where even if the user is authenticated and authorized, invalid operations and actions can be performed, the following section describes key areas where to add proper guardrails.
+
+- Do **not** put a user's roles, permissions, or flattened access list in the JWT: a token that carries
+its own permissions can't be revoked, so a suspended or demoted user keeps their old access until the
+token expires.
 
 - When doing a Read/Update/Delete operations on a requested resource. We must ensure that the resource
 actually belongs to the target in the request. For example if the user requests to delete `order_abc`, we must check if the `order_abc` belongs in the target store.   
@@ -314,24 +320,11 @@ query automatically.
 > Both failure modes look fine in normal testing (data still comes back), so they must be verified
 > explicitly. See `database.md` for the exact setup.
 
-**3. Never cache roles/permissions in the token.** Authorization runs the query above **live** on every
-request, reading the user's current roles from the database — that's what makes revocation immediate.
-Do **not** put a user's roles, permissions, or flattened access list in the JWT: a token that carries
-its own permissions can't be revoked, so a suspended or demoted user keeps their old access until the
-token expires. The token holds only immutable identity (`userId`, `organizationId`); everything about
-*what they can do* is read fresh.
-
-
 ---
 
-# Security Review Notes (open items — not yet in the design above)
+# Security Review (open items — not yet in the design above)
 
-An adversarial review of this doc. The authorization **model** is strong (tenant boundary from the
-token, structural IDOR, deny-by-default, single-chain, RLS floor, and now explicit write-time
-invariants with read-time backstops). The remaining gaps are mostly in **authentication** — an
-attacker would target the login, not the permission chain. Ranked by severity.
-
-## Critical / High — authentication is under-specified (the real attack surface)
+##  High 
 
 - **Password hashing is not specified.** Must be a slow, salted KDF (argon2id or bcrypt). Without it a
   DB dump = every account cracked. Biggest single omission.
@@ -343,9 +336,6 @@ attacker would target the login, not the permission chain. Ranked by severity.
   employee's JWT keeps working until it expires. Pick one: short TTL + refresh, or a deny-list.
 - **`store_pin` (register PIN) has zero coverage here.** It's an auth path in the schema — needs its
   own hashing, rate-limit, and scope treatment, or it's a weak-secret backdoor.
-
-## High — privilege-escalation controls
-
 - **No subset (escalation-ceiling) rule on role assignment.** Nothing stops an org admin from granting
   a role more powerful than their own, or granting `role:assign` / minting another org admin. A single
   compromised admin account = full org takeover with no ceiling. Add "you may only grant permissions
@@ -355,45 +345,11 @@ attacker would target the login, not the permission chain. Ranked by severity.
 - **Owner "can't be stripped" is asserted, not enforced in the flow.** Add explicit guards: the owner's
   effective admin access can't be removed, and the org can't be left with zero admins.
 
-## Medium — enforcement that an implementer can get wrong
-
-### Write-path invariants
-
-The write-path integrity rules (elevated-in-org-role, role-matches-membership, tenant-from-token) are
-now documented in the design under **Write-time security** — see *Write-path invariants* and *Setting
-the tenant on writes*. Q1, Q2, and Q4 from the original review are **resolved** there (write chokepoint
-+ read-time backstop).
-### Other medium items
-
-- ~~**RLS is a guarantee only if deployed exactly right.**~~ **RESOLVED** — callout added in *Reducing
-  Developer Auth Errors* (non-superuser role + transaction-scoped tenant setting; fails silently).
-- ~~**Never trust roles/permissions from the token.**~~ **RESOLVED** — stated in *Reducing Developer
-  Auth Errors* (item 3): roles read live, never cached in the JWT.
-- **`customer:edit` / `product:edit` / `delete` on a *shared* record — OPEN.** Create is specified;
-  editing/deleting an org-wide shared record is flagged as an open risk in *Working with Shared
-  Resources*. Decide the rule (who may edit — any store or only the creator; delete while referenced?)
-  before shipping sharing.
 
 ## Low — clarity (ambiguity is a liability in a security spec)
 
 - **No Audit section** (still open), though "audited" actions are referenced (owner transfer, etc.).
   Require audit logging for security-relevant events: role grant/revoke, user create/delete, owner
   transfer, membership changes, sharing-setting flips.
-
-## Scorecard
-
-| Area | Grade | Notes |
-|---|---|---|
-| Tenant isolation / IDOR | A | token-sourced org, structural WHERE-scoping, RLS floor |
-| Authorization model | A− | deny-by-default, single-chain, two membership cases |
-| Write-path invariant rigor | B+ | write chokepoints + read-time backstops |
-| Privilege-escalation controls | C+ | no subset/ceiling rule on role assignment |
-| Authentication (login) | D | hashing, lockout, MFA, revocation, PIN all unspecified |
-| Auditing | D | referenced but not required anywhere |
-
-**Bottom line:** the authorization design is genuinely strong, and the write-path invariants now have
-the same rigor as the authz query. Overall auth posture is capped at ~B− until **authentication**
-(hashing, lockout, MFA, committed revocation, PIN handling) and the **escalation-ceiling rule** get
-the same treatment — those are now the top open risks.
 
 
