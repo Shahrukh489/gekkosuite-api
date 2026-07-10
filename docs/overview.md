@@ -65,4 +65,6 @@ The detail lives in focused docs:
 - **`auth.md`** — users, memberships, roles, permissions, and access (authn & authz).
 - **`plans.md`** — plans, features, and billing.
 - **`database.md`** — the database schema (tables, indexes, RLS).
+- **`costs.md`** — estimate of development and maintenance costs.
+- **`openapi-spec.json`** — high level api schema.
 - **`post-mvp.md`** — deferred features and the rationale.
