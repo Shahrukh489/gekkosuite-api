@@ -203,27 +203,8 @@ return allowed
 ```
 
 
-## Further additional security
-
-There are scenarios where even if the user is authenticated and authorized, invalid operations and actions can be performed, the following section describes key areas where to add proper guardrails.
-
-- Do **not** put a user's roles, permissions, or flattened access list in the JWT: a token that carries
-its own permissions can't be revoked, so a suspended or demoted user keeps their old access until the
-token expires.
-
-- When doing a Read/Update/Delete operations on a requested resource. We must ensure that the resource
-actually belongs to the target in the request. For example if the user requests to delete `order_abc`, we must check if the `order_abc` belongs in the target store.   
-
-- When inserting a new row, the `organization_id` is always taken from the request context object built in the Authentication step when validating the JWT token. This will prevent us from ever allowing a user to save data in a different `organization_id`. 
-
-- When assigning permissions to a role with the scope `STORE`, denying any permissions with `is_elevated = true`. This will prevent a store membership from every having elevated access.
-
-- When assigning a role to a membership, check if the scope of the role matches the scope of the membership. For example a role with scope `STORE` can only exist on a membership with scope `STORE`. This will prevent from ever assigning a role with scope `ORGANIZATION` to a membership with scope `STORE`.
-
-- When inserting a user's membership never allow to create a membership in another organization.
-
-
-### Working with Shared Resources (Product/Customer/..)
+<!-- @ TODO -->
+## Working with Shared Resources (Product/Customer/..)
 
 Normally a store's products and customers are its own. But an org can turn on **sharing**, and then a
 customer or product created at one store is visible to *every* store in the org (see `tenancy.md`).
@@ -277,34 +258,48 @@ create product on /stores/{storeId}/products:
 > shipping sharing.** Tracked in *Security Review Notes* below.
 
 
-## Safety nets — making mistakes fail closed
+## Safety nets
 
-Everything above is correct only if every endpoint remembers to apply it. Developers forget: a new
-route ships without its permission check, or a query is written without its tenant `WHERE` clause. So
-we don't rely on memory — two system-wide safety nets make the *default* outcome "denied," so a
-forgotten check fails closed instead of leaking.
+Everything above works only if every endpoint and query remembers to apply it. But developers forget — a new route might ship without its permission check, or a query might be written without its tenant filter. So we don't rely on memory. We add two system-wide safety nets so the *default* outcome is "denied", and a forgotten check fails closed instead of leaking data.
 
-**1. Deny-by-default routing — a route must declare its permission, or it's blocked.**
+### 1. Deny-by-default routing
 
-- *ASP.NET Core* — create a global **`FallbackPolicy`** (`RequireAuthenticatedUser`) so any endpoint with no
-  authorization attribute is denied by default (public routes need explicit `[AllowAnonymous]`); 
+Every endpoint must declare the permission it requires. If a route is added but forgets to declare one, it should be blocked automatically rather than left open.
 
-**2. Row-Level Security — the database refuses foreign rows.** Even if a hand-written query forgets its
-`store_id` / `organization_id` filter, Postgres RLS filters it out. RLS is set per request from the
-verified context (`app.current_org`, and `app.current_store` for store actions) and applies to every
-query automatically.
+In ASP.NET Core we do this with a global `FallbackPolicy` set to `RequireAuthenticatedUser`. Any endpoint that has no authorization attribute falls back to this policy and is denied by default. This way, "forgot to add auth" results in a locked door, not an open one.
 
-> **RLS only protects you if it's deployed exactly right — it fails *silently* if not.** Two conditions
-> must hold, or RLS runs but does nothing:
-> - **The app connects as a non-superuser, non-owner role.** Postgres superusers and table owners
->   *bypass* RLS entirely. Run migrations/admin as a separate privileged role; the request path must
->   use a restricted role.
-> - **The tenant setting is transaction-scoped** (`SET LOCAL app.current_*`, set per request inside its
->   transaction). Otherwise a pooled connection can carry one request's tenant into the next request —
->   the classic pooling leak.
->
-> Both failure modes look fine in normal testing (data still comes back), so they must be verified
-> explicitly. See `database.md` for the exact setup.
+### 2. Row-Level Security (RLS)
+
+Even if a query forgets its `store_id` / `organization_id` filter, the database itself refuses to return rows from another tenant. On each request, after authentication, we set the verified tenant onto the database session (`app.current_org`, and `app.current_store` for store actions), and a policy on every table filters to it automatically. So a query can only ever see the current tenant's rows.
+
+RLS is a strong backstop, but it only protects you if it is deployed exactly right — and it fails **silently** if it isn't (queries still return data, so nothing looks broken in testing). Two conditions must hold:
+
+- **The app connects as a non-superuser, non-owner role.** Postgres superusers and table owners *bypass* RLS entirely. Run migrations and admin tasks as a separate privileged role, and have the request path use a restricted role.
+- **The tenant is set with `SET LOCAL` (transaction-scoped).** This resets at the end of each transaction, so a pooled connection can't carry one request's tenant into the next request (the classic connection-pooling leak).
+
+
+---
+
+# Further additional security
+
+There are scenarios where even if the user is authenticated and authorized, invalid operations and actions can be performed, the following section describes key areas where to add proper guardrails.
+
+- Do **not** put a user's roles, permissions, or flattened access list in the JWT: a token that carries
+its own permissions can't be revoked, so a suspended or demoted user keeps their old access until the
+token expires.
+
+- When doing a Read/Update/Delete operations on a requested resource. We must ensure that the resource
+actually belongs to the target in the request. For example if the user requests to delete `order_abc`, we must check if the `order_abc` belongs in the target store.   
+
+- When inserting a new row, the `organization_id` is always taken from the request context object built in the Authentication step when validating the JWT token. This will prevent us from ever allowing a user to save data in a different `organization_id`. 
+
+- When assigning permissions to a role with the scope `STORE`, denying any permissions with `is_elevated = true`. This will prevent a store membership from every having elevated access.
+
+- When assigning a role to a membership, check if the scope of the role matches the scope of the membership. For example a role with scope `STORE` can only exist on a membership with scope `STORE`. This will prevent from ever assigning a role with scope `ORGANIZATION` to a membership with scope `STORE`.
+
+- When inserting a user's membership, never allow to create a membership in another organization. This will prevent a user gaining membership to other organizations.
+
+- When assigning a role or membership to a user, never allow a user to assign a role or membership to himself. This will prevent role escalation where a user can elevate there roles and access
 
 ---
 
