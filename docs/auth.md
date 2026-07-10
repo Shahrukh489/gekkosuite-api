@@ -203,59 +203,36 @@ return allowed
 ```
 
 
-<!-- @ TODO -->
-## Working with Shared Resources (Product/Customer/..)
+<!-- @TODO: -->
+## Working with Shared Resources (Products / Customers)
 
-Normally a store's products and customers are its own. But an org can turn on **sharing**, and then a
-customer or product created at one store is visible to *every* store in the org (see `tenancy.md`).
+Some data is shared across the whole org. **Customers** are always shared — a customer created at one store is recognized at every store. **Products** are per-store by default, and only shared when the org turns on the `allow_share_products` setting. Either way, creating one is still just a normal store action; sharing only changes what gets *written* to the database, not how we authorize it.
 
-1. **Customers are shared; products depend on a setting.** A customer create writes the shared
-   `customer` record. A product create writes the shared `product` record only when the org's
-   **`allow_share_products`** setting is on (off by default → the product stays the store's own).
-   
-2. **The permission stays non-elevated.** `customer:create` / `product:create` are **non-elevated**, so
-   they can live in a **store role** — a cashier can hold them. (If they were elevated they couldn't be
-   in a store role at all, which is the opposite of what sharing wants.) So the only thing gating a
-   store user is whether their role includes the permission — not the permission's level, and not the
-   membership kind.
+A few things make this safe:
 
-3. **The check is the ordinary authorization query** — no branch for "is this shared?", no branch on
-   the membership kind. A **store membership** at `{storeId}` *or* an **org membership** qualifies, as
-   long as a live role on it holds the permission and the place is inside the caller's org (the tenant
-   boundary the query already bakes in). A store cashier and an org admin pass through the identical
-   check.
+**The permission is a normal store permission.** `customer:create` and `product:create` are not elevated, so they sit in a normal store role — a cashier can hold them. Authorizing the create is the ordinary check: does the user have a role at this store that grants the permission? There's no special "is this shared?" branch.
 
-4. **`organization_id` comes from the token, never the request body.** The new record's
-   `organization_id` is set server-side from `context.organizationId`, and its `store_id` is the
-   `{storeId}` from the path (already validated by the query). So a store user can only ever create
-   within *their own* org and *their own* store — they can't pass a different org or store id to write
-   into another tenant. This is what makes the ordinary permission check safe here.
+**The org and store are set by us, not the caller.** The new record's `organization_id` comes from the token, and its `store_id` comes from the `{storeId}` in the path (already checked by authorization). The caller never sends these, so a user can only ever create within their own org and their own store.
 
-5. **RLS matches the two tables' scope.** The store-level copy (`store_customer` / `store_product`) is
-   **store-scoped** — a store only ever reads its own rows. The shared record (`customer` / `product`)
-   is **org-scoped** — every store in the org resolves it. So sharing-on shows the item org-wide,
-   sharing-off keeps it to the store, and neither can leak across orgs (see `database.md`).
+**The database keeps the two tables scoped correctly.** The store-level row (`store_customer` / `store_product`) is store-scoped, so a store only sees its own. The shared row (`customer` / `product`) is org-scoped, so every store in the org can resolve it. Neither can leak across orgs (see `database.md`).
 
-Mechanically the store-level row is written; the shared row is written in the **same transaction**,
-with the store row linking up to it — for customers, and for products when `allow_share_products` is on:
+When we create the record, we write the store-level row and, when it's shared, the shared row too — in the same transaction, with the store row linking up to the shared one:
 
 ```
-create customer on /stores/{storeId}/customers:
-  INSERT customer (shared) , then INSERT store_customer linked to it   -- one txn
+create customer on /stores/{storeId}/customers:   -- customers are always shared
+  INSERT customer (shared), then INSERT store_customer linked to it        -- one transaction
 
 create product on /stores/{storeId}/products:
-  allow_share_products OFF → INSERT store_product (links to no shared row)
-  allow_share_products ON  → INSERT product (shared) , then INSERT store_product linked to it   -- one txn
+  allow_share_products OFF → INSERT store_product only
+  allow_share_products ON  → INSERT product (shared), then INSERT store_product linked to it  -- one transaction
 ```
 
-> **⚠️ Open risk — editing/deleting a *shared* record is not yet specified.** The above covers
-> **create**. Once a customer or product is shared org-wide, a store user at Store A editing it changes
-> a record **every** store sees, and deleting it could pull a record Store B is actively using. The
-> `customer:edit` / `product:edit` / `delete` paths on a *shared* row need an explicit rule — probably
-> the same check as create (an everyday permission plus the tenant boundary), but "probably" is where bugs
-> hide. Questions to resolve: can any store with the permission edit a shared record, or only the store
-> that created it? Can a shared record be deleted while another store references it? **Decide before
-> shipping sharing.** Tracked in *Security Review Notes* below.
+> **Open risk — editing and deleting a shared record isn't specified yet.** The above only covers
+> *creating*. Once a record is shared org-wide, a store editing it changes what every store sees, and
+> deleting it could remove a record another store is still using. We still need to decide: can any store
+> with the permission edit a shared record, or only the store that created it? Can a shared record be
+> deleted while another store references it? **Decide this before shipping sharing** (also flagged in the
+> Security Review).
 
 
 ## Safety nets
