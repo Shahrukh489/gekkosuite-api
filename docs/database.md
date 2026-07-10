@@ -5,7 +5,8 @@ CREATE TYPE store_type AS ENUM ('ONLINE', 'PHYSICAL');
 -- The scope a membership/role operates at: the two kinds of place a person can act at.
 CREATE TYPE scope AS ENUM ('ORGANIZATION', 'STORE');
 
--- A plan: what an org subscribes to. Priced per store; every store inherits the plan's features.
+-- A plan: what an org subscribes to. Priced per store. Its features are scoped STORE or ORGANIZATION;
+-- stores get the plan's store-scoped features, the org gets the org-scoped ones (see plans.md).
 CREATE TABLE plan (
     -- plan id
     plan_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -51,7 +52,7 @@ CREATE TABLE organization (
     description      TEXT,
     -- the owner; full access that can't be stripped (transfer only)
     owner_user_id    UUID REFERENCES "user" (user_id),
-    -- the org's one plan; every store inherits its features
+    -- the org's one plan; its store-scoped features apply to every store, org-scoped ones to the org
     plan_id          UUID REFERENCES plan (plan_id),
     -- store to land in by default (e.g. single-store orgs)
     default_store_id UUID REFERENCES store (store_id),
