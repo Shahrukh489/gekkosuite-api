@@ -270,7 +270,9 @@ In ASP.NET Core we do this with a global `FallbackPolicy` set to `RequireAuthent
 
 ### 2. Row-Level Security (RLS)
 
-Even if a query forgets its `store_id` / `organization_id` filter, the database itself refuses to return rows from another tenant. On each request, after authentication, we set the verified tenant onto the database session (`app.current_org`, and `app.current_store` for store actions), and a policy on every table filters to it automatically. So a query can only ever see the current tenant's rows.
+Even if a query forgets its `store_id` / `organization_id` filter, the database itself refuses to return rows from another tenant. On each request, after authentication, we set the verified place onto the database session (`app.current_org`, and `app.current_store` for store actions), and a policy on every table filters to it automatically. So a query can only ever see the current place's rows.
+
+One thing to get right: **scope RLS at both levels.** Org-owned tables filter on the org (`organization_id = app.current_org`). But store-owned tables need to filter on the *store* too (`store_id = app.current_store`), not just the org. The reason is the same as above — two stores in one org share an `organizationId`, so an org-only policy still lets a Store A request see Store B's rows. Filtering on the store closes that gap at the database, so even if a query forgets its `store_id`, the database still won't hand back another store's data.
 
 RLS is a strong backstop, but it only protects you if it is deployed exactly right — and it fails **silently** if it isn't (queries still return data, so nothing looks broken in testing). Two conditions must hold:
 
@@ -284,12 +286,15 @@ RLS is a strong backstop, but it only protects you if it is deployed exactly rig
 
 There are scenarios where even if the user is authenticated and authorized, invalid operations and actions can be performed, the following section describes key areas where to add proper guardrails.
 
+- Do **not** allow a user to have a membership in a STORE and an ORGANIZATION, only one. That way a STORE user can never access ORGANIZATION data.  
+
 - Do **not** put a user's roles, permissions, or flattened access list in the JWT: a token that carries
 its own permissions can't be revoked, so a suspended or demoted user keeps their old access until the
 token expires.
 
-- When doing a Read/Update/Delete operations on a requested resource. We must ensure that the resource
-actually belongs to the target in the request. For example if the user requests to delete `order_abc`, we must check if the `order_abc` belongs in the target store.   
+- When an action names a resource by its id (read, update, or delete), we must make sure that resource actually belongs to the place in the request — otherwise a user could pass someone else's id and act on it. The safe way is to bake the place right into the query, instead of fetching the row first and checking after. So for a store action we query `WHERE order_id = :orderId AND store_id = :storeIdFromPath`, and for an org action we add `AND organization_id = context.organizationId`. If the id belongs somewhere else, it simply won't match and we return a 404.
+
+  This matters most **between two stores in the same org**. Say Maria works at Store A and calls `GET /stores/{StoreA}/orders/{orderId}` but passes an `orderId` that belongs to Store B. She *is* allowed at Store A, so the check passes — but the order isn't hers. Both stores share the same `organizationId`, so an org-only filter can't tell them apart. Adding `AND store_id = StoreA` to the query is what stops her from seeing Store B's order.
 
 - When inserting a new row, the `organization_id` is always taken from the request context object built in the Authentication step when validating the JWT token. This will prevent us from ever allowing a user to save data in a different `organization_id`. 
 
@@ -299,38 +304,70 @@ actually belongs to the target in the request. For example if the user requests 
 
 - When inserting a user's membership, never allow to create a membership in another organization. This will prevent a user gaining membership to other organizations.
 
-- When assigning a role or membership to a user, never allow a user to assign a role or membership to himself. This will prevent role escalation where a user can elevate there roles and access
-
+- When assigning a role to a user, only allow granting permissions the assigner **already holds** — a user can never grant more than they have (the escalation-ceiling / subset rule). This is the real fix for privilege escalation: it blocks an admin handing their own account a bigger role (self-escalation), granting a bigger role to *another* user, and two admins boosting each other (A grants B, B grants A)
 ---
 
-# Security Review (open items — not yet in the design above)
+# Security Review
 
-##  High 
+An adversarial pass over this design, thinking like an attacker trying to break tenant isolation,
+escalate privileges, or bypass the login.
 
-- **Password hashing is not specified.** Must be a slow, salted KDF (argon2id or bcrypt). Without it a
-  DB dump = every account cracked. Biggest single omission.
-- **No brute-force protection** — login rate-limiting, account lockout/backoff. Credential stuffing is
-  the realistic entry for a money app with many low-privilege cashier accounts.
+**Summary:** the authorization model is strong — the tenant boundary comes from the token, routing is by
+declared scope, each membership is checked on its own, elevated permissions are structurally contained,
+and there are two fail-closed nets (deny-by-default and RLS). The weakest area is **authentication** —
+the login, the token lifecycle, and the register PIN — where most of the top risks live.
+
+
+## Critical
+
+- **JWT validation is not pinned down.** The whole design trusts that the token is genuine and that its
+  `organizationId` is the tenant wall. If the verifier accepts `alg: none`, allows an RS256→HS256
+  downgrade, or skips the signature / issuer / audience / expiry checks, an attacker can forge a token
+  with any `organizationId` and reach every tenant at once — the highest-impact bug possible here. Pin
+  the exact expected algorithm (reject `none`), verify the signature with a rotated key, and validate
+  `exp` / `iss` / `aud`.
+- **Password hashing is not specified.** Passwords must be stored with a slow, salted KDF (argon2id or
+  bcrypt); without it a database dump cracks every account. The schema column is named `password` — call
+  it `password_hash` and state the KDF so plaintext is never a temptation.
+
+
+## High
+
+- **No token revocation.** A token stays valid until it expires, so a fired or demoted employee keeps
+  access for the life of their JWT — which makes the `user.is_active` and membership kill switches
+  effectively cosmetic. Pick a mechanism: short-lived tokens with refresh, or a revocation deny-list.
+- **The register PIN (`store_pin`) is an unguarded second credential.** It's an authentication path with
+  no hashing, no rate-limit, no lockout, and no scope rule. A short PIN is trivially brute-forced, and if
+  it grants any action it becomes a backdoor around the JWT/RBAC design. Hash it, rate-limit it, and
+  scope it tightly — or state clearly that it is not an auth boundary.
+- **No brute-force protection on login.** With many low-privilege cashier accounts and no lockout,
+  credential stuffing is the realistic way in. Add login rate-limiting and account lockout/backoff.
 - **No MFA**, especially for org admins and the owner — the accounts that can drain the whole company.
-- **Token revocation mechanism is undecided** (the doc says "revocation / short-lived + refresh" but
-  doesn't commit). Until decided, `user.is_active` / membership kill switches are cosmetic — a fired
-  employee's JWT keeps working until it expires. Pick one: short TTL + refresh, or a deny-list.
-- **`store_pin` (register PIN) has zero coverage here.** It's an auth path in the schema — needs its
-  own hashing, rate-limit, and scope treatment, or it's a weak-secret backdoor.
-- **No subset (escalation-ceiling) rule on role assignment.** Nothing stops an org admin from granting
-  a role more powerful than their own, or granting `role:assign` / minting another org admin. A single
-  compromised admin account = full org takeover with no ceiling. Add "you may only grant permissions
-  you already hold."
-- **User-create + role-assign is the real crown-jewel path** and isn't specially protected the way the
-  owner column is. Guard "admin account compromised → creates a new org admin."
-- **Owner "can't be stripped" is asserted, not enforced in the flow.** Add explicit guards: the owner's
-  effective admin access can't be removed, and the org can't be left with zero admins.
 
 
-## Low — clarity (ambiguity is a liability in a security spec)
+## Medium
 
-- **No Audit section** (still open), though "audited" actions are referenced (owner transfer, etc.).
-  Require audit logging for security-relevant events: role grant/revoke, user create/delete, owner
-  transfer, membership changes, sharing-setting flips.
+- **Editing and deleting shared records is undefined.** A store user editing a shared `customer` or
+  `product` changes a record every store sees, and deleting one another store references could break it.
+  The create path is specified; the edit/delete rules are not. Decide them before shipping sharing.
+- **No audit logging.** Role grants/revokes, user create/delete, owner transfer, membership changes, PIN
+  changes, and sharing flips aren't recorded — so after an incident there's no way to answer "who did
+  this," and any privilege abuse is invisible.
+
+
+## Scorecard
+
+| Area | Grade | Note |
+|---|---|---|
+| Tenant isolation (cross-org) | A− | token-sourced org boundary; depends on solid JWT validation |
+| Authorization model | A | declared scope, per-membership checks, elevated-permission containment |
+| Cross-store (same-org) IDOR | A− | `store_id` in every by-id query, plus store-level RLS |
+| Privilege-escalation controls | B | escalation-ceiling (subset) rule in place |
+| Authentication (login / token / PIN) | D | hashing, brute-force, MFA, token revocation, PIN all open |
+| Auditing | D | none |
+
+**Bottom line:** the authorization engine is solid. The ship-blocking work is all in **authentication** —
+JWT validation, password hashing, token revocation, the register PIN, and brute-force protection. Close
+those and this is a strong design.
 
 

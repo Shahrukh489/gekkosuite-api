@@ -682,6 +682,7 @@ re-checks on read (see `auth.md`); the trigger makes even a raw SQL write fail.
 | `role_permission_elevated_guard` | `role_permission` insert/update | an elevated (org-only) permission may only sit in an ORGANIZATION role | putting `user:create` into a store role, so a cashier could create users |
 | `membership_assignment_type_guard` | `membership_assignment` insert/update | a role's scope must match the membership's scope (store role → store membership, org role → org membership) | an org role on a store seat, giving a store employee org-wide reach |
 | `user_organization_membership` | `membership` insert/update |a user can only be given a membership in its own organization | a user getting a membership in another organization |
+| `membership_single_kind_guard` | `membership` insert/update | a user is **either** a store member **or** an org member — never both | giving an org user a store seat (or vice versa), mixing the two membership kinds |
 
 Why these are triggers, not CHECKs: `role_permission_elevated_guard` joins to `permission` and `role`,
 and `membership_assignment_type_guard` joins to `role` and `membership`. A `CHECK` can only see the row
