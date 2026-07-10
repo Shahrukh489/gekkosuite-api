@@ -9,7 +9,7 @@ user  ──<  membership  ──<  membership_assignment  >──  role  ──
 
 - **user** — an identity of a person
 
-- **membership** — a membership gives acess to a user at the `ORGANIZATION`, a `STORE`, or both.
+- **membership** — a membership gives access to a user at either the `ORGANIZATION` or a `STORE` — never both. A user is one kind or the other.
     - If the user has a `ORGANIZATION` membership, they are allowed to have an `ORGANIZATION` role, these are more powerful roles, and give the user access to all stores in the `ORGANIZATION` and also the `ORGANIZATION` itself.
       - An **organization** membership leaves `store_id` NULL and sets `scope` to `ORGANIZATION`.
     - If the user has a `STORE` membership, they are allowed to have an `STORE` role, these are roles that give the user access only to the `STORE` the membership is a part of.
@@ -286,7 +286,7 @@ RLS is a strong backstop, but it only protects you if it is deployed exactly rig
 
 There are scenarios where even if the user is authenticated and authorized, invalid operations and actions can be performed, the following section describes key areas where to add proper guardrails.
 
-- Do **not** allow a user to have a membership in a STORE and an ORGANIZATION, only one. That way a STORE user can never access ORGANIZATION data.  
+- Do **not** allow a user to have a membership in a STORE and an ORGANIZATION — only one. That way a STORE user can never access ORGANIZATION data. Enforce this on the write path when a membership is added: refuse it if the user already holds a membership of the other scope. (Allowing both is a possible future setting — see `post-mvp.md`.)  
 
 - Do **not** put a user's roles, permissions, or flattened access list in the JWT: a token that carries
 its own permissions can't be revoked, so a suspended or demoted user keeps their old access until the

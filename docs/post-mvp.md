@@ -70,50 +70,6 @@ One generic evaluator: `dto[field]  <operator>  value`. **No per-condition code*
 A **Store Admin cannot edit limits** — if a store manager wants a higher cap for their employees, they ask the org admin. This keeps it simple and **structurally removes any self-escalation risk**: the only editors are org-level, always setting limits *down* to a store, never their own. (If store-admin self-service is ever wanted, it's an additive change — grant `role_condition:edit` to a store role and add per-permission bounds so they can only move within an owner-set ceiling — but we deliberately don't do that now.)
 
 
-# FEATURE: Lock a user to one membership kind (org OR store, not both)
-
-In the MVP a user may hold **both** an org membership and store memberships at once (e.g. an owner who
-also works a register). Some businesses may prefer the simpler "a user is one kind only" rule.
-
-Add an organization setting — e.g. `allow_user_cross_memberships` (default TRUE = current behavior):
-
-- **TRUE** — a user may hold an org membership *and* store memberships (MVP behavior).
-- **FALSE** — a user is locked to a single kind: when a membership is *added*, refuse it if the user
-  already holds a membership of the other scope in that org.
-
-Enforcement is a **write-path guard** (like the other Write Guards in `database.md`) — it must read the
-user's other `membership` rows plus the org setting, which a `CHECK` can't do. If a DB-level backstop is
-wanted, it's a trigger on `membership`:
-
-```sql
--- Reject a membership whose kind conflicts with one the user already holds, when the org disallows crossing.
-CREATE FUNCTION enforce_single_membership_kind() RETURNS trigger AS $$
-BEGIN
-  IF NOT (SELECT o.allow_user_cross_memberships
-            FROM organization o WHERE o.organization_id = NEW.organization_id)
-     AND EXISTS (SELECT 1 FROM membership m
-                  WHERE m.user_id = NEW.user_id
-                    AND m.organization_id = NEW.organization_id
-                    AND NOT m.is_deleted
-                    AND m.scope <> NEW.scope)
-  THEN
-    RAISE EXCEPTION 'user % already holds a different-scope membership; cross-membership is disabled for org %',
-      NEW.user_id, NEW.organization_id;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER membership_single_kind_guard
-  BEFORE INSERT OR UPDATE ON membership
-  FOR EACH ROW EXECUTE FUNCTION enforce_single_membership_kind();
-```
-
-Note the **race**: an app-level "check then insert" can let two concurrent inserts both pass — the
-trigger checks siblings atomically, or code must lock the user's rows in the transaction. Also, toggling
-the setting OFF while a user *already* holds both kinds needs a decision (which membership to keep) —
-handle at toggle time, not per-request.
-
 
 # FEATURE: Custom Roles
 
