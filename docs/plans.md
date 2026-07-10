@@ -1,5 +1,3 @@
-# Plans
-
 ## Overview
 
 - An **organization** is on one **plan** ("Basic" or "Pro").

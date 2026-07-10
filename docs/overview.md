@@ -1,33 +1,28 @@
-# Overview
-
 | | |
 |---|---|
 | **Project** | GekkoSuite |
 | **Author** | Salman Hoosein |
 | **Version** | 1.0 |
+| **Description** | Easy to use and simply CRM/PoS that provides features to serve the daily operations of small organizations that can have up to multiple stores. |
 
 
-GekkoSuite is a easy to use and simply CRM/PoS that provides features to serve the daily operations of **small organizations that can have up to multiple stores**. 
+# Overview
 
+```mermaid
+flowchart TB
+    ORG["Organization<br/>(suppliers, purchases, expenses, users)"]
+    ST1["Store A<br/>(its products, customers, sales)"]
+    ST2["Store B<br/>(its products, customers, sales)"]
 
-# High-level design
+    ORG --> ST1
+    ORG --> ST2
 
-- **An organization owns many stores.** It onboards its **users** and gives each access to one or more
-  **stores** — and optionally to the **organization level** too, for people who oversee the whole
-  business.
-- **Selling always happens through a store.** A store is the real **business unit** — where sales and
-  money come in. You can't sell "at the org"; you sell at a store.
-- **Each store owns its selling data** — its products (each with their own stock and price), its
-  customers, and its sales and returns. By default a store stays in its own domain; one store's
-  products and customers aren't another's.
-- **The organization handles the central pieces** — it owns the **suppliers**, does all **purchasing**
-  and **expense** spending, manages **stores** and **users**, and decides whether products and
-  customers are shared. Money leaving the business is always an org action.
+    style ORG fill:#dbeafe,stroke:#93c5fd
+```
 
+- **Organization**
 
-# Features
-
-**Organization**
+An **organization** is the business. It owns many **stores** and **handles adminstration**: owns the suppliers, does all purchasing, expense spending, manages stores, creates users, etc...
 
 | Feature | What it allows |
 |---|---|
@@ -46,7 +41,9 @@ GekkoSuite is a easy to use and simply CRM/PoS that provides features to serve t
 | AI Recommendations | Get Organization based Recommendations. |
 | Org-level scope | Make org-level changes |
 
-**Store** 
+- **Store** 
+
+A **store** is where selling happens, you can't sell at the organization level. Each **store owns its own selling data**: its products (each with their own stock and price), its customers, and its sales and returns.
 
 | Feature | What it allows |
 |---|---|
@@ -61,12 +58,10 @@ GekkoSuite is a easy to use and simply CRM/PoS that provides features to serve t
 | Store-only scope | A store user only ever acts on their own store's data |
 
 
-# Documentation map
+# Documentation 
 
 The detail lives in focused docs:
 
-- **`tenancy.md`** — organizations & stores: who owns what (store products/customers with optional
-  org-wide sharing; org-owned suppliers/purchases/expenses), and how money flows.
 - **`auth.md`** — users, memberships, roles, permissions, and access (authn & authz).
 - **`plans.md`** — plans, features, and billing.
 - **`database.md`** — the database schema (tables, indexes, RLS).

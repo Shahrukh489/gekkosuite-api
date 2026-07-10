@@ -519,21 +519,7 @@ CREATE TABLE product (
 
 
 ```
-
-
-## A note on indexes
-
-Indexes are declared **inline, right after each table** above, so it's obvious what each table has.
-Guidelines used throughout:
-
-- Postgres auto-indexes primary keys and `UNIQUE` constraints, but **not** foreign-key columns — so we
-  add an explicit `CREATE INDEX` for the FK columns we actually filter or join on (mostly tenant scoping:
-  `organization_id`, `store_id`), or big-table queries become full scans.
-- A composite index (or composite PK) already covers its **leftmost** column, so we don't add a
-  separate single-column index a composite already handles.
-- We index deliberately, not reflexively — an FK column with no query that filters on it (e.g. an
-  actor/`created_by` column) gets no index until a report needs it.
-
+@TODO:
 ## Row-Level Security (tenant isolation floor)
 
 The application already scopes every query by `organization_id` / `store_id` (see `auth.md`). RLS is
@@ -676,14 +662,7 @@ automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns 
 | `store_customer (customer_id)` | **every store a customer shops at (loyalty)** |
 
 
-# Checks
-
-Reference for the integrity rules that go beyond keys and foreign keys. Two kinds:
-**`CHECK` constraints** — enforced by the database, on a single row's own columns; and
-**Write Guards** — rules that span *other* rows or tables (which a `CHECK` can't see), enforced in
-application code on the write path *before* the row is saved.
-
-## CHECK constraints (single-row rules)
+## CHECK constraints 
 
 | Table | The CHECK | Rule in plain words | What it prevents |
 |---|---|---|---|
@@ -691,15 +670,4 @@ application code on the write path *before* the row is saved.
 | `membership` | `CHECK ((scope = 'ORGANIZATION' AND store_id IS NULL) OR (scope = 'STORE' AND store_id IS NOT NULL))` | A membership is either at the **org** (so `store_id` must be NULL) or at a **store** (so `store_id` must be set). The `store_id` has to match the `scope`. | an org membership with a store set, or a store membership with no store |
 
 
-
-
-## Write Guards (enforced in code)
-
-These rules span *other* rows or tables — an insert has to look at a related `role`, `permission`, or
-`membership` to know if it's valid — so a `CHECK` can't express them. They're enforced in the
-**application service layer**, which validates the combination before saving. The authorization query
-also re-checks them on read as a backstop (see `auth.md`), so a bad row (if one ever slipped in) is
-ignored rather than trusted.
-
-| role-matches-membership | `membership_assignment` | a role's scope must match the membership's scope (store role → store membership, org role → org membership) | an org role on a store seat, giving a store employee org-wide reach |
 
