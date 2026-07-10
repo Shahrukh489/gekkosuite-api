@@ -6,3 +6,4 @@ security review of auth.md
 see how to do supabase db backups and replication
 cost analysis of infra and db breakdown and estimates
 finalize on products shared or not design 
+ask fable to attack and think of blue and red team for auth.md

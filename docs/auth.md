@@ -284,67 +284,147 @@ token expires.
 - When assigning a role to a user, only allow granting permissions the assigner **already holds** — a user can never grant more than they have (the escalation-ceiling / subset rule). This is the real fix for privilege escalation: it blocks an admin handing their own account a bigger role (self-escalation), granting a bigger role to *another* user, and two admins boosting each other (A grants B, B grants A)
 ---
 
-# Security Review
+# Security Review (Red Team / Blue Team)
 
-An adversarial pass over this design, thinking like an attacker trying to break tenant isolation,
-escalate privileges, or bypass the login.
+An adversarial pass over this design. For each attack (🔴 red team), the defensive fix (🔵 blue team).
 
-**Summary:** the authorization model is strong — the tenant boundary comes from the token, routing is by
-declared scope, each membership is checked on its own, elevated permissions are structurally contained,
-and there are two fail-closed nets (deny-by-default and RLS). The weakest area is **authentication** —
-the login, the token lifecycle, and the register PIN — where most of the top risks live.
+**Framing:** no system is "unbreakable" — security is depth, not perfection. The goal isn't a perfect
+wall; it's that **no single failure is uncaught** by a second layer. This design already thinks that way
+(deny-by-default, RLS floor, read-time backstops). The authorization engine is genuinely strong — every
+serious break below is in **authentication and the token** (the front door), not the RBAC chain.
 
 
 ## Critical
 
-- **JWT validation is not pinned down.** The whole design trusts that the token is genuine and that its
-  `organizationId` is the tenant wall. If the verifier accepts `alg: none`, allows an RS256→HS256
-  downgrade, or skips the signature / issuer / audience / expiry checks, an attacker can forge a token
-  with any `organizationId` and reach every tenant at once — the highest-impact bug possible here. Pin
-  the exact expected algorithm (reject `none`), verify the signature with a rotated key, and validate
-  `exp` / `iss` / `aud`.
-- **Password hashing is not specified.** Passwords must be stored with a slow, salted KDF (argon2id or
-  bcrypt); without it a database dump cracks every account. The schema column is named `password` — call
-  it `password_hash` and state the KDF so plaintext is never a temptation.
+**R1 — Forge a token, become any tenant.** The entire tenant wall is `context.organizationId`, taken from
+the JWT. If an attacker can mint a token, they set `organizationId` to any org and walk in. Ways in:
+`alg: none` accepted, RS256→HS256 algorithm confusion (sign with the public key), a weak or leaked
+signing secret, or missing `exp`/`iss`/`aud` checks (replay an old or foreign token).
+→ **Blue team:** §1 says "validate the JWT" but not *how*. Require explicitly: a pinned algorithm (reject
+`none`, no RS/HS ambiguity), a verified signature with a strong **rotated** key, and `exp` + `iss` + `aud`
+all checked. This is the most load-bearing paragraph in the doc and is currently one line.
+
+**R2 — Crack the password store.** No hashing is specified; a DB dump then cracks every account, feeding
+every other attack.
+→ **Blue team:** store passwords with a slow salted KDF (argon2id/bcrypt). Rename the `password` column
+to `password_hash` so plaintext is never a temptation.
 
 
 ## High
 
-- **No token revocation.** A token stays valid until it expires, so a fired or demoted employee keeps
-  access for the life of their JWT — which makes the `user.is_active` and membership kill switches
-  effectively cosmetic. Pick a mechanism: short-lived tokens with refresh, or a revocation deny-list.
-- **The register PIN (`store_pin`) is an unguarded second credential.** It's an authentication path with
-  no hashing, no rate-limit, no lockout, and no scope rule. A short PIN is trivially brute-forced, and if
-  it grants any action it becomes a backdoor around the JWT/RBAC design. Hash it, rate-limit it, and
-  scope it tightly — or state clearly that it is not an auth boundary.
-- **No brute-force protection on login.** With many low-privilege cashier accounts and no lockout,
-  credential stuffing is the realistic way in. Add login rate-limiting and account lockout/backoff.
-- **No MFA**, especially for org admins and the owner — the accounts that can drain the whole company.
+**R3 — Steal a token, use it after the victim is fired.** A stolen JWT (XSS, logs, a proxy) keeps working
+until `exp`, even after the user is disabled — defeating `user.is_active` and the membership kill switches
+for the token's lifetime.
+→ **Blue team:** short-lived access tokens + refresh, or a revocation deny-list (jti). Store the token
+**httpOnly** (not JS-readable) to cut XSS theft. State the TTL and storage policy in §1.
+
+**R4 — Brute-force the register PIN.** `store_pin` is a short secret with no hashing, no lockout, no
+rate-limit. If it authorizes anything, it's a side door around the whole JWT/RBAC design.
+→ **Blue team:** decide what the PIN *is*. If it's an auth boundary: hash it (same KDF as passwords),
+rate-limit + lock out per membership, and scope it to the narrowest action. If it's only a UX
+re-confirm on an already-authenticated session, say so — and ensure it can't stand in for real auth.
+
+**R5 — Credential-stuff the login.** Many low-value cashier accounts + no lockout = spray leaked password
+lists until one hits, then pivot to escalation.
+→ **Blue team:** login rate-limiting, account lockout/backoff, breached-password rejection, and **MFA for
+org admins and the owner** (the accounts that can drain the company).
+
+**R6 — Escalate via a second account.** A compromised low-value account that somehow holds `role:assign`
+(or an assign path that doesn't check the *assigner's* own power) creates account B and grants it more
+than the attacker has. Two compromised admins can also boost each other (A→B, B→A).
+→ **Blue team:** the **subset rule** in *Further additional security* closes this. Verify two things: it's
+checked **server-side, in the same transaction** as the write, comparing *effective* permission sets (not
+role names); and `role:assign` / `user:create` are themselves **elevated**, so a store role can never hold
+them.
 
 
 ## Medium
 
-- **Editing and deleting shared records is undefined.** A store user editing a shared `customer` or
-  `product` changes a record every store sees, and deleting one another store references could break it.
-  The create path is specified; the edit/delete rules are not. Decide them before shipping sharing.
-- **No audit logging.** Role grants/revokes, user create/delete, owner transfer, membership changes, PIN
-  changes, and sharing flips aren't recorded — so after an incident there's no way to answer "who did
-  this," and any privilege abuse is invisible.
+**R7 — Cross-store IDOR inside one org.** A Store-A user passes a Store-B resource id; authorization says
+"you're at Store A" ✅ but the record is B's. Refunds/edits leak across stores if the by-id query lacks
+`AND store_id`.
+→ **Blue team:** already defended in two layers — `store_id` in every by-id `WHERE`, plus store-level RLS
+on `app.current_store`. Residual risk is per-endpoint discipline; route all by-id reads through a shared
+repository that *always* injects the place filter, so a raw query can't skip it.
+
+**R8 — Mass-assignment / tenant-stamp bypass.** On create, the attacker POSTs
+`"organization_id": <another org>` hoping the server saves the body verbatim.
+→ **Blue team:** stamp the tenant from the token, never the body — and make it structural: the request DTO
+has no `organization_id`/`store_id` field to bind, plus an RLS `WITH CHECK` on insert. Never
+`db.Save(request)` a raw body onto an entity.
+
+**R9 — RLS silently off.** Not an attacker action, but a misconfig that hands over everything: if the app
+connects as the table **owner/superuser**, RLS is bypassed and every forgotten tenant filter becomes a
+live cross-tenant leak — and it looks normal in testing.
+→ **Blue team:** the doc calls out the non-owner role + `SET LOCAL`. Add a **startup self-test** that
+queries as a fake tenant and asserts zero rows, so a broken RLS deploy fails loudly. Verify migrations run
+as a *different* privileged role than the request path.
+
+**R10 — Editing/deleting shared records is undefined.** A store editing a shared `customer`/`product`
+changes what every store sees; deleting one another store references could break it. Create is specified;
+edit/delete aren't.
+→ **Blue team:** decide the rule (any store with the permission, or only the creating store; block delete
+while referenced) before shipping sharing.
+
+**R11 — Last-admin lockout / owner takeover.** Can an admin remove the org's last admin (self-inflicted
+DoS) or strip the owner?
+→ **Blue team:** the owner-as-column protects the owner. Add a guard that refuses to remove/deactivate the
+last effective admin.
+
+
+## Low
+
+**R12 — Account enumeration.** Login errors that distinguish "no such user" from "wrong password" let an
+attacker enumerate valid accounts.
+→ **Blue team:** uniform "invalid credentials" for both, constant-time compare, and don't leak which org
+an email belongs to. (Extends the 404-not-403 philosophy to the login.)
+
+**R13 — No audit trail.** After an escalation or leak there's no record of who granted what, created whom,
+or flipped a setting — so the breach is invisible and its blast radius unknowable.
+→ **Blue team:** append-only audit log for security events — role grant/revoke, user create/delete, owner
+transfer, membership changes, PIN changes, login failures/lockouts. Detection is a control, not an extra.
+
+
+## What's already strong (keep it)
+
+- Tenant boundary from the token, never client input.
+- Declared-scope routing (not URL-inferred) — less spoofable; makes elevated-permission containment structural.
+- Per-membership "any badge passes" evaluation with read-time backstops (`role.scope == membership.scope`).
+- Deny-by-default `FallbackPolicy` — forgotten auth = locked door.
+- Two-level RLS (org *and* store) — closes the same-org cross-store gap at the database.
+- Live role reads (no permissions cached in the JWT) — immediate permission revocation.
+- Subset rule for grants — the complete escalation ceiling.
+- Elevated-permission containment — even a misplaced elevated permission can't escalate.
+
+
+## Fix order
+
+| # | Fix | Why first |
+|---|---|---|
+| 1 | Pin JWT validation (alg, signature, exp/iss/aud, rotated key) | Total compromise; one paragraph closes it |
+| 2 | Password hashing (argon2id/bcrypt) + `password_hash` | DB dump = every account |
+| 3 | Token lifecycle (short TTL + refresh or deny-list; httpOnly) | Stolen/stale tokens defeat all kill switches |
+| 4 | `store_pin` spec (hash, lockout, scope) or declare it non-auth | Silent side door |
+| 5 | Login rate-limit + lockout + MFA for admins | Realistic entry point |
+| 6 | Verify subset rule + elevated flags on `role:assign`/`user:create` | Caps a single-account compromise |
+| 7 | RLS startup self-test + non-owner role verification | Silent-fail floor |
+| 8 | Audit log | Detection & forensics |
 
 
 ## Scorecard
 
 | Area | Grade | Note |
 |---|---|---|
-| Tenant isolation (cross-org) | A− | token-sourced org boundary; depends on solid JWT validation |
 | Authorization model | A | declared scope, per-membership checks, elevated-permission containment |
-| Cross-store (same-org) IDOR | A− | `store_id` in every by-id query, plus store-level RLS |
-| Privilege-escalation controls | B | escalation-ceiling (subset) rule in place |
-| Authentication (login / token / PIN) | D | hashing, brute-force, MFA, token revocation, PIN all open |
-| Auditing | D | none |
+| Tenant isolation (cross-org + cross-store) | A− | token-sourced boundary + two-level RLS; rests on solid JWT validation |
+| Privilege-escalation ceiling | B+ | subset rule specified; verify it's enforced server-side in-transaction |
+| Authentication (login / token / PIN) | D | JWT validation, hashing, token lifecycle, PIN, brute-force all open |
+| Auditing / detection | D | none |
 
-**Bottom line:** the authorization engine is solid. The ship-blocking work is all in **authentication** —
-JWT validation, password hashing, token revocation, the register PIN, and brute-force protection. Close
-those and this is a strong design.
+**Bottom line:** the authorization engine is excellent — hard to break by design. But a fortress with a
+strong vault and a flimsy front door is breached at the door, and every Critical/High finding is
+**authentication**: JWT validation, password hashing, token lifecycle, the PIN, and brute-force. "Unbreakable"
+isn't the target — **"no single failure is uncaught"** is, and you're close. Close items 1–5, add the audit
+log so an attack is *visible*, and this design earns its A.
 
 
