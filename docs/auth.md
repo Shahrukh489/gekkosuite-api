@@ -161,49 +161,51 @@ If the endpoint declares an `ORGANIZATION` scope (an org action), then the follo
 - If no, return **403** — only users with an `ORGANIZATION` membership and a role granting the permission can perform organization actions.
 
 
-- Sample Query depicting the authorization check:
+### Query
+
+A user can have many memberships. So we go through each one and ask: "does this membership let the user do the action?" If any single membership passes, the user is authorized. If none do, they are denied.
+
+The endpoint gives us two things to check against: its `requiredScope` (`STORE` or `ORGANIZATION`) and its `requiredPermission`.
+
+For each membership the user holds, we check the following in order:
+
+1. **Is the membership usable?** Skip it if it is not live (removed, suspended, or its role expired), if the role's scope does not match the membership's scope (ignore bad data), or if it is not in the user's organization from the token.
+
+2. **Does the membership reach the target?**
+   - For a `STORE` action: an `ORGANIZATION` membership passes (it reaches every store), or a `STORE` membership passes if it is on the requested store.
+   - For an `ORGANIZATION` action: only an `ORGANIZATION` membership passes.
+
+3. **Does its role grant the permission?** If the membership reached the target and its role has the `requiredPermission`, the user is authorized.
 
 ```
 allowed = false
 
-for each membership M the user holds:            -- check every membership on its own
+for each membership M the user holds:
     role = the role on M for this request
 
-    -- shared checks: is this membership even usable, and does it apply to this request?
+    -- 1. is this membership usable?
     if M is not live (removed / suspended / role expired):   continue
-    if role.scope != M.scope:          continue   -- ignore mismatched data
+    if role.scope != M.scope:                                continue   -- ignore bad data
+    if M.organization_id != context.organizationId:          continue   -- must be the user's org
 
-    if M is a STORE membership:            -- run the STORE rulebook
-        pass = request is a STORE action
-               and M.store_id == {storeId from the path}
-               and M.organization_id == context.organizationId
-               and requiredPermission.is_elevated == false
+    -- 2. does M reach what the endpoint targets?
+    if endpoint.requiredScope == 'STORE':
+        reached = ( M.scope == 'ORGANIZATION' )                              -- org reaches every store
+               or ( M.scope == 'STORE' and M.store_id == {storeId in path} ) -- or the store itself
+    else:  -- ORGANIZATION action
+        reached = ( M.scope == 'ORGANIZATION' )
 
-    if M is an ORGANIZATION membership:    -- run the ORG rulebook
-        pass = M.organization_id == context.organizationId
-               and ( request is an ORG action
-                     or ( request is a STORE action
-                          and store({storeId}).organization_id == context.organizationId ) )
-
-    -- the final question, for a membership that applies: does its role grant the permission?
-    if pass and role has requiredPermission:
+    -- 3. does its role grant the permission?
+    if reached and role has requiredPermission:
         allowed = true; break
 
-return allowed        -- one membership passed everything → allow ; otherwise → 403
+return allowed
 ```
 
-@TODO:
-Two of these checks are also **safety nets**: `role.scope == M.scope` and the
-`is_elevated == false` rule re-verify things that are *also* guaranteed when data is saved (see
-*Write-time security*). So even if a bad record ever got into the database — an org-only permission in
-a store role, or a role on the wrong kind of membership — the loop simply ignores it. We never trust
-the stored data blindly; we re-check it on every request.
 
+## Further additional security
 
-
-##  Further additional security
-
-There are many scenarios where even if the user is authenticated and authorized, invalid operations and actions can be performed, the following section describes key areas where to add proper guardrails.
+There are scenarios where even if the user is authenticated and authorized, invalid operations and actions can be performed, the following section describes key areas where to add proper guardrails.
 
 - Do **not** put a user's roles, permissions, or flattened access list in the JWT: a token that carries
 its own permissions can't be revoked, so a suspended or demoted user keeps their old access until the
@@ -218,6 +220,7 @@ actually belongs to the target in the request. For example if the user requests 
 
 - When assigning a role to a membership, check if the scope of the role matches the scope of the membership. For example a role with scope `STORE` can only exist on a membership with scope `STORE`. This will prevent from ever assigning a role with scope `ORGANIZATION` to a membership with scope `STORE`.
 
+- When inserting a user's membership never allow to create a membership in another organization.
 
 
 ### Working with Shared Resources (Product/Customer/..)

@@ -671,3 +671,18 @@ automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns 
 
 
 
+## Optional Triggers (multi-row / cross-table rules)
+
+These guard invariants a `CHECK` can't express because they read *sibling rows* or *other tables*. Each
+is an **optional database backstop** — the app service method is the primary guard and the authz query
+re-checks on read (see `auth.md`); the trigger makes even a raw SQL write fail.
+
+| Trigger | On | Rule | What it prevents |
+|---|---|---|---|
+| `role_permission_elevated_guard` | `role_permission` insert/update | an elevated (org-only) permission may only sit in an ORGANIZATION role | putting `user:create` into a store role, so a cashier could create users |
+| `membership_assignment_type_guard` | `membership_assignment` insert/update | a role's scope must match the membership's scope (store role → store membership, org role → org membership) | an org role on a store seat, giving a store employee org-wide reach |
+| `user_organization_membership` | `membership` insert/update |a user can only be given a membership in its own organization | a user getting a membership in another organization |
+
+Why these are triggers, not CHECKs: `role_permission_elevated_guard` joins to `permission` and `role`,
+and `membership_assignment_type_guard` joins to `role` and `membership`. A `CHECK` can only see the row
+being written, so neither can be expressed as one.
