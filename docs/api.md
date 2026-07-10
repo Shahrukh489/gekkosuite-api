@@ -22,6 +22,24 @@
 │ 10  │ Plans & Features               │ billing                                        │
 └─────┴────────────────────────────────┴────────────────────────────────────────────────┘
 
+# Flows
+
+The ordered API calls a client makes for each scenario.
+
+**Sign up (new tenant):**
+1. `GET /plans` — show plan options on the signup page.
+2. `POST /onboarding` — create the org, owner (pending), plan, and first store.
+3. `POST /onboarding/verify` — owner clicks the email link to activate the account.
+
+**Log in:**
+1. `POST /auth/login` — get an access token.
+2. `GET /auth/me` — get the user and their switcher list (org and/or stores).
+3. Enter a place from the switcher — load that context (org or store).
+
+**Log out:**
+1. `POST /auth/logout` — end the session.
+
+---
 
 ## Onboarding
 
@@ -62,8 +80,7 @@ verification. The owner account is created **pending** and cannot log in until v
 ### Sign up - @TODO: investigate
 
 - **Description:** Creates a new tenant in one transaction — the organization, its owner (pending email
-  verification), the chosen plan, and a first store. Sends a verification email. Returns **no token**;
-  the owner must verify their email, then log in.
+  verification), the chosen plan, and a first store. Sends a verification email and returns no token.
 - **Security:** public **and** it writes data, so this is the main abuse target. Layer these:
   - **Email verification** — the account is created *pending* and inert until verified; a background job hard-deletes unverified signups after ~24–48h.
   - **Rate-limit by IP and by email** — caps volume and prevents email-bombing a victim.
@@ -114,7 +131,7 @@ verification. The owner account is created **pending** and cannot log in until v
 ### Verify email
 
 - **Description:** Confirms the owner's email using the token from the verification email, activating the
-  account. After this, the owner can log in via `/auth/login`.
+  account.
 - **Security:** public, so protect against token-guessing.
   - **Single-use, expiring tokens** — high-entropy, invalidated after first use, short lifetime.
   - **Rate-limit by IP** — stops brute-forcing verification tokens.
@@ -146,8 +163,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 
 ### Login
 
-- **Description:** Exchanges an email and password for an access token. This is the entry point — the
-  returned token is sent on every subsequent request.
+- **Description:** Exchanges an email and password for an access token.
 - **Method:** `POST`
 - **URL:** `/auth/login`
 - **Scope:** _(public — no token required)_
@@ -180,9 +196,9 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 
 ### Get current user (me)
 
-- **Description:** Returns the logged-in user along with their memberships and the permissions they hold
-  at each place. The UI calls this right after login to decide what to show — an `ORGANIZATION` membership
-  unlocks the org context (Dashboard, Users, Settings…), while `STORE` memberships unlock those stores.
+- **Description:** Returns the logged-in user and the list of places they can act — the organization
+  and/or stores — as lightweight entries (id, name, type, role), without permissions. An org user gets
+  the organization plus every store in it; a store user gets only the stores they belong to.
 - **Method:** `GET`
 - **URL:** `/auth/me`
 - **Scope:** _(any authenticated user)_
@@ -191,28 +207,44 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   - `Authorization: Bearer <accessToken>`
 - **Request Body:** _(none)_
 - **Response Status:** `200 OK`
-- **Response Body:**
+- **Response Body** (org user — org + all stores):
 
   ```json
   {
     "user": {
       "userId": "u1...",
       "name": "Maria",
-      "email": "maria@acme.com"
+      "email": "maria@acme.com",
+      "organizationId": "acme..."
     },
-    "organizationId": "acme...",
-    "organizationMembership": {
-      "permissions": ["organization:read", "user:create", "store:create"]
-    },
-    "storeMemberships": [
-      {
-        "storeId": "s1...",
-        "storeName": "Downtown",
-        "permissions": ["product:read", "sale:create", "order:refund"]
-      }
+    "memberships": [
+      { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "role": "Org Admin" },
+      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Org Admin" },
+      { "type": "STORE", "storeId": "s2...", "name": "Uptown", "role": "Org Admin" }
     ]
   }
   ```
+
+- **Response Body** (store user — only their stores):
+
+  ```json
+  {
+    "user": {
+      "userId": "u2...",
+      "name": "Bob",
+      "email": "bob@acme.com",
+      "organizationId": "acme..."
+    },
+    "memberships": [
+      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Cashier" }
+    ]
+  }
+  ```
+
+  - **`memberships`** — each entry carries its `type` (`ORGANIZATION` or `STORE`), the place's id and
+    `name`, and the `role` the user holds there. An org user gets the `ORGANIZATION` entry plus every
+    store (the same org role name on each, e.g. `Org Admin`); a store user gets just their stores with
+    their store role at each. Permissions are not included.
 
 - **Errors:**
   - `401` — not authenticated
@@ -233,3 +265,89 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   - `401` — not authenticated
 
 ---
+
+## Organizations
+
+The organization is the tenant. There's exactly one per caller, and the `{organizationId}` in the path
+must match the caller's org (from the token) — any other id returns `404`. The resource, the caller's
+permissions, and the plan's enabled features are three separate endpoints.
+
+### Get organization
+
+- **Description:** Returns the organization — its name, plan, default store, and settings.
+- **Method:** `GET`
+- **URL:** `/organizations/{organizationId}`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `organization:read`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "organizationId": "acme...",
+    "name": "Acme Inc",
+    "description": "Coffee chain",
+    "planId": "plan_pro",
+    "defaultStoreId": "s1...",
+    "allowShareProducts": false,
+    "createdAt": "2026-01-05T12:00:00Z"
+  }
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — lacks `organization:read`
+  - `404` — the `organizationId` is not the caller's org
+
+### Get my organization permissions
+
+- **Description:** Returns the permissions the caller holds in the organization. Used by the UI to show
+  or hide org tabs and actions.
+- **Method:** `GET`
+- **URL:** `/organizations/{organizationId}/permissions`
+- **Scope:** `ORGANIZATION`
+- **Permission:** _(none beyond an org membership)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "permissions": ["organization:read", "user:create", "store:create", "product:edit", "order:refund"]
+  }
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — the caller has no organization membership
+  - `404` — the `organizationId` is not the caller's org
+
+### Get organization features
+
+- **Description:** Returns the feature codes the organization's plan enables. Used by the UI to show or
+  hide features across the org.
+- **Method:** `GET`
+- **URL:** `/organizations/{organizationId}/features`
+- **Scope:** `ORGANIZATION`
+- **Permission:** _(none beyond an org membership)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "features": ["reports", "returns", "multi_store", "ai_chatbot"]
+  }
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — the caller has no organization membership
+  - `404` — the `organizationId` is not the caller's org
