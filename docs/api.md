@@ -234,9 +234,8 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
       "organizationId": "acme..."
     },
     "subscription": {
-      "status": "UNPAID",
       "readOnly": true,
-      "message": "Payment overdue — the account is read-only until billing is updated."
+      "message": "Contact Organization Admin."
     },
     "memberships": [
       { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Cashier" }
@@ -245,16 +244,22 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   ```
 
   - **`subscription`** — the org's overall billing state (derived from its live subscriptions), so the
-    UI can react globally on load:
-    - `status` — the effective status: `TRIALING` / `ACTIVE` / `PAST_DUE` / `UNPAID` / `CANCELED`.
-      (An org can hold several subscriptions — e.g. Basic + a Pro trial — but this is the single derived
-      status the UI needs.)
-    - `readOnly` — convenience boolean: `true` when writes are blocked (overdue: `UNPAID` / `CANCELED`).
-      The UI disables write buttons and shows a "pay now" banner/modal when this is `true`.
-    - `message` — text for that banner/modal (`null` when nothing to show).
+    UI can react globally on load. **The detail depends on the user type**, since billing internals are
+    org-level info a store user shouldn't see:
+    - **Org user** — full: `status` (`TRIALING` / `ACTIVE` / `PAST_DUE` / `UNPAID` / `CANCELED`),
+      `readOnly`, and a `message` (with a "pay now" prompt when overdue). An org can hold several live
+      subscriptions, but this is the single derived status.
+    - **Store user** — minimal: just `readOnly` and a generic `message` ("Contact Organization Admin.").
+      No `status` or billing internals — a cashier only needs to know the app is read-only and who to ask.
+    - `readOnly` — the boolean both types get: `true` when writes are blocked (overdue: `UNPAID` /
+      `CANCELED`). The UI disables write buttons and shows the message when this is `true`.
 
-    This is the UI *hint*; the server still enforces it — a write while read-only returns `402` (see
-    `auth.md`'s subscription gate), which the UI treats as "show the pay modal" in case the hint was stale.
+    Note this is separate from the feature endpoints: `/features` returns what the plan *includes* (a
+    missed payment doesn't remove features — an unpaid Pro org still lists Pro features), while
+    `subscription.readOnly` says whether the org is *frozen from writing*. Features = what exists;
+    `readOnly` = whether you're locked out. This is the UI *hint*; the server still enforces it — a write
+    while read-only returns `402` (see `auth.md`'s billing gate), which the UI treats as "show the pay
+    modal" in case the hint was stale.
   - **`memberships`** — each entry carries its `type` (`ORGANIZATION` or `STORE`), the place's id and
     `name`, and the `role` the user holds there. An org user gets the `ORGANIZATION` entry plus every
     store (the same org role name on each, e.g. `Org Admin`); a store user gets just their stores with

@@ -10,3 +10,4 @@ ask fable to attack and think of blue and red team for auth.md
 what if org is deleted
 what if org is not paying subscription  
 - how to get payments and change status of organization (stripe webhooks???)
+- create libraries for auth and plans etc.. common stuff I can add to other SaaS projects
