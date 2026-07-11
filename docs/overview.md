@@ -36,7 +36,7 @@ An **organization** is the business. It owns many **stores** and **handles admin
 | Stores | Create and manage stores. |
 | Products | Manage Products across all stores. |
 | Customers | Manage Customers across all stores. |
-| Plan | Hold the org's plan; its features are scoped per store or per org (stores get the store-scoped ones). |
+| Plan | The org's plan subscription(s); features are scoped per store or per org (stores get the store-scoped ones). |
 | AI Chatbot | Feed KB to AI chatbot, and let each store owner chat with it. |
 | AI Recommendations | Get Organization based Recommendations. |
 | Org-level scope | Make org-level changes |

@@ -72,7 +72,8 @@ verification. The owner account is created **pending** and cannot log in until v
 ### Sign up - @TODO: investigate
 
 - **Description:** Creates a new tenant in one transaction — the organization, its owner (pending email
-  verification), the chosen plan, and a first store. Sends a verification email and returns no token.
+  verification), a **subscription** to the chosen plan (status `TRIALING` or `ACTIVE`), and a first
+  store. Sends a verification email and returns no token.
 - **Security:** public **and** it writes data, so this is the main abuse target. Layer these:
   - **Email verification** — the account is created *pending* and inert until verified; a background job hard-deletes unverified signups after ~24–48h.
   - **Rate-limit by IP and by email** — caps volume and prevents email-bombing a victim.
@@ -243,10 +244,13 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   }
   ```
 
-  - **`subscription`** — the org's billing state, so the UI can react globally on load:
-    - `status` — `TRIALING` / `ACTIVE` / `PAST_DUE` / `UNPAID` / `CANCELED`.
-    - `readOnly` — convenience boolean: `true` when writes are blocked (`UNPAID` / `CANCELED`). The UI
-      disables write buttons and shows a "pay now" banner/modal when this is `true`.
+  - **`subscription`** — the org's overall billing state (derived from its live subscriptions), so the
+    UI can react globally on load:
+    - `status` — the effective status: `TRIALING` / `ACTIVE` / `PAST_DUE` / `UNPAID` / `CANCELED`.
+      (An org can hold several subscriptions — e.g. Basic + a Pro trial — but this is the single derived
+      status the UI needs.)
+    - `readOnly` — convenience boolean: `true` when writes are blocked (overdue: `UNPAID` / `CANCELED`).
+      The UI disables write buttons and shows a "pay now" banner/modal when this is `true`.
     - `message` — text for that banner/modal (`null` when nothing to show).
 
     This is the UI *hint*; the server still enforces it — a write while read-only returns `402` (see

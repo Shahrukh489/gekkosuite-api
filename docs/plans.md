@@ -1,23 +1,26 @@
 ## Overview
 
-- An **organization** is on one **plan** ("Basic" or "Pro").
+- An **organization** subscribes to **plans** (usually one, e.g. "Basic" or "Pro"). The link is a
+  **`subscription`** row (org → plan) with a billing status; there are no per-store plans.
 - A plan has a **price per store** and a set of **features** (reports, returns, billing, multi-store, ai, etc.).
-- **The organization is on the plan; there are no per-store plans.** The plan is bought once at the organization.
+- **An org can hold more than one live subscription** — e.g. a paid Basic plus a free Pro trial. When it
+  does, the org's **effective features are the union** of all its live subscriptions' plans (the Pro
+  trial adds Pro's features on top of Basic). Most orgs have just one.
 - **Each feature has a scope — `STORE` or `ORGANIZATION`** (see the `feature` table in `database.md`). This decides *where* it applies:
     - **`ORGANIZATION`** features are org-level capabilities (billing, multi-store, cross-store reports). They apply to the organization itself.
     - **`STORE`** features are store-level capabilities (returns, AI recommendations, store reports). Every store in the org gets the plan's store-scoped features.
     - A capability that's needed in *both* places is two separate features — one per scope.
-- **New features spread automatically.** Features are read through the plan, so adding or removing a feature on a plan instantly updates every organization on that plan (and its stores, for store-scoped features).
-- The **bill = the plan's per-store price × the number of stores**.
+- **New features spread automatically.** Features are read through the plan, so adding or removing a feature on a plan instantly updates every organization subscribed to that plan (and its stores, for store-scoped features).
+- The **bill = the plan's per-store price × the number of stores** (per paid subscription).
 
 ```
-Organization → Plan (price per store + features)
-                       │
-        ┌──────────────┴───────────────┐
-        │                              │
-   ORGANIZATION-scoped features    STORE-scoped features
-   (billing, multi_store, ...)     (returns, ai, reports, ...)
-   apply to the org                every store gets these
+Organization → subscription(s) → Plan (price per store + features)
+                                     │
+        ┌────────────────────────────┴───────────┐
+        │                                        │
+   ORGANIZATION-scoped features              STORE-scoped features
+   (billing, multi_store, ...)               (returns, ai, reports, ...)
+   apply to the org                          every store gets these
 
 Pro plan: $150/store
   ORGANIZATION features: [billing, multi_store, cross_store_reports]

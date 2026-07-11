@@ -222,13 +222,14 @@ for each membership M the user holds:
 if not allowed:
     return 403                        -- the user isn't allowed
 
--- 4. feature gate: is this a paid capability the org's plan must include?
+-- 4. feature gate: is this a paid capability covered by the org's effective features?
+--    effective features = union of features across the org's live subscriptions' plans
 if endpoint.requiredFeature is set:
-    if org's plan does NOT include (endpoint.requiredFeature, endpoint.requiredFeatureScope):
-        return 402                    -- allowed, but the plan doesn't cover it
+    if org's effective features do NOT include (endpoint.requiredFeature, endpoint.requiredFeatureScope):
+        return 402                    -- allowed, but no current plan covers it
 
--- 5. subscription gate: is the org paid up? (reads always allowed; writes blocked when overdue)
-if request is a write and org.subscription.status in ('UNPAID', 'CANCELED'):
+-- 5. billing gate: is the org paid up? (reads always allowed; writes blocked when overdue)
+if request is a write and org is overdue (a live subscription is UNPAID / CANCELED):
     return 402                        -- allowed, but the account is overdue
 
 return 200                            -- allowed, plan covers it, and billing is in good standing
