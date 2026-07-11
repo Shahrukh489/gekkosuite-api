@@ -154,16 +154,17 @@ If the endpoint declares a `STORE` scope (a store action), then the following ru
 - If yes, the user is allowed — proceed to check 4.
 - If no, return **403** — the user has neither an `ORGANIZATION` membership that reaches this store, nor a valid `STORE` membership on it with the permission.
 
-**4. If the endpoint declares a required feature, does the org's plan include that feature at the declared `requiredFeatureScope`?**
+**4. If the endpoint declares a required feature, do the org's effective features include it at the declared `requiredFeatureScope`?**
 
+- The org's **effective features** are the **union** of the features of every **live** subscription's plan (so a Basic plan plus a live Pro trial gives the org Basic's *and* Pro's features).
 - If the endpoint declares **no** feature → skip this; the action isn't plan-gated (e.g. selling, reading). User is authorized.
-- If the plan **includes** the feature (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
-- If the plan **does not** include it → return **402 Payment Required** — the user is allowed, but their plan doesn't cover this. (Distinct from `403` so the client can prompt an upgrade.)
+- If the effective features **include** it (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
+- If they **do not** → return **402 Payment Required** — the user is allowed, but no current plan covers this. (Distinct from `403` so the client can prompt an upgrade.)
 
-**5. Is the org's subscription in good standing (the billing gate)?**
+**5. Is the org's billing in good standing (the billing gate)?**
 
-- `ACTIVE` / `TRIALING`, or `PAST_DUE` (still in the grace period) → allowed.
-- `UNPAID` / `CANCELED` → the account is overdue. **Reads are still allowed** (they can see and export their data), but **writes return 402 Payment Required**. Billing endpoints stay open so they can pay and recover.
+- Its live subscriptions are all `ACTIVE` / `TRIALING`, or `PAST_DUE` (still in the grace period) → allowed.
+- The org is overdue (a live subscription is `UNPAID` / `CANCELED` with nothing keeping it current) → **reads are still allowed** (they can see and export their data), but **writes return 402 Payment Required**. Billing endpoints stay open so they can pay and recover.
 
 
 If the endpoint declares an `ORGANIZATION` scope (an org action), then the following rules must ALL be satisfied in order:
@@ -173,16 +174,17 @@ If the endpoint declares an `ORGANIZATION` scope (an org action), then the follo
 - If yes, the user is allowed — proceed to check 2.
 - If no, return **403** — only users with an `ORGANIZATION` membership and a role granting the permission can perform organization actions.
 
-**2. If the endpoint declares a required feature, does the org's plan include that feature at the declared `requiredFeatureScope`?**
+**2. If the endpoint declares a required feature, do the org's effective features include it at the declared `requiredFeatureScope`?**
 
+- The org's effective features are the **union** of every live subscription's plan features.
 - If the endpoint declares **no** feature → skip this; the action isn't plan-gated. User is authorized.
-- If the plan **includes** the feature (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
-- If the plan **does not** include it → return **402 Payment Required** — the user is allowed, but their plan doesn't cover this. (Distinct from `403` so the client can prompt an upgrade.)
+- If the effective features **include** it (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
+- If they **do not** → return **402 Payment Required** — the user is allowed, but no current plan covers this. (Distinct from `403` so the client can prompt an upgrade.)
 
-**3. Is the org's subscription in good standing (the billing gate)?**
+**3. Is the org's billing in good standing (the billing gate)?**
 
-- `ACTIVE` / `TRIALING`, or `PAST_DUE` (still in the grace period) → allowed.
-- `UNPAID` / `CANCELED` → **reads are still allowed**, but **writes return 402 Payment Required**. Billing endpoints stay open so they can pay and recover.
+- Live subscriptions all `ACTIVE` / `TRIALING` / `PAST_DUE` (grace) → allowed.
+- Overdue (`UNPAID` / `CANCELED`) → **reads still allowed**, but **writes return 402 Payment Required**. Billing endpoints stay open so they can pay and recover.
 
 > These billing checks (feature, subscription) run **after** the permission checks on purpose: *who you are* (authorization) is the hard boundary, checked first; *what your plan covers and whether you've paid* is only relevant once you're already allowed. So an unauthorized user gets `403` and learns nothing about the org's plan or billing, while someone who's allowed but under-plan or overdue gets `402`. Permissions come from the user's role; features and subscription status come from the org (see `plans.md`).
 
