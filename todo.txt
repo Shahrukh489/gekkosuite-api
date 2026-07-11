@@ -7,3 +7,6 @@ see how to do supabase db backups and replication
 cost analysis of infra and db breakdown and estimates
 finalize on products shared or not design 
 ask fable to attack and think of blue and red team for auth.md
+what if org is deleted
+what if org is not paying subscription  
+- how to get payments and change status of organization (stripe webhooks???)

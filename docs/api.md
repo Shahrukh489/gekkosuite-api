@@ -209,6 +209,11 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
       "email": "maria@acme.com",
       "organizationId": "acme..."
     },
+    "subscription": {
+      "status": "ACTIVE",
+      "readOnly": false,
+      "message": null
+    },
     "memberships": [
       { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "role": "Org Admin" },
       { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Org Admin" },
@@ -217,7 +222,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   }
   ```
 
-- **Response Body** (store user — only their stores):
+- **Response Body** (store user — only their stores, and the org is overdue → read-only):
 
   ```json
   {
@@ -227,12 +232,25 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
       "email": "bob@acme.com",
       "organizationId": "acme..."
     },
+    "subscription": {
+      "status": "UNPAID",
+      "readOnly": true,
+      "message": "Payment overdue — the account is read-only until billing is updated."
+    },
     "memberships": [
       { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Cashier" }
     ]
   }
   ```
 
+  - **`subscription`** — the org's billing state, so the UI can react globally on load:
+    - `status` — `TRIALING` / `ACTIVE` / `PAST_DUE` / `UNPAID` / `CANCELED`.
+    - `readOnly` — convenience boolean: `true` when writes are blocked (`UNPAID` / `CANCELED`). The UI
+      disables write buttons and shows a "pay now" banner/modal when this is `true`.
+    - `message` — text for that banner/modal (`null` when nothing to show).
+
+    This is the UI *hint*; the server still enforces it — a write while read-only returns `402` (see
+    `auth.md`'s subscription gate), which the UI treats as "show the pay modal" in case the hint was stale.
   - **`memberships`** — each entry carries its `type` (`ORGANIZATION` or `STORE`), the place's id and
     `name`, and the `role` the user holds there. An org user gets the `ORGANIZATION` entry plus every
     store (the same org role name on each, e.g. `Org Admin`); a store user gets just their stores with
