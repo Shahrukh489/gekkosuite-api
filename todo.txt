@@ -11,3 +11,23 @@ what if org is deleted
 what if org is not paying subscription  
 - how to get payments and change status of organization (stripe webhooks???)
 - create libraries for auth and plans etc.. common stuff I can add to other SaaS projects
+
+MISSING SAAS SECTIONS (peers of RBAC/Plans/Tenancy)
+platform (every SaaS):
+- billing & payments (invoices, payment methods, tax, proration, refunds, dunning) - the money, not just the plan model
+- identity & accounts (password reset, invitations, profile, change email/password, MFA, SSO)
+- audit & activity (immutable log of who did what, when)
+- notifications (email, in-app, SMS, push, preferences)
+- team & invitations (invite people, pending invites, seat management)
+- org/workspace settings (branding, locale, timezone, tax config, business hours)
+- integrations / marketplace (connect other tools, API keys, outbound webhooks)
+- compliance & data rights (data export, account deletion, consent/terms tracking, PII handling)
+- analytics & reporting (dashboards, metrics, exports)
+- support & help (in-app help, tickets, feedback, changelog/announcements)
+- onboarding & setup (guided setup checklist, sample data, invite team)
+
+pos-specific (our domain):
+- inventory management (reorder points, stock counts, transfers)
+- promotions & discounts (coupons, sales, price rules)
+- cash management (register open/close, drawer counts, reconciliation)
+- employee/shift management (clock in/out, who's on the register - ties to store_pin)
