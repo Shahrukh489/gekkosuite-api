@@ -1,4 +1,43 @@
 
+# Summary
+
+Every endpoint at a glance. Detail (headers, bodies, errors) is in each section below.
+
+| Endpoint | Description | Scope |
+|---|---|---|
+| `GET /plans` | List the available plans for the signup page. | public |
+| `POST /onboarding` | Create a tenant — org, owner (pending), subscription, first store. | public |
+| `POST /onboarding/verify` | Verify the owner's email and activate the account. | public |
+| `POST /auth/login` | Exchange email + password for an access token. | public |
+| `GET /user` | The current user and their memberships (self read). | any authenticated |
+| `POST /auth/logout` | End the session and invalidate the token. | any authenticated |
+| `GET /organization` | The org record + its billing state. | ORGANIZATION |
+| `GET /organization/permissions` | The caller's permissions in the org. | ORGANIZATION |
+| `GET /organization/features` | The org-scoped features the plan enables. | ORGANIZATION |
+| `POST /users` | Create a user (login only, no membership). | ORGANIZATION |
+| `GET /users` | List the org's users (identity only). | ORGANIZATION |
+| `GET /users/{userId}` | One user's record + full memberships (admin detail). | ORGANIZATION |
+| `PATCH /users/{userId}` | Update a user's profile (name, phone). | ORGANIZATION |
+| `POST /users/{userId}/deactivate` | Turn a user account off (kill switch). | ORGANIZATION |
+| `POST /users/{userId}/activate` | Turn a user account back on. | ORGANIZATION |
+| `POST /users/{userId}/memberships` | Grant a membership + role. | ORGANIZATION |
+| `DELETE /users/{userId}/memberships/{membershipId}` | Remove a membership entirely. | ORGANIZATION |
+| `POST /users/{userId}/memberships/{membershipId}/deactivate` | Suspend a membership (org route, any membership). | ORGANIZATION |
+| `POST /users/{userId}/memberships/{membershipId}/activate` | Restore a membership (org route). | ORGANIZATION |
+| `GET /roles` | List assignable roles for the picker (`?scope=` filter). | ORGANIZATION |
+| `GET /roles/{roleId}` | One role + the permissions it grants. | ORGANIZATION |
+| `GET /permissions` | List the permission catalog (resource, action, elevated). | ORGANIZATION |
+| `GET /stores` | List the org's stores (roster). | ORGANIZATION |
+| `POST /stores` | Create a store (raises the per-store bill). | ORGANIZATION |
+| `PATCH /stores/{storeId}` | Update a store's details. | ORGANIZATION |
+| `DELETE /stores/{storeId}` | Soft-delete a store (not the default). | ORGANIZATION |
+| `GET /stores/{storeId}` | One store's full record + read-only flag. | STORE |
+| `GET /stores/{storeId}/features` | The store-scoped features the plan enables. | STORE |
+| `GET /stores/{storeId}/permissions` | The caller's permissions in this store. | STORE |
+| `GET /stores/{storeId}/users` | The store's staff roster. | STORE |
+| `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/deactivate` | Suspend a membership at this store (store route). | STORE |
+| `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/activate` | Restore a membership at this store (store route). | STORE |
+
 # Sections
 
 The API is organized by **who owns the resource**. Four top-level sections; everything else nests under
@@ -306,16 +345,36 @@ The org resource itself, the caller's permissions in it, and the plan's enabled 
     "billing": {
       "status": "PAST_DUE",
       "readOnly": false,
-      "message": "Your payment is overdue. Pay now to avoid losing write access."
+      "message": "Your payment is overdue. Pay now to avoid losing write access.",
+      "storeCount": 3,
+      "subscriptions": [
+        {
+          "subscriptionId": "sub1...",
+          "planId": "plan_pro",
+          "planName": "Pro",
+          "status": "PAST_DUE",
+          "pricePerStore": 150.00,
+          "trialEndsAt": null,
+          "currentPeriodEnd": "2026-08-01T00:00:00Z"
+        }
+      ]
     }
   }
   ```
 
-  - **`billing`** — the org's overall billing state, derived from its live subscriptions:
-    - `status` — one of `TRIALING` / `ACTIVE` / `PAST_DUE` / `UNPAID` / `CANCELED`.
+  - **`billing`** — the org's overall billing state, plus its subscription detail (this is the Billing
+    screen's data; there's no separate subscription endpoint):
+    - `status` — the org's overall status, one of `TRIALING` / `ACTIVE` / `PAST_DUE` / `UNPAID` /
+      `CANCELED`, derived across its live subscriptions.
     - `readOnly` — `true` when writes are blocked (overdue: `UNPAID` / `CANCELED`). The UI disables write
       buttons and shows `message` when this is `true`.
     - `message` — a human prompt (with a "pay now" call to action when overdue); `null` when all is well.
+    - `storeCount` — the org's active store count (the per-store billing quantity; see `plans.md` →
+      *Billing & store count*).
+    - `subscriptions` — the org's **live** subscriptions (usually one). Each carries its plan, per-plan
+      `status`, `pricePerStore`, `trialEndsAt`, and `currentPeriodEnd`. An org can hold more than one live
+      subscription (e.g. a paid Basic + a Pro trial); the org's effective features are the union of all of
+      them (see `plans.md`). The bill is `sum over paid subscriptions of pricePerStore × storeCount`.
     - This is separate from features: `GET .../features` returns what the plan *includes* (a missed
       payment doesn't strip features — an unpaid Pro org still lists Pro features), while `readOnly` says
       whether the org is *frozen from writing*. It's a UI hint; the server still enforces it — a write
@@ -730,6 +789,100 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `403` — lacks `membership:activate`
   - `404` — the user or membership is not in the caller's org
 
+#### List roles
+
+- **Description:** Lists the roles that can be assigned to memberships — used by the "assign role" picker.
+  For MVP these are the **managed** roles we ship (e.g. Cashier, Manager, Org Admin); once custom roles
+  exist, an org's own roles appear here too. Roles are **typed** (`STORE` / `ORGANIZATION`) and must match
+  the membership they're assigned to, so the picker filters by `?scope=` — pass the kind of membership
+  being granted to get only the roles valid for it.
+- **Method:** `GET`
+- **URL:** `/roles`
+- **Query:** `?scope=STORE` or `?scope=ORGANIZATION` _(optional; omit to return all)_
+- **Scope:** `ORGANIZATION`
+- **Permission:** `role:read`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  [
+    { "roleId": "role_cashier", "name": "Cashier", "description": "Ring up sales", "scope": "STORE", "isManaged": true },
+    { "roleId": "role_manager", "name": "Manager", "description": "Run a store", "scope": "STORE", "isManaged": true }
+  ]
+  ```
+
+- **Errors:**
+  - `400` — invalid `scope` value
+  - `401` — not authenticated
+  - `403` — lacks `role:read`
+
+#### Get role
+
+- **Description:** Returns one role plus **the permissions it grants** — the detail view for a role. The
+  list endpoint returns role summaries; this is where you see a role's actual permission set, for the
+  "view role" screen and the custom-role builder. Managed roles and (later) an org's custom roles are
+  both readable.
+- **Method:** `GET`
+- **URL:** `/roles/{roleId}`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `role:read`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "roleId": "role_cashier",
+    "name": "Cashier",
+    "description": "Ring up sales",
+    "scope": "STORE",
+    "isManaged": true,
+    "permissions": [
+      { "permissionId": "p1...", "resource": "product", "action": "read", "isElevated": false },
+      { "permissionId": "p4...", "resource": "sale", "action": "create", "isElevated": false },
+      { "permissionId": "p5...", "resource": "order", "action": "read", "isElevated": false }
+    ]
+  }
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — lacks `role:read`
+  - `404` — the role is not found (a managed role, or a custom role in the caller's org)
+
+#### List permissions
+
+- **Description:** Lists the permission catalog — every `resource:action` the system defines, with its
+  `isElevated` flag. Used to show what a role grants and to power the future custom-role builder.
+  Elevated permissions are org-only (they can never sit in a store role); the flag lets the UI enforce
+  that when building roles.
+- **Method:** `GET`
+- **URL:** `/permissions`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `role:read`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  [
+    { "permissionId": "p1...", "resource": "product", "action": "read", "isElevated": false },
+    { "permissionId": "p2...", "resource": "user", "action": "create", "isElevated": true },
+    { "permissionId": "p3...", "resource": "membership", "action": "deactivate", "isElevated": false }
+  ]
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — lacks `role:read`
+
 ### Stores
 
 The org owns and manages the store set — creating, editing, and removing stores are org actions (see `overview.md`: the org *manages stores*). Reading or acting *within* a single store lives under the top-level **Stores** section.
@@ -858,6 +1011,39 @@ The org owns and manages the store set — creating, editing, and removing store
   - `404` — the store is not in the caller's org
   - `409` — the store is the org's default store (reassign the default before deleting)
 
+### Plans & Features
+
+Billing lives on the org. The current plan, status, trial, period, store count, and live subscriptions
+are already returned in **`GET /organization`** under `billing` — that's the Billing screen's read, so
+there's no separate "get subscription" endpoint. What the plan *includes* is on **`GET
+/organization/features`** (org-scoped) and **`GET /stores/{storeId}/features`** (store-scoped). To pick a
+plan (e.g. when changing), plans are listed by **`GET /plans`** (public; reused here).
+
+The **management** actions below all move money, so they're blocked on the payment/Stripe flow (the same
+`@TODO` as *Create store*) and are left as stubs:
+
+#### Change plan — @TODO (needs payment flow)
+
+- **URL:** `POST /organization/subscription` (upgrade/downgrade / add a subscription)
+- Blocked on the payment design: a plan change reprices via Stripe (proration). Decide the flow before
+  speccing (redirect to Checkout, or charge the saved card).
+
+#### Cancel subscription — @TODO (needs payment flow)
+
+- **URL:** `POST /organization/subscription/{subscriptionId}/cancel`
+- Ends a live subscription (immediately or at period end). Interacts with the read-only/billing gate and
+  Stripe. Spec once payment is settled.
+
+#### Invoices / billing history — @TODO (needs payment flow)
+
+- **URL:** `GET /organization/invoices`
+- Past invoices and payment history — sourced from Stripe. Spec once payment is settled.
+
+#### Payment method — @TODO (needs payment flow)
+
+- **URL:** `GET/PUT /organization/payment-method` (or a Stripe billing-portal redirect)
+- Add/update the card on file. Almost certainly a Stripe-hosted portal rather than fields we collect.
+
 ---
 
 ## Stores
@@ -881,7 +1067,7 @@ The store record and its plan's store-scoped features.
   overdue. Store users get just the flag and a generic message, not the org's billing internals.
 - **Method:** `GET`
 - **URL:** `/stores/{storeId}`
-- **Scope:** `ORGANIZATION` or `STORE`
+- **Scope:** `STORE`
 - **Permission:** `store:read`
 - **Request Headers:**
   - `Authorization: Bearer <accessToken>`
@@ -943,6 +1129,38 @@ The store record and its plan's store-scoped features.
   - `403` — the caller has no access to this store
   - `404` — the store is not in the caller's org
 
+#### Get my store permissions
+
+- **Description:** Returns the permissions the caller holds **in this store** — used by the UI to show or
+  hide store tabs and actions (the store counterpart of `GET /organization/permissions`). Reach is
+  resolved from whichever membership grants access: a **store user** gets the permissions from their store
+  role; an **org user** (who has no store membership) gets the permissions from their org membership,
+  which reaches every store. In the org-user case the result is **filtered to store-relevant permissions**
+  — the non-elevated, store-applicable ones (e.g. `product:edit`, `order:refund`), never org-only elevated
+  ones like `user:create` or `billing:*`, even though the org role holds them. This keeps the response
+  shape identical for both kinds of caller, so the store UI renders from one flat permission list. Either
+  way, it's the caller's effective set *for this store*.
+- **Method:** `GET`
+- **URL:** `/stores/{storeId}/permissions`
+- **Scope:** `STORE`
+- **Permission:** _(none beyond access to the store)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "permissions": ["store:read", "product:read", "sale:create", "order:read", "order:refund"]
+  }
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — the caller has no access to this store
+  - `404` — the store is not in the caller's org
+
 ### Store Users
 
 The staff roster of a single store.
@@ -956,7 +1174,7 @@ The staff roster of a single store.
   admin to their own store.)
 - **Method:** `GET`
 - **URL:** `/stores/{storeId}/users`
-- **Scope:** `ORGANIZATION` or `STORE`
+- **Scope:** `STORE`
 - **Permission:** `user:read`
 - **Request Headers:**
   - `Authorization: Bearer <accessToken>`
