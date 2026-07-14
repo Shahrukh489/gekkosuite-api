@@ -1,4 +1,21 @@
 
+# TODO — Not Yet Specified
+
+The structural work (auth, org, store, RBAC, billing reads) is specified below. These areas are
+**operational CRUD, still to spec** — deferred so the designed parts can be reviewed and coded first:
+
+| Area | Owner | Tables | Notes |
+|---|---|---|---|
+| Suppliers | Organization | `supplier` | Plain org CRUD. |
+| Purchases | Organization | `purchase_order`, `purchase_order_product` | Status lifecycle + optional store attribution. |
+| Expenses | Organization | `expense` | Optional store attribution. |
+| Products | Stores | `store_product`, `product` | Dual-write sharing (per-store stock/price + org catalog). |
+| Customers | Stores | `store_customer`, `customer` | Dual-write sharing (always shared org-wide). |
+| Sales & Returns | Stores | `sales_order(+_product)`, `sales_order_return(+_product)` | Core money path: totals breakdown, status enums, refund flow. |
+
+Also deferred (needs the payment/Stripe flow): change plan, cancel subscription, invoices, payment
+method — stubbed under *Organization → Plans & Features*.
+
 # Summary
 
 Every endpoint at a glance. Detail (headers, bodies, errors) is in each section below.
@@ -57,20 +74,86 @@ they're under *Stores*; users and *managing stores* are org administration, so t
 
 # Flows
 
-The ordered API calls a client makes for each scenario.
+How the endpoints connect in the real client journeys. Each flow is the ordered chain of calls, with a
+diagram of how they branch.
 
-**Sign up (new tenant):**
-1. `GET /plans` — show plan options on the signup page.
-2. `POST /onboarding` — create the org, owner (pending), plan, and first store.
-3. `POST /onboarding/verify` — owner clicks the email link to activate the account.
+## Sign up (new tenant)
 
-**Log in:**
-1. `POST /auth/login` — get an access token.
-2. `GET /user` — get the user and their switcher list (org and/or stores).
-3. Enter a place from the switcher — load that context (org or store).
+Public, pre-auth. Pick a plan, create the tenant, verify the email — then the owner can log in.
 
-**Log out:**
-1. `POST /auth/logout` — end the session.
+```mermaid
+flowchart LR
+    A["GET /plans<br/>show plan options"] --> B["POST /onboarding<br/>create org + owner (pending)<br/>+ subscription + first store"]
+    B --> C["POST /onboarding/verify<br/>activate the account"]
+    C --> D["→ Log in"]
+```
+
+## Log in & bootstrap
+
+Get a token, read the self record, then branch on **user type** to load the right context. This is the
+core branch of the whole app.
+
+```mermaid
+flowchart TD
+    L["POST /auth/login<br/>→ access token"] --> M["GET /user<br/>→ user + memberships"]
+    M --> Q{"membership type?"}
+
+    Q -->|ORGANIZATION| O1["Org context (default landing)"]
+    O1 --> O2["GET /organization<br/>record + billing/read-only"]
+    O2 --> O3["GET /organization/permissions<br/>which org tabs to show"]
+    O3 --> O4["GET /organization/features<br/>which org features are on"]
+    O4 --> O5["Org tabs render.<br/>Enter a store via the Stores tab →"]
+
+    Q -->|STORE| S1["Land in their oldest store membership<br/>(earliest membership.created_at)<br/>(switcher also shown if >1 store)"]
+    S1 --> S2["GET /stores/{id}<br/>record + read-only"]
+    S2 --> S3["GET /stores/{id}/permissions<br/>which store tabs to show"]
+    S3 --> S4["GET /stores/{id}/features<br/>which store features are on"]
+    S4 --> S5["Store tabs render"]
+```
+
+## Org admin enters a store
+
+An org user has org reach but no store membership; they enter a store from the **Stores** tab, then load
+that store's context (same three store reads a store user makes).
+
+```mermaid
+flowchart LR
+    A["GET /stores<br/>the Stores tab list"] --> B["pick a store"]
+    B --> C["GET /stores/{id}<br/>record + read-only"]
+    C --> D["GET /stores/{id}/permissions<br/>(org role, filtered to store-relevant)"]
+    D --> E["GET /stores/{id}/features"]
+    E --> F["Store tabs render"]
+```
+
+## Add an employee
+
+Identity and access are separate calls: create the login, then place them with a role.
+
+```mermaid
+flowchart LR
+    A["POST /users<br/>create login (no access yet)"] --> B["GET /roles?scope=STORE<br/>pick a role for the picker"]
+    B --> C["POST /users/{id}/memberships<br/>grant STORE membership + role"]
+    C --> D["user can now log in and act"]
+```
+
+## Hitting a write while read-only (unpaid)
+
+Any write when the org is overdue is refused server-side, regardless of the UI hint.
+
+```mermaid
+flowchart LR
+    A["POST/PATCH/DELETE (any write)"] --> B{"org read-only?<br/>(billing gate, auth.md)"}
+    B -->|no| C["proceed"]
+    B -->|yes| D["402 Payment Required"]
+    D --> E["UI shows pay prompt<br/>(payment flow — @TODO)"]
+```
+
+## Log out
+
+```mermaid
+flowchart LR
+    A["POST /auth/logout<br/>invalidate the token"] --> B["session ended"]
+```
 
 ---
 
@@ -81,7 +164,7 @@ first store). All onboarding endpoints are **public** (no token; the user doesn'
 a prime abuse target: rate-limit them, protect with a captcha, and gate account use behind email
 verification. The owner account is created **pending** and cannot log in until verified.
 
-### List plans
+### `GET /plans` — List plans
 
 - **Description:** Lists the available plans so the signup page can show options and the user can pick one.
 - **Security:** public and read-only, so low risk.
@@ -110,7 +193,7 @@ verification. The owner account is created **pending** and cannot log in until v
 - **Errors:** _(none — public)_
 
 
-### Sign up - @TODO: investigate
+### `POST /onboarding` — Sign up - @TODO: investigate
 
 - **Description:** Creates a new tenant in one transaction — the organization, its owner (pending email
   verification), a **subscription** to the chosen plan (status `TRIALING` or `ACTIVE`), and a first
@@ -162,7 +245,7 @@ verification. The owner account is created **pending** and cannot log in until v
   - `409` — the email is already registered
   - `429` — too many attempts (rate-limited)
 
-### Verify email
+### `POST /onboarding/verify` — Verify email
 
 - **Description:** Confirms the owner's email using the token from the verification email, activating the
   account.
@@ -195,7 +278,7 @@ verification. The owner account is created **pending** and cannot log in until v
 Auth endpoints are the way in, so they don't follow the usual scope/permission model — `login` is public
 (you have no token yet), and `logout` only needs a valid token (any authenticated user)
 
-### Login
+### `POST /auth/login` — Login
 
 - **Description:** Exchanges an email and password for an access token.
 - **Method:** `POST`
@@ -228,7 +311,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   - `403` — the account is disabled (`user.is_active = false`)
   - `429` — too many attempts (rate-limited / locked out)
 
-### Get current user
+### `GET /user` — Get current user
 
 - **Description:** Returns the logged-in user and the memberships that decide where they land, as
   lightweight entries (type, id, name, role), without permissions. This is the **self** read (the
@@ -289,7 +372,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 - **Errors:**
   - `401` — not authenticated
 
-### Logout
+### `POST /auth/logout` — Logout
 
 - **Description:** Ends the current session and invalidates the token so it can no longer be used.
 - **Method:** `POST`
@@ -316,7 +399,7 @@ org. The resource, the caller's permissions, and the plan's enabled features are
 
 The org resource itself, the caller's permissions in it, and the plan's enabled org-scoped features.
 
-#### Get organization
+#### `GET /organization` — Get organization
 
 - **Description:** Returns the organization — its name, plan, default store, settings, and its **billing
   state**. The org is the paying entity, so this is the source-of-truth surface for whether the account is
@@ -384,7 +467,7 @@ The org resource itself, the caller's permissions in it, and the plan's enabled 
   - `401` — not authenticated
   - `403` — lacks `organization:read`
 
-#### Get my organization permissions
+#### `GET /organization/permissions` — Get my organization permissions
 
 - **Description:** Returns the permissions the caller holds in the organization. Used by the UI to show
   or hide org tabs and actions.
@@ -408,7 +491,7 @@ The org resource itself, the caller's permissions in it, and the plan's enabled 
   - `401` — not authenticated
   - `403` — the caller has no organization membership
 
-#### Get organization features
+#### `GET /organization/features` — Get organization features
 
 - **Description:** Returns the **organization-scoped** feature codes the org's plan enables (e.g. billing,
   multi-store). Used by the UI to show or hide org-level features. Store-scoped features are not returned
@@ -445,7 +528,7 @@ Everything here is org-administered — a store user manages neither users nor a
 must belong to the caller's org; anything else returns `404`. (The self read — a user seeing their *own*
 account and memberships — is `GET /user`, under **Auth**.)
 
-#### Create user
+#### `POST /users` — Create user
 
 - **Description:** Creates a user (a login) in the caller's organization. Org-only. The user is created
   with **no memberships** — they exist but can't act anywhere until granted a membership (see *Grant
@@ -492,7 +575,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `403` — lacks `user:create`
   - `409` — the email is already registered (globally unique)
 
-#### List users
+#### `GET /users` — List users
 
 - **Description:** Lists the users in the caller's organization — identity fields only (no memberships;
   those are on the per-user detail). Org-only. Used for the Users admin screen. To list the staff of a
@@ -532,7 +615,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `401` — not authenticated
   - `403` — lacks `user:read`
 
-#### Get user
+#### `GET /users/{userId}` — Get user
 
 - **Description:** Returns one user's full record **plus their memberships** — the admin detail view for a
   single person. Org-only. Unlike the org user list (identity only) and unlike `/user` (self, trimmed),
@@ -587,7 +670,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `403` — lacks `user:read`
   - `404` — the user is not in the caller's org
 
-#### Update user
+#### `PATCH /users/{userId}` — Update user
 
 - **Description:** Updates a user's profile fields (name, phone). Org-only. A partial update — only the
   fields sent are changed. **Email is not editable here** — it's the unique login and changing it needs a
@@ -619,7 +702,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `403` — lacks `user:edit`
   - `404` — the user is not in the caller's org
 
-#### Deactivate user
+#### `POST /users/{userId}/deactivate` — Deactivate user
 
 - **Description:** Turns a user's account off (`is_active = false`) — the way to revoke access without
   deleting. Every membership is suspended at once and the user can't log in; existing tokens stop working
@@ -641,7 +724,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `404` — the user is not in the caller's org
   - `409` — the user is the organization's owner (the owner can't be deactivated)
 
-#### Reactivate user
+#### `POST /users/{userId}/activate` — Reactivate user
 
 - **Description:** Turns a deactivated user's account back on (`is_active = true`), restoring their
   logins and all their memberships as they were. Org-only.
@@ -660,7 +743,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `403` — lacks `user:activate`
   - `404` — the user is not in the caller's org
 
-#### Grant membership
+#### `POST /users/{userId}/memberships` — Grant membership
 
 - **Description:** Grants a user a place to act — either the whole **organization** or one **store** — and
   assigns the initial role there. Org-only. A membership is meaningless without a role, so `roleId` is
@@ -725,7 +808,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `409` — conflicts with the one-kind rule (user already has the other kind), or a live membership
     already exists at this store/org
 
-#### Revoke membership
+#### `DELETE /users/{userId}/memberships/{membershipId}` — Revoke membership
 
 - **Description:** Removes a membership entirely — the user no longer belongs to that place, and the role
   assignment is dropped. Org-only, and elevated: removing access org-wide is an admin action. To
@@ -747,7 +830,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `404` — the user or membership is not in the caller's org
   - `409` — the membership is the organization owner's org membership (can't be revoked)
 
-#### Deactivate membership (org)
+#### `POST /users/{userId}/memberships/{membershipId}/deactivate` — Deactivate membership (org)
 
 - **Description:** Suspends one membership (`is_active = false`) — access at that place is turned off, but
   the membership and its role are kept, ready to restore. Does **not** change the role. This is the
@@ -769,7 +852,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `404` — the user or membership is not in the caller's org
   - `409` — the membership is the organization owner's org membership (can't be deactivated)
 
-#### Activate membership (org)
+#### `POST /users/{userId}/memberships/{membershipId}/activate` — Activate membership (org)
 
 - **Description:** Restores a suspended membership (`is_active = true`) — access is turned back on, with
   its existing role unchanged. The **org** route: an org admin can activate *any* membership in the org.
@@ -789,7 +872,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `403` — lacks `membership:activate`
   - `404` — the user or membership is not in the caller's org
 
-#### List roles
+#### `GET /roles` — List roles
 
 - **Description:** Lists the roles that can be assigned to memberships — used by the "assign role" picker.
   For MVP these are the **managed** roles we ship (e.g. Cashier, Manager, Org Admin); once custom roles
@@ -819,7 +902,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `401` — not authenticated
   - `403` — lacks `role:read`
 
-#### Get role
+#### `GET /roles/{roleId}` — Get role
 
 - **Description:** Returns one role plus **the permissions it grants** — the detail view for a role. The
   list endpoint returns role summaries; this is where you see a role's actual permission set, for the
@@ -855,7 +938,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `403` — lacks `role:read`
   - `404` — the role is not found (a managed role, or a custom role in the caller's org)
 
-#### List permissions
+#### `GET /permissions` — List permissions
 
 - **Description:** Lists the permission catalog — every `resource:action` the system defines, with its
   `isElevated` flag. Used to show what a role grants and to power the future custom-role builder.
@@ -887,7 +970,7 @@ account and memberships — is `GET /user`, under **Auth**.)
 
 The org owns and manages the store set — creating, editing, and removing stores are org actions (see `overview.md`: the org *manages stores*). Reading or acting *within* a single store lives under the top-level **Stores** section.
 
-#### List stores
+#### `GET /stores` — List stores
 
 - **Description:** Lists the stores in the caller's organization — the org's store roster. Org-only. Used
   for the Stores admin screen and the store switcher's management view. Returns each store's summary
@@ -915,7 +998,7 @@ The org owns and manages the store set — creating, editing, and removing store
   - `401` — not authenticated
   - `403` — lacks `store:read`
 
-#### Create store
+#### `POST /stores` — Create store
 
 - **Description:** Creates a new store in the caller's organization. Org-only — a store user can't create
   stores. The store starts empty (its own products, customers, and sales). A new store raises the org's
@@ -958,7 +1041,7 @@ The org owns and manages the store set — creating, editing, and removing store
   - `402` — org is read-only (overdue billing) — see `auth.md`'s billing gate
   - `403` — lacks `store:create`
 
-#### Update store
+#### `PATCH /stores/{storeId}` — Update store
 
 - **Description:** Updates a store's details (name, type, description, address, contact, currency).
   Org-only. A partial update — only the fields sent are changed. Does not affect billing (the store count
@@ -988,7 +1071,7 @@ The org owns and manages the store set — creating, editing, and removing store
   - `403` — lacks `store:edit`
   - `404` — the store is not in the caller's org
 
-#### Delete store
+#### `DELETE /stores/{storeId}` — Delete store
 
 - **Description:** Soft-deletes a store (`is_deleted = true`, `deleted_at` set) — kept for history since
   past sales reference it, so it's never hard-deleted. Org-only. The organization's **default store cannot
@@ -1057,7 +1140,7 @@ Managing the store set itself (create, list, edit, delete) is an org action and 
 
 The store record and its plan's store-scoped features.
 
-#### Get store
+#### `GET /stores/{storeId}` — Get store
 
 - **Description:** Returns a single store's full record — name, type, description, address, contact, and
   currency. Used for the store's detail and edit screens. The store must be in the caller's org, and a
@@ -1103,7 +1186,7 @@ The store record and its plan's store-scoped features.
   - `403` — lacks `store:read`
   - `404` — the store is not in the caller's org, or a store user has no access to it (existence not leaked)
 
-#### Get store features
+#### `GET /stores/{storeId}/features` — Get store features
 
 - **Description:** Returns the **store-scoped** feature codes the store's plan enables (e.g. returns, AI
   recommendations). The store inherits its org's plan, but only store-applicable features are returned —
@@ -1129,7 +1212,7 @@ The store record and its plan's store-scoped features.
   - `403` — the caller has no access to this store
   - `404` — the store is not in the caller's org
 
-#### Get my store permissions
+#### `GET /stores/{storeId}/permissions` — Get my store permissions
 
 - **Description:** Returns the permissions the caller holds **in this store** — used by the UI to show or
   hide store tabs and actions (the store counterpart of `GET /organization/permissions`). Reach is
@@ -1165,7 +1248,7 @@ The store record and its plan's store-scoped features.
 
 The staff roster of a single store.
 
-#### List store users
+#### `GET /stores/{storeId}/users` — List store users
 
 - **Description:** Lists the users who have a membership at this store — the store's staff roster, with
   each person's role there. A store admin can list **their own** store's roster; an org user can list any
@@ -1206,7 +1289,7 @@ The staff roster of a single store.
   - `403` — lacks `user:read`, or (store user) the store isn't theirs
   - `404` — the store is not in the caller's org
 
-#### Deactivate store membership
+#### `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/deactivate` — Deactivate store membership
 
 - **Description:** Suspends a membership **at this store** (`is_active = false`) — the member loses access
   here, but the membership and its role are kept, ready to restore. Does **not** change the role. This is
@@ -1230,7 +1313,7 @@ The staff roster of a single store.
   - `403` — lacks `membership:deactivate`, or the store isn't the caller's
   - `404` — the store, user, or membership isn't found at this store (existence not leaked)
 
-#### Activate store membership
+#### `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/activate` — Activate store membership
 
 - **Description:** Restores a suspended membership **at this store** (`is_active = true`) — access here is
   turned back on, with its existing role unchanged. The **store** route, mirror of *Deactivate store
