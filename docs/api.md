@@ -95,8 +95,10 @@ core branch of the whole app.
 
 ```mermaid
 flowchart TD
-    L["POST /auth/login<br/>→ access token"] --> M["GET /user<br/>→ user + memberships"]
-    M --> Q{"membership type?"}
+    L["POST /auth/login<br/>→ access token"] --> M["GET /user<br/>→ userType + defaultStoreId + memberships"]
+    M --> Q{"userType?"}
+
+    Q -->|null| N["No access yet —<br/>'contact your admin'<br/>(memberships: [])"]
 
     Q -->|ORGANIZATION| O1["Org context (default landing)"]
     O1 --> O2["GET /organization<br/>record + billing/read-only"]
@@ -104,8 +106,8 @@ flowchart TD
     O3 --> O4["GET /organization/features<br/>which org features are on"]
     O4 --> O5["Org tabs render.<br/>Enter a store via the Stores tab →"]
 
-    Q -->|STORE| S1["Land in their oldest store membership<br/>(earliest membership.created_at)<br/>(switcher also shown if >1 store)"]
-    S1 --> S2["GET /stores/{id}<br/>record + read-only"]
+    Q -->|STORE| S1["Land in defaultStoreId<br/>(oldest membership; switcher shown if >1)"]
+    S1 --> S2["GET /stores/{defaultStoreId}<br/>record + read-only"]
     S2 --> S3["GET /stores/{id}/permissions<br/>which store tabs to show"]
     S3 --> S4["GET /stores/{id}/features<br/>which store features are on"]
     S4 --> S5["Store tabs render"]
@@ -316,12 +318,18 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 - **Description:** Returns the logged-in user and the memberships that decide where they land, as
   lightweight entries (type, id, name, role), without permissions. This is the **self** read (the
   singleton user tied to the token) — the caller sees their *own* memberships, needs no permission, and
-  always may. What comes back depends on the user type, matching the UI (`ui.md`):
-    - **Org user** — just the **ORGANIZATION** membership. Their per-store access isn't listed here: an
-      org user lands in the org context and enters a store from the **Stores** tab (`GET /stores`), so
-      `/user` doesn't need to enumerate every store.
-    - **Store user** — their **store** membership(s). A single-store user gets one (they land straight in
-      it); a multi-store user gets each, which drives their store switcher.
+  always may. The response carries a top-level **`userType`** (`"ORGANIZATION"` / `"STORE"` / `null`) so
+  the client branches on one field, never by inspecting the array. It comes from `membership.scope` and is
+  well-defined because the schema enforces a user holds **either** org **or** store memberships, never both
+  (the one-kind rule). What comes back, matching the UI (`ui.md`):
+    - **Org user** (has the ORGANIZATION membership) — just that one entry. Their per-store access isn't
+      listed here: an org user lands in the org context and enters a store from the **Stores** tab
+      (`GET /stores`), so `/user` doesn't need to enumerate every store.
+    - **Store user** (has STORE membership(s)) — their store membership(s). They land in the **oldest**
+      one (earliest `created_at`); a multi-store user also gets a switcher.
+    - **No memberships** — a user created but not yet placed returns an **empty** `memberships` array.
+      This is neither an org nor a store user: the client shows a "no access yet — contact your admin"
+      state, with no context to load. (This is a valid state, not an error — `200` with `memberships: []`.)
 
   (Seeing *another* user's memberships is the admin endpoint `GET /users/{userId}`, under
   *Organization → Users & Access*.)
@@ -337,12 +345,12 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 
   ```json
   {
-    "user": {
-      "userId": "u1...",
-      "name": "Maria",
-      "email": "maria@acme.com",
-      "organizationId": "acme..."
-    },
+    "userId": "u1...",
+    "name": "Maria",
+    "email": "maria@acme.com",
+    "organizationId": "acme...",
+    "userType": "ORGANIZATION",
+    "defaultStoreId": null,
     "memberships": [
       { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "role": "Org Admin" }
     ]
@@ -353,21 +361,31 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 
   ```json
   {
-    "user": {
-      "userId": "u2...",
-      "name": "Bob",
-      "email": "bob@acme.com",
-      "organizationId": "acme..."
-    },
+    "userId": "u2...",
+    "name": "Bob",
+    "email": "bob@acme.com",
+    "organizationId": "acme...",
+    "userType": "STORE",
+    "defaultStoreId": "s1...",
     "memberships": [
-      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Cashier" }
+      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Cashier" },
+      { "type": "STORE", "storeId": "s2...", "name": "Uptown", "role": "Manager" }
     ]
   }
   ```
 
-  - **`memberships`** — each entry carries its `type` (`ORGANIZATION` or `STORE`), the place's id and
-    `name`, and the `role` the user holds there. An org user gets the single `ORGANIZATION` entry; a store
-    user gets their store(s) with the store role at each. Permissions are not included.
+  - **`userType`** — the single field the client branches on: `"ORGANIZATION"`, `"STORE"`, or `null` when
+    the user has no memberships yet. Because the one-kind rule makes a user's memberships homogeneous, this
+    is well-defined — the client never has to inspect the array to learn the type. `null` → show the "no
+    access yet" state.
+  - **`defaultStoreId`** — for a store user, the store to **land in**: the store of their **oldest**
+    membership (earliest `created_at`). The client loads this store's context on login and never has to
+    guess from array position. `null` for an org user (they land in the org context) and for a user with
+    no memberships.
+  - **`memberships`** — the list, for rendering names/roles and the store switcher (ordered oldest-first).
+    Each entry carries its `type` (`ORGANIZATION` / `STORE`), the place's id and `name`, and the `role` the
+    user holds there. An org user gets the single `ORGANIZATION` entry; a store user gets their store(s)
+    with the store role at each. Empty when `userType` is `null`. Permissions are not included.
 
 - **Errors:**
   - `401` — not authenticated
