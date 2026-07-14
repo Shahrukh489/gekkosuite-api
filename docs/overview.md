@@ -20,7 +20,9 @@ flowchart TB
     style ORG fill:#dbeafe,stroke:#93c5fd
 ```
 
-- **Organization**
+---
+
+## Organization
 
 An **organization** is the business. It owns many **stores** and **handles adminstration**: owns the suppliers, does all purchasing, expense spending, manages stores, creates users, etc...
 
@@ -41,7 +43,9 @@ An **organization** is the business. It owns many **stores** and **handles admin
 | AI Recommendations | Get Organization based Recommendations. |
 | Org-level scope | Make org-level changes |
 
-- **Store** 
+---
+
+## Store
 
 A **store** is where selling happens, you can't sell at the organization level. Each **store owns its own selling data**: its products (each with their own stock and price), its customers, and its sales and returns.
 
@@ -57,6 +61,7 @@ A **store** is where selling happens, you can't sell at the organization level. 
 | Reports | View the store's own reports, plus the purchases/expenses attributed to it. |
 | Store-only scope | A store user only ever acts on their own store's data |
 
+---
 
 # Documentation 
 

@@ -31,4 +31,6 @@ pos-specific (our domain):
 - promotions & discounts (coupons, sales, price rules)
 - cash management (register open/close, drawer counts, reconciliation)
 - employee/shift management (clock in/out, who's on the register - ties to store_pin)
+- payment store increase and decrease in API level
  -look into supabase authorization and user management then add auth RLS policies
+ - https://supabase.com/docs/guides/auth/users

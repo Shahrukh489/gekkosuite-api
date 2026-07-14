@@ -66,6 +66,48 @@ So the feature turns a capability **on** for the whole org (or store); the permi
 **Scope keeps them in the right place.** Store screens are driven only by a store's features and permissions, and org screens only by the org's — so a cashier can never see org-only features like `billing`, because those are never returned by a store endpoint.
 
 
+## Billing & store count @TODO
+
+The bill is **per-store**: `plan's price per store × number of active stores`. So the moment a store is
+added or removed, the amount owed changes. This section states, once, how that flows through the API and
+Stripe — every endpoint that changes the store count (`POST /stores`, `DELETE /stores`) just references
+it rather than repeating the money logic.
+
+**The one rule: the billed quantity always equals the org's active store count.**
+
+```
+billed quantity  =  COUNT(*) FROM store WHERE organization_id = ? AND is_deleted = false
+```
+
+**Stripe owns the money; we own the count.** We never compute a charge, proration, or credit ourselves.
+Each paid subscription maps to a Stripe subscription item whose **quantity** is the store count above.
+When the count changes, we update that quantity and Stripe does the rest — it **prorates automatically**
+(charges the partial-period cost of a new store, credits a removed one).
+
+**On create (`POST /stores`)** — inside one flow:
+1. Insert the `store` row (`is_deleted = false`).
+2. Recount active stores → new quantity.
+3. Update the Stripe subscription item's quantity to the new count. Stripe prorates the addition.
+
+**On delete (`DELETE /stores`)** — same, in reverse: soft-delete the store, recount, lower the Stripe
+quantity; Stripe credits the proration.
+
+**Stripe failure does not fail the store operation.** If the Stripe quantity update errors (outage,
+transient), the store create/delete still succeeds — a Stripe hiccup must not block running the business.
+The mismatch is caught by reconciliation.
+
+**Reconciliation is the safety net.** Because the rule is a simple equality (`Stripe quantity == active
+store count`), a nightly job re-counts every org's active stores and corrects any Stripe quantity that
+drifted. This makes the per-request Stripe call best-effort: even if it's dropped, the count self-heals
+within a day. Store count in our DB is the source of truth; the Stripe quantity is a mirror of it.
+
+**Note — this is separate from the read-only billing gate.** Changing the store count changes *what the
+org owes*; it does not decide whether the org is *frozen*. Whether the org can write at all is the
+subscription `status` (`UNPAID` / `CANCELED` → read-only), enforced by `auth.md`'s billing gate. Adding a
+store raises the bill; not paying that bill is what eventually flips the org read-only.
+
+> Schema note: the `subscription` table will need a Stripe reference (e.g. `stripe_subscription_item_id`)
+> to target the quantity update. Not yet in `database.md` — TODO when the Stripe integration is specced.
 
 
 
