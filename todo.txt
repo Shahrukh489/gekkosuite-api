@@ -34,3 +34,6 @@ pos-specific (our domain):
 - payment store increase and decrease in API level
  -look into supabase authorization and user management then add auth RLS policies
  - https://supabase.com/docs/guides/auth/users
+
+- for mvp limit to only one membership fully not even multiple stores??
+    - add org setting in postmvp for multi-store memberships??

@@ -1,18 +1,20 @@
 
-│ 4   │ Stores                         │ org creates/manages stores                     │
-├─────┼────────────────────────────────┼────────────────────────────────────────────────┤
-│ 5   │ Users & Access                 │ users, memberships, roles (the RBAC admin)     │
-├─────┼────────────────────────────────┼────────────────────────────────────────────────┤
-│ 6   │ Products                       │ store-level selling data                       │
-├─────┼────────────────────────────────┼────────────────────────────────────────────────┤
-│ 7   │ Customers                      │ store + shared                                 │
-├─────┼────────────────────────────────┼────────────────────────────────────────────────┤
-│ 8   │ Sales & Returns                │ the core transactions                          │
-├─────┼────────────────────────────────┼────────────────────────────────────────────────┤
-│ 9   │ Suppliers, Purchases, Expenses │ org-level money                                │
-├─────┼────────────────────────────────┼────────────────────────────────────────────────┤
-│ 10  │ Plans & Features               │ billing                                        │
-└─────┴────────────────────────────────┴────────────────────────────────────────────────┘
+# Sections
+
+The API is organized by **who owns the resource**. Four top-level sections; everything else nests under
+the owner it belongs to.
+
+| # | Section | Contains |
+|---|---|---|
+| 1 | **Onboarding** | Public signup — plans, create tenant, verify email. Runs before auth. |
+| 2 | **Auth** | The way in — login, the current-user (self) read, logout. |
+| 3 | **Organization** | Org-owned (the tenant): the org itself, Users & Access, **managing the store set** (create/list/edit/delete stores), Suppliers, Purchases, Expenses, Plans & Features. |
+| 4 | **Stores** | Acting *within* a single store (`/stores/{storeId}/...`): the store record, its staff roster, Products, Customers, Sales & Returns. |
+
+Within a section, each area is a sub-section and each endpoint sits under it. A resource lives under the
+section that **owns the action** (see `overview.md`) — e.g. products are store-owned selling data, so
+they're under *Stores*; users and *managing stores* are org administration, so they're under
+*Organization*. The split is: **the org manages the store set; a store is where selling happens.**
 
 # Flows
 
@@ -187,6 +189,67 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   - `403` — the account is disabled (`user.is_active = false`)
   - `429` — too many attempts (rate-limited / locked out)
 
+### Get current user
+
+- **Description:** Returns the logged-in user and the memberships that decide where they land, as
+  lightweight entries (type, id, name, role), without permissions. This is the **self** read (the
+  singleton user tied to the token) — the caller sees their *own* memberships, needs no permission, and
+  always may. What comes back depends on the user type, matching the UI (`ui.md`):
+    - **Org user** — just the **ORGANIZATION** membership. Their per-store access isn't listed here: an
+      org user lands in the org context and enters a store from the **Stores** tab (`GET /stores`), so
+      `/user` doesn't need to enumerate every store.
+    - **Store user** — their **store** membership(s). A single-store user gets one (they land straight in
+      it); a multi-store user gets each, which drives their store switcher.
+
+  (Seeing *another* user's memberships is the admin endpoint `GET /users/{userId}`, under
+  *Organization → Users & Access*.)
+- **Method:** `GET`
+- **URL:** `/user`
+- **Scope:** _(any authenticated user)_
+- **Permission:** _(none)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body** (org user — the org membership only):
+
+  ```json
+  {
+    "user": {
+      "userId": "u1...",
+      "name": "Maria",
+      "email": "maria@acme.com",
+      "organizationId": "acme..."
+    },
+    "memberships": [
+      { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "role": "Org Admin" }
+    ]
+  }
+  ```
+
+- **Response Body** (store user — their store membership(s)):
+
+  ```json
+  {
+    "user": {
+      "userId": "u2...",
+      "name": "Bob",
+      "email": "bob@acme.com",
+      "organizationId": "acme..."
+    },
+    "memberships": [
+      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Cashier" }
+    ]
+  }
+  ```
+
+  - **`memberships`** — each entry carries its `type` (`ORGANIZATION` or `STORE`), the place's id and
+    `name`, and the `role` the user holds there. An org user gets the single `ORGANIZATION` entry; a store
+    user gets their store(s) with the store role at each. Permissions are not included.
+
+- **Errors:**
+  - `401` — not authenticated
+
 ### Logout
 
 - **Description:** Ends the current session and invalidates the token so it can no longer be used.
@@ -210,7 +273,11 @@ The organization is the tenant, and there's exactly one per caller — fixed in 
 **singleton** resource: the endpoints are id-less (`/organization`), because the token already says which
 org. The resource, the caller's permissions, and the plan's enabled features are three separate endpoints.
 
-### Get organization
+### The Organization
+
+The org resource itself, the caller's permissions in it, and the plan's enabled org-scoped features.
+
+#### Get organization
 
 - **Description:** Returns the organization — its name, plan, default store, settings, and its **billing
   state**. The org is the paying entity, so this is the source-of-truth surface for whether the account is
@@ -258,7 +325,7 @@ org. The resource, the caller's permissions, and the plan's enabled features are
   - `401` — not authenticated
   - `403` — lacks `organization:read`
 
-### Get my organization permissions
+#### Get my organization permissions
 
 - **Description:** Returns the permissions the caller holds in the organization. Used by the UI to show
   or hide org tabs and actions.
@@ -282,7 +349,7 @@ org. The resource, the caller's permissions, and the plan's enabled features are
   - `401` — not authenticated
   - `403` — the caller has no organization membership
 
-### Get organization features
+#### Get organization features
 
 - **Description:** Returns the **organization-scoped** feature codes the org's plan enables (e.g. billing,
   multi-store). Used by the UI to show or hide org-level features. Store-scoped features are not returned
@@ -307,227 +374,7 @@ org. The resource, the caller's permissions, and the plan's enabled features are
   - `401` — not authenticated
   - `403` — the caller has no organization membership
 
----
-
-## Stores
-
-A store is where selling happens. Store endpoints live under `/stores/{storeId}/...`, and the store must
-belong to the caller's org — any other id returns `404`.
-
-### List stores — @TODO - **URL:** `GET /stores`
-
-### Get store
-
-- **Description:** Returns a single store's full record — name, type, description, address, contact, and
-  currency. Used for the store's detail and edit screens. The store must be in the caller's org, and a
-  store user must have access to it. Also carries a **`billing.readOnly`** flag so a store user (who can't
-  call the org endpoint) learns on entering the store whether the account is frozen. This is the **org's**
-  billing state mirrored down — a store never pays on its own; it's read-only only because its org is
-  overdue. Store users get just the flag and a generic message, not the org's billing internals.
-- **Method:** `GET`
-- **URL:** `/stores/{storeId}`
-- **Scope:** `ORGANIZATION` or `STORE`
-- **Permission:** `store:read`
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-- **Request Body:** _(none)_
-- **Response Status:** `200 OK`
-- **Response Body:**
-
-  ```json
-  {
-    "storeId": "s1...",
-    "name": "Downtown",
-    "type": "PHYSICAL",
-    "description": "Flagship location",
-    "address": "123 Main St",
-    "city": "Austin",
-    "state": "TX",
-    "postalCode": "78701",
-    "country": "US",
-    "currency": "USD",
-    "phone": "+1 512 555 0100",
-    "email": "downtown@acme.com",
-    "isDefault": true,
-    "createdAt": "2026-01-05T12:00:00Z",
-    "billing": {
-      "readOnly": true,
-      "message": "This store is read-only. Contact your Organization Admin."
-    }
-  }
-  ```
-
-- **Errors:**
-  - `401` — not authenticated
-  - `403` — lacks `store:read`
-  - `404` — the store is not in the caller's org, or a store user has no access to it (existence not leaked)
-
-### Create store
-
-- **Description:** Creates a new store in the caller's organization. Org-only — a store user can't create
-  stores. The store starts empty (its own products, customers, and sales). A new store raises the org's
-  per-store bill (see `plans.md` → *Billing & store count*).
-  - **@TODO — how to collect payment for the new store.** A store add changes what the org owes, so
-    creation must tie into billing (e.g. pay-first via Stripe Checkout + webhook, or charge the saved
-    card). The exact payment flow is unsettled; decide and wire it before this ships.
-- **Method:** `POST`
-- **URL:** `/stores`
-- **Scope:** `ORGANIZATION`
-- **Permission:** `store:create` _(elevated)_
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-  - `Content-Type: application/json`
-- **Request Body:**
-
-  ```json
-  {
-    "name": "Westside",
-    "type": "PHYSICAL",
-    "description": "New location",
-    "address": "456 West Ave",
-    "city": "Austin",
-    "state": "TX",
-    "postalCode": "78703",
-    "country": "US",
-    "currency": "USD",
-    "phone": "+1 512 555 0200",
-    "email": "westside@acme.com"
-  }
-  ```
-
-  Only `name` and `type` are required; everything else is optional.
-
-- **Response Status:** `201 Created`
-- **Response Body:** the created store (same shape as **Get store**).
-- **Errors:**
-  - `400` — missing/invalid fields (e.g. missing `name`, unknown `type`)
-  - `401` — not authenticated
-  - `402` — org is read-only (overdue billing) — see `auth.md`'s billing gate
-  - `403` — lacks `store:create`
-
-### Update store
-
-- **Description:** Updates a store's details (name, type, description, address, contact, currency).
-  Org-only. A partial update — only the fields sent are changed. Does not affect billing (the store count
-  is unchanged).
-- **Method:** `PATCH`
-- **URL:** `/stores/{storeId}`
-- **Scope:** `ORGANIZATION`
-- **Permission:** `store:edit`
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-  - `Content-Type: application/json`
-- **Request Body:** (any subset of the editable fields)
-
-  ```json
-  {
-    "name": "Westside Flagship",
-    "phone": "+1 512 555 0299"
-  }
-  ```
-
-- **Response Status:** `200 OK`
-- **Response Body:** the updated store (same shape as **Get store**).
-- **Errors:**
-  - `400` — invalid field values (e.g. unknown `type`)
-  - `401` — not authenticated
-  - `402` — org is read-only (overdue billing)
-  - `403` — lacks `store:edit`
-  - `404` — the store is not in the caller's org
-
-### Delete store
-
-- **Description:** Soft-deletes a store (`is_deleted = true`, `deleted_at` set) — kept for history since
-  past sales reference it, so it's never hard-deleted. Org-only. The organization's **default store cannot
-  be deleted** — reassign the default first. Removing a store lowers the org's per-store bill.
-  - **@TODO — how to reflect the removal in billing.** A delete lowers what the org owes; tie into the
-    same billing flow settled for Create store.
-- **Method:** `DELETE`
-- **URL:** `/stores/{storeId}`
-- **Scope:** `ORGANIZATION`
-- **Permission:** `store:delete` _(elevated)_
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-- **Request Body:** _(none)_
-- **Response Status:** `204 No Content`
-- **Response Body:** _(none)_
-- **Errors:**
-  - `401` — not authenticated
-  - `402` — org is read-only (overdue billing)
-  - `403` — lacks `store:delete`
-  - `404` — the store is not in the caller's org
-  - `409` — the store is the org's default store (reassign the default before deleting)
-
-### Get store features
-
-- **Description:** Returns the **store-scoped** feature codes the store's plan enables (e.g. returns, AI
-  recommendations). The store inherits its org's plan, but only store-applicable features are returned —
-  a store user never sees the org's features (like billing). Used by the UI to show or hide store tabs.
-- **Method:** `GET`
-- **URL:** `/stores/{storeId}/features`
-- **Scope:** `STORE`
-- **Permission:** _(none beyond access to the store)_
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-- **Request Body:** _(none)_
-- **Response Status:** `200 OK`
-- **Response Body:**
-
-  ```json
-  {
-    "features": ["reports", "returns", "ai_recommendations"]
-  }
-  ```
-
-- **Errors:**
-  - `401` — not authenticated
-  - `403` — the caller has no access to this store
-  - `404` — the store is not in the caller's org
-
-### List store users
-
-- **Description:** Lists the users who have a membership at this store — the store's staff roster, with
-  each person's role there. A store admin can list **their own** store's roster; an org user can list any
-  store's in the org. Identity fields plus the store role only — no other-store or org membership info is
-  exposed. (Uses the same `user:read` permission as the org user list; the store scope limits a store
-  admin to their own store.)
-- **Method:** `GET`
-- **URL:** `/stores/{storeId}/users`
-- **Scope:** `ORGANIZATION` or `STORE`
-- **Permission:** `user:read`
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-- **Request Body:** _(none)_
-- **Response Status:** `200 OK`
-- **Response Body:**
-
-  ```json
-  [
-    {
-      "userId": "u3...",
-      "name": "Sara",
-      "email": "sara@acme.com",
-      "isActive": true,
-      "role": "Cashier"
-    },
-    {
-      "userId": "u4...",
-      "name": "Marcus",
-      "email": "marcus@acme.com",
-      "isActive": true,
-      "role": "Manager"
-    }
-  ]
-  ```
-
-- **Errors:**
-  - `401` — not authenticated
-  - `403` — lacks `user:read`, or (store user) the store isn't theirs
-  - `404` — the store is not in the caller's org
-
----
-
-## Users & Access
+### Users & Access
 
 The RBAC admin. Three separate concerns, kept as separate endpoints so each stays single-responsibility:
 
@@ -536,68 +383,10 @@ The RBAC admin. Three separate concerns, kept as separate endpoints so each stay
 - **Roles & permissions** — *what* they can do there: roles granted on a membership, built from permissions.
 
 Everything here is org-administered — a store user manages neither users nor access. All ids in the path
-must belong to the caller's org; anything else returns `404`. The one exception is **`GET /user`** (self,
-below), which any authenticated user may call about themselves with no permission.
+must belong to the caller's org; anything else returns `404`. (The self read — a user seeing their *own*
+account and memberships — is `GET /user`, under **Auth**.)
 
-### Get current user
-
-- **Description:** Returns the logged-in user and the list of places they can act — the organization
-  and/or stores — as lightweight entries (id, name, type, role), without permissions. An org user gets
-  the organization plus every store in it; a store user gets only the stores they belong to. This is the
-  **self** read (the singleton user tied to the token) — the caller sees their *own* memberships, needs no
-  permission, and always may. (Seeing *another* user's memberships is the admin endpoint
-  `GET /users/{userId}/memberships`, below.)
-- **Method:** `GET`
-- **URL:** `/user`
-- **Scope:** _(any authenticated user)_
-- **Permission:** _(none)_
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-- **Request Body:** _(none)_
-- **Response Status:** `200 OK`
-- **Response Body** (org user — org + all stores):
-
-  ```json
-  {
-    "user": {
-      "userId": "u1...",
-      "name": "Maria",
-      "email": "maria@acme.com",
-      "organizationId": "acme..."
-    },
-    "memberships": [
-      { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "role": "Org Admin" },
-      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Org Admin" },
-      { "type": "STORE", "storeId": "s2...", "name": "Uptown", "role": "Org Admin" }
-    ]
-  }
-  ```
-
-- **Response Body** (store user — only their stores):
-
-  ```json
-  {
-    "user": {
-      "userId": "u2...",
-      "name": "Bob",
-      "email": "bob@acme.com",
-      "organizationId": "acme..."
-    },
-    "memberships": [
-      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Cashier" }
-    ]
-  }
-  ```
-
-  - **`memberships`** — each entry carries its `type` (`ORGANIZATION` or `STORE`), the place's id and
-    `name`, and the `role` the user holds there. An org user gets the `ORGANIZATION` entry plus every
-    store (the same org role name on each, e.g. `Org Admin`); a store user gets just their stores with
-    their store role at each. Permissions are not included.
-
-- **Errors:**
-  - `401` — not authenticated
-
-### Create user
+#### Create user
 
 - **Description:** Creates a user (a login) in the caller's organization. Org-only. The user is created
   with **no memberships** — they exist but can't act anywhere until granted a membership (see *Grant
@@ -644,7 +433,7 @@ below), which any authenticated user may call about themselves with no permissio
   - `403` — lacks `user:create`
   - `409` — the email is already registered (globally unique)
 
-### List users
+#### List users
 
 - **Description:** Lists the users in the caller's organization — identity fields only (no memberships;
   those are on the per-user detail). Org-only. Used for the Users admin screen. To list the staff of a
@@ -684,7 +473,7 @@ below), which any authenticated user may call about themselves with no permissio
   - `401` — not authenticated
   - `403` — lacks `user:read`
 
-### Grant membership
+#### Grant membership
 
 - **Description:** Grants a user a place to act — either the whole **organization** or one **store** — and
   assigns the initial role there. Org-only. A membership is meaningless without a role, so `roleId` is
@@ -748,3 +537,261 @@ below), which any authenticated user may call about themselves with no permissio
   - `404` — the user, store, or role is not in the caller's org
   - `409` — conflicts with the one-kind rule (user already has the other kind), or a live membership
     already exists at this store/org
+
+### Stores
+
+The org owns and manages the store set — creating, editing, and removing stores are org actions (see `overview.md`: the org *manages stores*). Reading or acting *within* a single store lives under the top-level **Stores** section.
+
+#### List stores
+
+- **Description:** Lists the stores in the caller's organization — the org's store roster. Org-only. Used
+  for the Stores admin screen and the store switcher's management view. Returns each store's summary
+  fields; the full record is on `GET /stores/{storeId}`.
+- **Method:** `GET`
+- **URL:** `/stores`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `store:read`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  [
+    { "storeId": "s1...", "name": "Downtown", "type": "PHYSICAL", "city": "Austin", "isDefault": true },
+    { "storeId": "s2...", "name": "Uptown", "type": "PHYSICAL", "city": "Austin", "isDefault": false }
+  ]
+  ```
+
+  `isDefault` is derived by comparing each store to `organization.default_store_id`.
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — lacks `store:read`
+
+#### Create store
+
+- **Description:** Creates a new store in the caller's organization. Org-only — a store user can't create
+  stores. The store starts empty (its own products, customers, and sales). A new store raises the org's
+  per-store bill (see `plans.md` → *Billing & store count*).
+  - **@TODO — how to collect payment for the new store.** A store add changes what the org owes, so
+    creation must tie into billing (e.g. pay-first via Stripe Checkout + webhook, or charge the saved
+    card). The exact payment flow is unsettled; decide and wire it before this ships.
+- **Method:** `POST`
+- **URL:** `/stores`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `store:create` _(elevated)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+  - `Content-Type: application/json`
+- **Request Body:**
+
+  ```json
+  {
+    "name": "Westside",
+    "type": "PHYSICAL",
+    "description": "New location",
+    "address": "456 West Ave",
+    "city": "Austin",
+    "state": "TX",
+    "postalCode": "78703",
+    "country": "US",
+    "currency": "USD",
+    "phone": "+1 512 555 0200",
+    "email": "westside@acme.com"
+  }
+  ```
+
+  Only `name` and `type` are required; everything else is optional.
+
+- **Response Status:** `201 Created`
+- **Response Body:** the created store (same shape as **Get store**).
+- **Errors:**
+  - `400` — missing/invalid fields (e.g. missing `name`, unknown `type`)
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing) — see `auth.md`'s billing gate
+  - `403` — lacks `store:create`
+
+#### Update store
+
+- **Description:** Updates a store's details (name, type, description, address, contact, currency).
+  Org-only. A partial update — only the fields sent are changed. Does not affect billing (the store count
+  is unchanged).
+- **Method:** `PATCH`
+- **URL:** `/stores/{storeId}`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `store:edit`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+  - `Content-Type: application/json`
+- **Request Body:** (any subset of the editable fields)
+
+  ```json
+  {
+    "name": "Westside Flagship",
+    "phone": "+1 512 555 0299"
+  }
+  ```
+
+- **Response Status:** `200 OK`
+- **Response Body:** the updated store (same shape as **Get store**).
+- **Errors:**
+  - `400` — invalid field values (e.g. unknown `type`)
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `store:edit`
+  - `404` — the store is not in the caller's org
+
+#### Delete store
+
+- **Description:** Soft-deletes a store (`is_deleted = true`, `deleted_at` set) — kept for history since
+  past sales reference it, so it's never hard-deleted. Org-only. The organization's **default store cannot
+  be deleted** — reassign the default first. Removing a store lowers the org's per-store bill.
+  - **@TODO — how to reflect the removal in billing.** A delete lowers what the org owes; tie into the
+    same billing flow settled for Create store.
+- **Method:** `DELETE`
+- **URL:** `/stores/{storeId}`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `store:delete` _(elevated)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `204 No Content`
+- **Response Body:** _(none)_
+- **Errors:**
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `store:delete`
+  - `404` — the store is not in the caller's org
+  - `409` — the store is the org's default store (reassign the default before deleting)
+
+---
+
+## Stores
+
+A store is where selling happens. These endpoints act *within* one store — they live under
+`/stores/{storeId}/...`, and the store must belong to the caller's org (any other id returns `404`).
+Managing the store set itself (create, list, edit, delete) is an org action and lives under
+*Organization → Stores*.
+
+### The Store
+
+The store record and its plan's store-scoped features.
+
+#### Get store
+
+- **Description:** Returns a single store's full record — name, type, description, address, contact, and
+  currency. Used for the store's detail and edit screens. The store must be in the caller's org, and a
+  store user must have access to it. Also carries a **`billing.readOnly`** flag so a store user (who can't
+  call the org endpoint) learns on entering the store whether the account is frozen. This is the **org's**
+  billing state mirrored down — a store never pays on its own; it's read-only only because its org is
+  overdue. Store users get just the flag and a generic message, not the org's billing internals.
+- **Method:** `GET`
+- **URL:** `/stores/{storeId}`
+- **Scope:** `ORGANIZATION` or `STORE`
+- **Permission:** `store:read`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "storeId": "s1...",
+    "name": "Downtown",
+    "type": "PHYSICAL",
+    "description": "Flagship location",
+    "address": "123 Main St",
+    "city": "Austin",
+    "state": "TX",
+    "postalCode": "78701",
+    "country": "US",
+    "currency": "USD",
+    "phone": "+1 512 555 0100",
+    "email": "downtown@acme.com",
+    "isDefault": true,
+    "createdAt": "2026-01-05T12:00:00Z",
+    "billing": {
+      "readOnly": true,
+      "message": "This store is read-only. Contact your Organization Admin."
+    }
+  }
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — lacks `store:read`
+  - `404` — the store is not in the caller's org, or a store user has no access to it (existence not leaked)
+
+#### Get store features
+
+- **Description:** Returns the **store-scoped** feature codes the store's plan enables (e.g. returns, AI
+  recommendations). The store inherits its org's plan, but only store-applicable features are returned —
+  a store user never sees the org's features (like billing). Used by the UI to show or hide store tabs.
+- **Method:** `GET`
+- **URL:** `/stores/{storeId}/features`
+- **Scope:** `STORE`
+- **Permission:** _(none beyond access to the store)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "features": ["reports", "returns", "ai_recommendations"]
+  }
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — the caller has no access to this store
+  - `404` — the store is not in the caller's org
+
+### Store Users
+
+The staff roster of a single store.
+
+#### List store users
+
+- **Description:** Lists the users who have a membership at this store — the store's staff roster, with
+  each person's role there. A store admin can list **their own** store's roster; an org user can list any
+  store's in the org. Identity fields plus the store role only — no other-store or org membership info is
+  exposed. (Uses the same `user:read` permission as the org user list; the store scope limits a store
+  admin to their own store.)
+- **Method:** `GET`
+- **URL:** `/stores/{storeId}/users`
+- **Scope:** `ORGANIZATION` or `STORE`
+- **Permission:** `user:read`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  [
+    {
+      "userId": "u3...",
+      "name": "Sara",
+      "email": "sara@acme.com",
+      "isActive": true,
+      "role": "Cashier"
+    },
+    {
+      "userId": "u4...",
+      "name": "Marcus",
+      "email": "marcus@acme.com",
+      "isActive": true,
+      "role": "Manager"
+    }
+  ]
+  ```
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — lacks `user:read`, or (store user) the store isn't theirs
+  - `404` — the store is not in the caller's org

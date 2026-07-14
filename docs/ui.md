@@ -8,15 +8,17 @@ each person's role decides what they see.
 
 One app, one set of screens. Three things decide what a user sees:
 
-- **The store switcher** sets the *context* — the organization, or one specific store.
+- **The context** — the organization, or one specific store. How you *enter* a store differs by user
+  type: an org user opens the **Stores tab** and picks one; a store user with several stores uses a small
+  **switcher** (a store user with just one store is always in it — no switcher).
 - **The user's memberships** decide which contexts are even available (an org membership unlocks the
-  organization context; a store membership unlocks that store).
+  organization context and every store; a store membership unlocks that store).
 - **The user's permissions** decide which tabs and actions show inside whatever context they're in.
 
 There's no separate "org app" and "store app" — the same tabs are reused, and the data inside plus the
 available actions change with context and role. A user with only store memberships works entirely in
-store context; a user with an organization membership can work at the org level *and* drop into any
-store (see `auth.md`).
+store context; a user with an organization membership works at the org level *and* can drop into any
+store from the Stores tab (see `auth.md`).
 
 
 ## Layout
@@ -28,37 +30,41 @@ store (see `auth.md`).
 
 **Sidebar**
 - Logo
-- **Store switcher** (sets the context — see below)
+- **Store switcher** — *store users with more than one store only* (sets the store context — see below).
+  Org users don't have this; they enter a store from the **Stores** tab.
 - Tabs (flat for now; shown based on context + permissions — see below)
 
 
-## Store switcher (the context)
+## Entering a context
 
-The switcher at the top of the sidebar chooses *where* you're working — the organization, or one
-store. The organization sits at the top, with each store the user can reach below it:
+*Where* you're working — the organization, or one store — is chosen differently depending on the user,
+and it's deliberately **one control per user** so there's never two lists of stores competing.
+
+**Org user → the Stores tab.** An org user lands in the **organization context** (org tabs). To work
+inside a store, they open the **Stores** tab, see their store list, and click one to enter it — the app
+then shows that store's tabs, scoped to it. There is **no switcher** for an org user: the Stores tab is
+the single place to both *manage* stores (create/edit/delete) and *enter* one. To leave, they go back to
+the org (e.g. a "← Organization" breadcrumb). This mirrors the API split: managing stores is an org
+action (`Organization → Stores`), and entering one routes under `/stores/{storeId}/…`.
+
+**Store user → the switcher (only if they have more than one store).** A store user has no organization
+context. If they belong to a **single** store, there's no switcher at all — they land straight in it.
+If they belong to **several** stores (e.g. Cashier at one, Manager at another), a small switcher at the
+top of the sidebar lets them pick which one:
 
 ```
-[ Acme Inc ▾ ]
-  ├─ 🏢 Acme Inc            ← Organization context (org-level + cross-store rollup)
-  ├─ 🏪 Store A
-  ├─ 🏪 Store B
-  └─ 🏪 Store C
+[ Downtown ▾ ]
+  ├─ 🏪 Downtown
+  └─ 🏪 Uptown
 ```
 
-This maps directly to the API (`auth.md`): selecting a **store** routes its tabs under
-`/stores/{storeId}/…` (products, customers, and sales are worked on at the store, so they're all store
-paths — even when products or customers are shared org-wide, they're still created and managed from a
-store). Selecting the **organization** routes its tabs under the org-level paths (suppliers, purchases,
-expenses, stores, users). The organization itself always comes from the user's token, never the URL.
-Switching context re-scopes every tab's data to that place.
+Either way, working inside a store routes its tabs under `/stores/{storeId}/…` (products, customers, and
+sales are worked on at the store, so they're all store paths — even when products or customers are shared
+org-wide, they're still created and managed from a store). The organization always comes from the user's
+token, never the URL. Changing store re-scopes every store tab's data to that place.
 
-What the switcher shows depends on the user's **memberships**:
-
-- **A store-only user** (e.g. a cashier) — no Organization entry, only the store(s) they belong to. If
-  it's a single store, the switcher can be hidden and they land straight in it. Someone who belongs to
-  several stores (e.g. Cashier at one, Manager at another) sees each store they're a member of.
-- **A user with an organization membership** (owner/admin) — the Organization entry plus every store,
-  since an org membership reaches all of them.
+The rule, in short: **org user = Stores tab (no switcher); store user = switcher only when they have more
+than one store.**
 
 
 ## Tabs
@@ -138,21 +144,24 @@ separate "manager app."
 
 ## An org owner wants to work inside one store — how?
 
-They pick that store in the switcher. The app then routes under `/stores/{storeId}/…` and shows the
-store tabs, scoped to that store. Because an **organization membership reaches every store in the org**
-(`auth.md`), the owner has full access there without needing a separate store membership.
+They open the **Stores** tab and click that store. The app then routes under `/stores/{storeId}/…` and
+shows the store tabs, scoped to that store. Because an **organization membership reaches every store in
+the org** (`auth.md`), the owner has full access there without needing a separate store membership. (No
+switcher — org users enter stores from the Stores tab.)
 
 **Example**
-Diego holds an organization membership with the Org Admin role. He picks **Store B** in the switcher →
+Diego holds an organization membership with the Org Admin role. He opens **Stores**, clicks **Store B** →
 the store tabs appear, showing Store B's data. He can sell, edit products, and refund there, just as if
-he were a Store B manager — his org membership already grants store reach across the org.
+he were a Store B manager — his org membership already grants store reach across the org. A "←
+Organization" breadcrumb takes him back to the org context.
 
 
 ## How does the owner see the whole business at once?
 
-They pick **Organization** in the switcher. That swaps the sidebar to the org tabs — Dashboard rollup,
-Suppliers, Purchases, Expenses, Billing, Stores, Users, Settings — and every tab's data is the
-company-wide view. The org **Dashboard** is the cross-store overview.
+That's their default — an org user lands in the **organization context**, with the org tabs: Dashboard
+rollup, Suppliers, Purchases, Expenses, Billing, Stores, Users, Settings — every tab's data the
+company-wide view. The org **Dashboard** is the cross-store overview. (They only leave this when they
+enter a specific store from the Stores tab; the breadcrumb brings them back.)
 
 **Example**
 From the **Organization** context Diego opens **Reports** and sees sales rolled up across Stores A, B,
@@ -163,14 +172,14 @@ reachable from a store context — org work lives only at the org level (`auth.m
 ## Why is there no Products or Customers tab in the org context?
 
 Because products and customers are **created and managed at a store**, so those tabs live in the store
-context. To work on them, switch into the relevant store. Turning on sharing doesn't add an org-level
-screen — a shared product or customer is still managed from a store; sharing only changes whether the
-other stores also recognize it (see `tenancy.md` and the dual-write in `auth.md`).
+context. To work on them, enter the relevant store (from the **Stores** tab). Turning on sharing doesn't
+add an org-level screen — a shared product or customer is still managed from a store; sharing only
+changes whether the other stores also recognize it (see `tenancy.md` and the dual-write in `auth.md`).
 
 **Example**
 Sara adds a customer at Store A. Because customers are shared org-wide, that customer is now recognized
 at Stores B and C too — but everyone still edits it from a **store's** Customers tab. There's no "org
-customers" screen; the owner who wants to see it just switches into any store.
+customers" screen; the owner who wants to see it just opens the Stores tab and enters any store.
 
 
 ## Why can one user see a tab when another can't?
