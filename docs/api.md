@@ -473,6 +473,134 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `401` — not authenticated
   - `403` — lacks `user:read`
 
+#### Get user
+
+- **Description:** Returns one user's full record **plus their memberships** — the admin detail view for a
+  single person. Org-only. Unlike the org user list (identity only) and unlike `/user` (self, trimmed),
+  this returns the person's **complete** membership breakdown: their org membership, or every store they
+  belong to, each with its role. Used for the user's detail/manage screen.
+- **Method:** `GET`
+- **URL:** `/users/{userId}`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `user:read`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "userId": "u4...",
+    "name": "Maria",
+    "email": "maria@acme.com",
+    "phone": "+1 512 555 0400",
+    "isActive": true,
+    "createdAt": "2026-02-01T12:00:00Z",
+    "memberships": [
+      {
+        "membershipId": "m1...",
+        "type": "STORE",
+        "storeId": "s1...",
+        "name": "Downtown",
+        "role": { "roleId": "role_cashier", "name": "Cashier", "expiresAt": null },
+        "isActive": true
+      },
+      {
+        "membershipId": "m2...",
+        "type": "STORE",
+        "storeId": "s2...",
+        "name": "Uptown",
+        "role": { "roleId": "role_manager", "name": "Manager", "expiresAt": null },
+        "isActive": true
+      }
+    ]
+  }
+  ```
+
+  - **`memberships`** — the user's complete set. Each entry carries its `membershipId` (needed to revoke
+    it), `type`, the place's id + `name`, the `role` (with any `expiresAt`), and the membership's own
+    `isActive`. An org user returns a single `ORGANIZATION` entry; a store user returns each store they're
+    a member of. An empty array means the user has no memberships yet (created but not placed).
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — lacks `user:read`
+  - `404` — the user is not in the caller's org
+
+#### Update user
+
+- **Description:** Updates a user's profile fields (name, phone). Org-only. A partial update — only the
+  fields sent are changed. **Email is not editable here** — it's the unique login and changing it needs a
+  separate verified flow (post-MVP); **password** is handled by its own reset/change flow, not this
+  endpoint. To turn access on or off, use the activate/deactivate endpoint, not this one.
+- **Method:** `PATCH`
+- **URL:** `/users/{userId}`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `user:edit` _(elevated)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+  - `Content-Type: application/json`
+- **Request Body:** (any subset of the editable fields)
+
+  ```json
+  {
+    "name": "Maria Gomez",
+    "phone": "+1 512 555 0499"
+  }
+  ```
+
+- **Response Status:** `200 OK`
+- **Response Body:** the updated user (same shape as the **Create user** response — identity fields, no
+  memberships).
+- **Errors:**
+  - `400` — invalid field values, or an attempt to change `email` / `password` here
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `user:edit`
+  - `404` — the user is not in the caller's org
+
+#### Deactivate user
+
+- **Description:** Turns a user's account off (`is_active = false`) — the way to revoke access without
+  deleting. Every membership is suspended at once and the user can't log in; existing tokens stop working
+  because `is_active` is read fresh on each request (see `auth.md`). Org-only. Nothing is removed — the
+  account and its history stay, and *Reactivate* restores access. This is preferred over deleting a user.
+- **Method:** `POST`
+- **URL:** `/users/{userId}/deactivate`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `user:deactivate` _(elevated)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:** the user (identity fields, `isActive: false`).
+- **Errors:**
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `user:deactivate`
+  - `404` — the user is not in the caller's org
+  - `409` — the user is the organization's owner (the owner can't be deactivated)
+
+#### Reactivate user
+
+- **Description:** Turns a deactivated user's account back on (`is_active = true`), restoring their
+  logins and all their memberships as they were. Org-only.
+- **Method:** `POST`
+- **URL:** `/users/{userId}/activate`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `user:activate` _(elevated)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:** the user (identity fields, `isActive: true`).
+- **Errors:**
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `user:activate`
+  - `404` — the user is not in the caller's org
+
 #### Grant membership
 
 - **Description:** Grants a user a place to act — either the whole **organization** or one **store** — and
@@ -537,6 +665,70 @@ account and memberships — is `GET /user`, under **Auth**.)
   - `404` — the user, store, or role is not in the caller's org
   - `409` — conflicts with the one-kind rule (user already has the other kind), or a live membership
     already exists at this store/org
+
+#### Revoke membership
+
+- **Description:** Removes a membership entirely — the user no longer belongs to that place, and the role
+  assignment is dropped. Org-only, and elevated: removing access org-wide is an admin action. To
+  *temporarily* turn access off instead of removing it, use *Deactivate membership*. Use the
+  `membershipId` from `GET /users/{userId}`.
+- **Method:** `DELETE`
+- **URL:** `/users/{userId}/memberships/{membershipId}`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `membership:revoke` _(elevated)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `204 No Content`
+- **Response Body:** _(none)_
+- **Errors:**
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `membership:revoke`
+  - `404` — the user or membership is not in the caller's org
+  - `409` — the membership is the organization owner's org membership (can't be revoked)
+
+#### Deactivate membership (org)
+
+- **Description:** Suspends one membership (`is_active = false`) — access at that place is turned off, but
+  the membership and its role are kept, ready to restore. Does **not** change the role. This is the
+  **org** route: an org admin can deactivate *any* membership in the org. (Store admins have their own
+  store-scoped route under *Stores → Store Users*, which can only reach their own store's memberships.)
+- **Method:** `POST`
+- **URL:** `/users/{userId}/memberships/{membershipId}/deactivate`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `membership:deactivate`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:** the membership (with `isActive: false`).
+- **Errors:**
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `membership:deactivate`
+  - `404` — the user or membership is not in the caller's org
+  - `409` — the membership is the organization owner's org membership (can't be deactivated)
+
+#### Activate membership (org)
+
+- **Description:** Restores a suspended membership (`is_active = true`) — access is turned back on, with
+  its existing role unchanged. The **org** route: an org admin can activate *any* membership in the org.
+  (Store admins use the store-scoped route under *Stores → Store Users*.)
+- **Method:** `POST`
+- **URL:** `/users/{userId}/memberships/{membershipId}/activate`
+- **Scope:** `ORGANIZATION`
+- **Permission:** `membership:activate`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:** the membership (with `isActive: true`).
+- **Errors:**
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `membership:activate`
+  - `404` — the user or membership is not in the caller's org
 
 ### Stores
 
@@ -795,3 +987,48 @@ The staff roster of a single store.
   - `401` — not authenticated
   - `403` — lacks `user:read`, or (store user) the store isn't theirs
   - `404` — the store is not in the caller's org
+
+#### Deactivate store membership
+
+- **Description:** Suspends a membership **at this store** (`is_active = false`) — the member loses access
+  here, but the membership and its role are kept, ready to restore. Does **not** change the role. This is
+  the **store** route: it's `STORE`-scoped, so the store rulebook confines it to the caller's own store,
+  and the `{storeId}` in the path is the store — a store admin has **no route** to another store's
+  memberships (that's why this is split from the org route). The target must be a membership *at this
+  store*; an org membership can never be reached here. Lets a store admin turn a member off without
+  contacting the org.
+- **Method:** `POST`
+- **URL:** `/stores/{storeId}/users/{userId}/memberships/{membershipId}/deactivate`
+- **Scope:** `STORE`
+- **Permission:** `membership:deactivate`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:** the membership (with `isActive: false`).
+- **Errors:**
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `membership:deactivate`, or the store isn't the caller's
+  - `404` — the store, user, or membership isn't found at this store (existence not leaked)
+
+#### Activate store membership
+
+- **Description:** Restores a suspended membership **at this store** (`is_active = true`) — access here is
+  turned back on, with its existing role unchanged. The **store** route, mirror of *Deactivate store
+  membership*: `STORE`-scoped, confined to the caller's own store by the path `{storeId}` and the store
+  rulebook.
+- **Method:** `POST`
+- **URL:** `/stores/{storeId}/users/{userId}/memberships/{membershipId}/activate`
+- **Scope:** `STORE`
+- **Permission:** `membership:activate`
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:** the membership (with `isActive: true`).
+- **Errors:**
+  - `401` — not authenticated
+  - `402` — org is read-only (overdue billing)
+  - `403` — lacks `membership:activate`, or the store isn't the caller's
+  - `404` — the store, user, or membership isn't found at this store (existence not leaked)
