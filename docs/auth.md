@@ -156,10 +156,10 @@ If the endpoint declares a `STORE` scope (a store action), then the following ru
 
 **4. If the endpoint declares a required feature, do the org's effective features include it at the declared `requiredFeatureScope`?**
 
-- The org's **effective features** are the **union** of the features of every **live** subscription's offering (so a base plan plus an active add-on gives the org both offerings' features).
-- If the endpoint declares **no** feature → skip this; the action isn't plan-gated (e.g. selling, reading). User is authorized.
+- The org's **effective features** are the **union** of the features of every subscription whose `status` is `ACTIVE` **or** `TRIALING` (a trial's features work; a `CANCELED` one contributes nothing) — so a base plan plus an active add-on gives the org both offerings' features.
+- If the endpoint declares **no** feature → skip this; the action isn't feature-gated (e.g. selling, reading). User is authorized.
 - If the effective features **include** it (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
-- If they **do not** → return **402 Payment Required** — the user is allowed, but no current plan covers this. (Distinct from `403` so the client can prompt an upgrade.)
+- If they **do not** → return **402 Payment Required** — the user is allowed, but no active offering unlocks this. (Distinct from `403` so the client can prompt them to turn it on.)
 
 **5. Is the org's billing in good standing (the billing gate)?**
 
@@ -177,10 +177,10 @@ If the endpoint declares an `ORGANIZATION` scope (an org action), then the follo
 
 **2. If the endpoint declares a required feature, do the org's effective features include it at the declared `requiredFeatureScope`?**
 
-- The org's effective features are the **union** of every live subscription's offering features.
-- If the endpoint declares **no** feature → skip this; the action isn't plan-gated. User is authorized.
+- The org's effective features are the **union** of the offering features of every subscription whose `status` is `ACTIVE` or `TRIALING`.
+- If the endpoint declares **no** feature → skip this; the action isn't feature-gated. User is authorized.
 - If the effective features **include** it (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
-- If they **do not** → return **402 Payment Required** — the user is allowed, but no current plan covers this. (Distinct from `403` so the client can prompt an upgrade.)
+- If they **do not** → return **402 Payment Required** — the user is allowed, but no active offering unlocks this. (Distinct from `403` so the client can prompt them to turn it on.)
 
 **3. Is the org's billing in good standing (the billing gate)?**
 
@@ -224,10 +224,10 @@ if not allowed:
     return 403                        -- the user isn't allowed
 
 -- 4. feature gate: is this a paid capability covered by the org's effective features?
---    effective features = union of features across the org's live subscriptions' offerings
+--    effective features = union of offering features across the org's ACTIVE/TRIALING subscriptions
 if endpoint.requiredFeature is set:
     if org's effective features do NOT include (endpoint.requiredFeature, endpoint.requiredFeatureScope):
-        return 402                    -- allowed, but no current plan covers it
+        return 402                    -- allowed, but no active offering unlocks it
 
 -- 5. billing gate: is the org paid up? (org-level, one bill; reads always allowed; writes blocked when overdue)
 if request is a write and organization.billing_status IN ('UNPAID', 'CANCELED'):

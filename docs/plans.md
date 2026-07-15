@@ -98,14 +98,15 @@ billed quantity  =  COUNT(*) FROM store WHERE organization_id = ? AND is_deleted
 ```
 
 **Stripe owns the money; we own the count.** We never compute a charge, proration, or credit ourselves.
-Each live subscription maps to a Stripe subscription item whose **quantity** is the store count above.
-When the count changes, we update that quantity and Stripe does the rest — it **prorates automatically**
-(charges the partial-period cost of a new store, credits a removed one).
+Each **`ACTIVE`** subscription maps to a Stripe subscription item whose **quantity** is the store count
+above (a `TRIALING` subscription is free — it becomes a billed item only when the trial converts to
+`ACTIVE`). When the count changes, we update that quantity and Stripe does the rest — it **prorates
+automatically** (charges the partial-period cost of a new store, credits a removed one).
 
 **On create (`POST /stores`)** — inside one flow:
 1. Insert the `store` row (`is_deleted = false`).
 2. Recount active stores → new quantity.
-3. Update each live subscription item's quantity to the new count. Stripe prorates the addition.
+3. Update each `ACTIVE` subscription's Stripe item quantity to the new count. Stripe prorates the addition.
 
 **On delete (`DELETE /stores`)** — same, in reverse: soft-delete the store, recount, lower the Stripe
 quantity; Stripe credits the proration.

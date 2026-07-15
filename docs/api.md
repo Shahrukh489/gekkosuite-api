@@ -63,7 +63,7 @@ the owner it belongs to.
 
 | # | Section | Contains |
 |---|---|---|
-| 1 | **Onboarding** | Public signup — plans, create tenant, verify email. Runs before auth. |
+| 1 | **Onboarding** | Public signup — create tenant (base plan auto-assigned), verify email. Runs before auth. |
 | 2 | **Auth** | The way in — login, the current-user (self) read, logout. |
 | 3 | **Organization** | Org-owned (the tenant): the org itself, Users & Access, **managing the store set** (create/list/edit/delete stores), Suppliers, Purchases, Expenses, Plans, Add-ons & Features. |
 | 4 | **Stores** | Acting *within* a single store (`/stores/{storeId}/...`): the store record, its staff roster, Products, Customers, Sales & Returns. |
@@ -80,12 +80,13 @@ diagram of how they branch.
 
 ## Sign up (new tenant)
 
-Public, pre-auth. Pick a plan, create the tenant, verify the email — then the owner can log in.
+Public, pre-auth. Create the tenant, verify the email — then the owner can log in. There's one base plan
+today, so nothing to pick: the backend assigns it. (When multiple plans exist, a `GET /plans` step is
+added here to choose one.)
 
 ```mermaid
 flowchart LR
-    A["GET /plans<br/>show plan options"] --> B["POST /onboarding<br/>create org + owner (pending)<br/>+ subscription + first store"]
-    B --> C["POST /onboarding/verify<br/>activate the account"]
+    B["POST /onboarding<br/>create org + owner (pending)<br/>+ subscription (base plan) + first store"] --> C["POST /onboarding/verify<br/>activate the account"]
     C --> D["→ Log in"]
 ```
 
@@ -169,8 +170,9 @@ verification. The owner account is created **pending** and cannot log in until v
 
 ### `GET /plans` — List base plans
 
-- **Description:** Lists the available **base plans** (`offering.type = 'PLAN'`) so the signup page can
-  show options and the user can pick one. Add-ons are a separate catalog (`GET /addons`).
+- **Description:** Lists the available **base plans** (`offering.type = 'PLAN'`). There's one today, so
+  signup doesn't call this (the backend auto-assigns it); it exists for the change-plan screen and for
+  when multiple plans are offered. Add-ons are a separate catalog (`GET /addons`).
 - **Security:** public and read-only, so low risk.
   - Rate-limit by IP.
   - Cache the response (offerings rarely change).
@@ -230,9 +232,12 @@ verification. The owner account is created **pending** and cannot log in until v
 ### `POST /onboarding` — Sign up - @TODO: investigate
 
 - **Description:** Creates a new tenant in one transaction — the organization, its owner (pending email
-  verification), a **subscription** to the chosen base plan (an `offering` of type `PLAN`, status
-  `TRIALING` or `ACTIVE`), and a first store. Add-ons aren't picked here — they're turned on later from
-  the in-app add-ons screen. Sends a verification email and returns no token.
+  verification), a **subscription** to the base plan, and a first store. The base plan isn't chosen by the
+  client: there's only one `PLAN` offering today, so the backend assigns it automatically (status
+  `TRIALING`). Add-ons aren't picked here either — they're turned on later from the in-app add-ons screen.
+  Sends a verification email and returns no token.
+  > When more than one base plan exists, add a `offeringId` (a `type=PLAN` offering) to the request body
+  > and validate it; until then the single plan is implicit.
 - **Security:** public **and** it writes data, so this is the main abuse target. Layer these:
   - **Email verification** — the account is created *pending* and inert until verified; a background job hard-deletes unverified signups after ~24–48h.
   - **Rate-limit by IP and by email** — caps volume and prevents email-bombing a victim.
@@ -252,7 +257,6 @@ verification. The owner account is created **pending** and cannot log in until v
   ```json
   {
     "organizationName": "Acme Inc",
-    "offeringId": "off_pro",
     "owner": {
       "email": "maria@acme.com",
       "password": "••••••••",
@@ -276,7 +280,7 @@ verification. The owner account is created **pending** and cannot log in until v
   ```
 
 - **Errors:**
-  - `400` — missing/invalid fields (e.g. weak password, unknown `offeringId`, or an `offeringId` that isn't a `PLAN`)
+  - `400` — missing/invalid fields (e.g. weak password)
   - `409` — the email is already registered
   - `429` — too many attempts (rate-limited)
 

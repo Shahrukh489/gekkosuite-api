@@ -96,9 +96,11 @@ CREATE TABLE organization (
 
 -- A subscription: ties an org to an offering (a plan or an add-on) with a lifecycle status and dates. An
 -- org normally has MANY live subscriptions at once — one base PLAN plus any number of ADDONs (and a plan
--- can coexist with a trialing upgrade). The org's effective features are the UNION of the features of
--- all its live subscriptions' offerings. Past rows are kept (ended_at set) as history — that's how we
--- know an org already tried an offering, so we never offer that trial again.
+-- can coexist with a trialing upgrade). A subscription is LIVE while status is TRIALING or ACTIVE; the
+-- org's effective features are the UNION of the features of all its live subscriptions' offerings.
+-- Canceling sets status = CANCELED and stamps ended_at — the two move together, so `status = CANCELED`
+-- and `ended_at IS NOT NULL` mean the same thing (the row is kept as history: that's how we know an org
+-- already tried an offering, so we never offer that trial again).
 -- NOTE: `status` here is the offering's LIFECYCLE (on / on-trial / off), NOT payment. Payment is
 -- org-level (one itemized bill for all subs) and lives on organization.billing_status — a subscription
 -- never carries a PAST_DUE/UNPAID state because we never learn which line of the one bill went unpaid.
