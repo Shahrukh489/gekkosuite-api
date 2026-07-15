@@ -5,10 +5,19 @@ CREATE TYPE store_type AS ENUM ('ONLINE', 'PHYSICAL');
 -- The scope a membership/role operates at: the two kinds of place a person can act at.
 CREATE TYPE scope AS ENUM ('ORGANIZATION', 'STORE');
 
--- An org's billing status. TRIALING = free trial; ACTIVE = paid & current; PAST_DUE = a payment failed
--- but still in the grace period (access stays full); UNPAID = grace exhausted (restrict to read-only);
--- CANCELED = ended (blocked). See auth.md's subscription gate and plans.md.
-CREATE TYPE subscription_status AS ENUM ('TRIALING', 'ACTIVE', 'PAST_DUE', 'UNPAID', 'CANCELED');
+-- An org's overall billing status (lives on organization.billing_status). The org pays ONE itemized bill
+-- for all its subscriptions, so payment is org-level, not per-subscription. It's purely about paying:
+-- ACTIVE = paid & current; PAST_DUE = a payment failed but still in the grace period (access stays full);
+-- UNPAID = grace exhausted (restrict to read-only); CANCELED = ended (blocked). This is the ONLY thing
+-- that freezes the org read-only — see auth.md's billing gate and plans.md. (There's no TRIALING here —
+-- "in a free trial" is a per-subscription lifecycle state, see offering_status; a trial owes nothing but
+-- isn't frozen, so from this gate's view it's simply not overdue.)
+CREATE TYPE billing_status AS ENUM ('ACTIVE', 'PAST_DUE', 'UNPAID', 'CANCELED');
+
+-- A subscription's LIFECYCLE (lives on subscription.status) — is this one offering on? Distinct from
+-- billing_status: payment is org-level (one bill), so a subscription never carries a payment state.
+-- TRIALING = on a free trial (features work, not billed); ACTIVE = on & billed; CANCELED = turned off.
+CREATE TYPE offering_status AS ENUM ('TRIALING', 'ACTIVE', 'CANCELED');
 
 -- What an org can subscribe to: a base PLAN or a stackable ADDON. Both are the same shape — a priced
 -- bundle of features — so they share one table, told apart by `type`. (See plans.md.)
@@ -72,6 +81,11 @@ CREATE TABLE organization (
     default_store_id UUID REFERENCES store (store_id),
     -- org-wide product sharing (off = each store's catalog is its own)
     allow_share_products  BOOLEAN NOT NULL DEFAULT FALSE,
+    -- the org's overall payment state for its ONE itemized bill (all subscriptions). This is the single
+    -- source of truth for the read-only freeze (UNPAID/CANCELED → read-only) — see auth.md's billing gate.
+    -- Purely about paying (no TRIALING — that's a per-subscription lifecycle state). A brand-new org on a
+    -- free trial owes nothing and isn't frozen, so it starts ACTIVE; "in trial" is read from its subs.
+    billing_status   billing_status NOT NULL DEFAULT 'ACTIVE',
     -- when the org was onboarded (stored UTC)
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- soft-delete flag; TRUE = org removed but kept for history
@@ -80,13 +94,14 @@ CREATE TABLE organization (
     deleted_at       TIMESTAMPTZ
 );
 
--- A subscription: ties an org to an offering (a plan or an add-on) with a billing status and dates. An
+-- A subscription: ties an org to an offering (a plan or an add-on) with a lifecycle status and dates. An
 -- org normally has MANY live subscriptions at once — one base PLAN plus any number of ADDONs (and a plan
 -- can coexist with a trialing upgrade). The org's effective features are the UNION of the features of
 -- all its live subscriptions' offerings. Past rows are kept (ended_at set) as history — that's how we
 -- know an org already tried an offering, so we never offer that trial again.
--- Note is_active on the org is the ADMIN lifecycle (suspended/deleted); subscription_status is the
--- BILLING lifecycle — separate axes, both must be good for full access.
+-- NOTE: `status` here is the offering's LIFECYCLE (on / on-trial / off), NOT payment. Payment is
+-- org-level (one itemized bill for all subs) and lives on organization.billing_status — a subscription
+-- never carries a PAST_DUE/UNPAID state because we never learn which line of the one bill went unpaid.
 CREATE TABLE subscription (
     -- subscription id
     subscription_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -94,15 +109,15 @@ CREATE TABLE subscription (
     organization_id     UUID NOT NULL REFERENCES organization (organization_id),
     -- the offering this subscription is for — its features contribute to the org's effective feature set
     offering_id         UUID NOT NULL REFERENCES offering (offering_id),
-    -- TRIALING | ACTIVE | PAST_DUE | UNPAID | CANCELED
-    status              subscription_status NOT NULL DEFAULT 'TRIALING',
+    -- TRIALING (free trial, features on) | ACTIVE (on & billed) | CANCELED (off). Lifecycle, not payment.
+    status              offering_status NOT NULL DEFAULT 'TRIALING',
     -- when a free trial ends (NULL if not trialing)
     trial_ends_at       TIMESTAMPTZ,
     -- end of the current paid period (renewal/billing boundary)
     current_period_end  TIMESTAMPTZ,
     -- when this subscription row started (stored UTC)
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- when it ended (NULL = still live). A live row counts toward the org's features & billing status.
+    -- when it ended (NULL = still live). A live row counts toward the org's features & bill.
     ended_at            TIMESTAMPTZ
 );
 CREATE INDEX ON subscription (organization_id);

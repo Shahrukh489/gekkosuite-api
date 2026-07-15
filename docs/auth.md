@@ -163,8 +163,9 @@ If the endpoint declares a `STORE` scope (a store action), then the following ru
 
 **5. Is the org's billing in good standing (the billing gate)?**
 
-- Its live subscriptions are all `ACTIVE` / `TRIALING`, or `PAST_DUE` (still in the grace period) → allowed.
-- The org is overdue (a live subscription is `UNPAID` / `CANCELED` with nothing keeping it current) → **reads are still allowed** (they can see and export their data), but **writes return 402 Payment Required**. Billing endpoints stay open so they can pay and recover.
+- Payment is **org-level** — the org pays one itemized bill for all its subscriptions — so this reads a single column, `organization.billing_status`, not the per-subscription statuses.
+- `organization.billing_status` is `ACTIVE`, or `PAST_DUE` (still in the grace period) → allowed. (A free trial isn't a billing state — it owes nothing, so a trialing org is simply `ACTIVE` here; its trial lives on the subscription rows.)
+- The org is overdue (`billing_status` is `UNPAID` / `CANCELED`) → **reads are still allowed** (they can see and export their data), but **writes return 402 Payment Required**. Billing endpoints stay open so they can pay and recover.
 
 
 If the endpoint declares an `ORGANIZATION` scope (an org action), then the following rules must ALL be satisfied in order:
@@ -183,10 +184,10 @@ If the endpoint declares an `ORGANIZATION` scope (an org action), then the follo
 
 **3. Is the org's billing in good standing (the billing gate)?**
 
-- Live subscriptions all `ACTIVE` / `TRIALING` / `PAST_DUE` (grace) → allowed.
+- `organization.billing_status` is `ACTIVE` / `PAST_DUE` (grace) → allowed. (A trialing org is `ACTIVE` here — the trial is a per-subscription state, not a billing one.)
 - Overdue (`UNPAID` / `CANCELED`) → **reads still allowed**, but **writes return 402 Payment Required**. Billing endpoints stay open so they can pay and recover.
 
-> These billing checks (feature, subscription) run **after** the permission checks on purpose: *who you are* (authorization) is the hard boundary, checked first; *what your plan covers and whether you've paid* is only relevant once you're already allowed. So an unauthorized user gets `403` and learns nothing about the org's plan or billing, while someone who's allowed but under-plan or overdue gets `402`. Permissions come from the user's role; features and subscription status come from the org (see `plans.md`).
+> These billing checks (feature, billing status) run **after** the permission checks on purpose: *who you are* (authorization) is the hard boundary, checked first; *what your offerings cover and whether you've paid* is only relevant once you're already allowed. So an unauthorized user gets `403` and learns nothing about the org's offerings or billing, while someone who's allowed but missing a feature or overdue gets `402`. Permissions come from the user's role; features come from the org's live subscriptions and billing status from `organization.billing_status` (see `plans.md`).
 
 
 ### Query
@@ -228,11 +229,11 @@ if endpoint.requiredFeature is set:
     if org's effective features do NOT include (endpoint.requiredFeature, endpoint.requiredFeatureScope):
         return 402                    -- allowed, but no current plan covers it
 
--- 5. billing gate: is the org paid up? (reads always allowed; writes blocked when overdue)
-if request is a write and org is overdue (a live subscription is UNPAID / CANCELED):
+-- 5. billing gate: is the org paid up? (org-level, one bill; reads always allowed; writes blocked when overdue)
+if request is a write and organization.billing_status IN ('UNPAID', 'CANCELED'):
     return 402                        -- allowed, but the account is overdue
 
-return 200                            -- allowed, plan covers it, and billing is in good standing
+return 200                            -- allowed, an offering covers it, and billing is in good standing
 ```
 
 

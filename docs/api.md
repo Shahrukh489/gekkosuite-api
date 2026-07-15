@@ -486,7 +486,7 @@ The org resource itself, the caller's permissions in it, and the org-scoped feat
           "offeringId": "off_pro",
           "offeringName": "Pro",
           "type": "PLAN",
-          "status": "PAST_DUE",
+          "status": "ACTIVE",
           "pricePerStore": 150.00,
           "trialEndsAt": null,
           "currentPeriodEnd": "2026-08-01T00:00:00Z"
@@ -508,18 +508,21 @@ The org resource itself, the caller's permissions in it, and the org-scoped feat
 
   - **`billing`** — the org's overall billing state, plus its subscription detail (this is the Billing
     screen's data; there's no separate subscription endpoint):
-    - `status` — the org's overall status, one of `TRIALING` / `ACTIVE` / `PAST_DUE` / `UNPAID` /
-      `CANCELED`, derived across its live subscriptions.
+    - `status` — the org's overall **payment** status (`organization.billing_status`), one of `ACTIVE` /
+      `PAST_DUE` / `UNPAID` / `CANCELED`. Payment is org-level (one itemized bill for all subscriptions),
+      so this is a single value — not per-subscription. (A free trial isn't a payment status; a trialing
+      org shows `ACTIVE` here, and its trial is visible on the individual subscriptions' `status`.)
     - `readOnly` — `true` when writes are blocked (overdue: `UNPAID` / `CANCELED`). The UI disables write
       buttons and shows `message` when this is `true`.
     - `message` — a human prompt (with a "pay now" call to action when overdue); `null` when all is well.
     - `storeCount` — the org's active store count (the per-store billing quantity; see `plans.md` →
       *Billing & store count*).
     - `subscriptions` — the org's **live** subscriptions: one base plan plus any active add-ons. Each
-      carries its offering (`offeringId`, `offeringName`, `type` `PLAN`/`ADDON`), per-offering `status`,
-      `pricePerStore`, `trialEndsAt`, and `currentPeriodEnd`. The org's effective features are the union
-      across all of them (see `plans.md`). The bill is `sum over paid subscriptions of pricePerStore ×
-      storeCount`.
+      carries its offering (`offeringId`, `offeringName`, `type` `PLAN`/`ADDON`), a per-subscription
+      `status` that is **lifecycle only** (`TRIALING` / `ACTIVE` / `CANCELED` — whether that offering is
+      on, on trial, or off; never a payment state), `pricePerStore`, `trialEndsAt`, and
+      `currentPeriodEnd`. The org's effective features are the union across all of them (see `plans.md`).
+      The bill is `sum over ACTIVE subscriptions of pricePerStore × storeCount` (trials are free).
     - This is separate from features: `GET .../features` returns what the org's offerings *include* (a
       missed payment doesn't strip features — an unpaid org still lists its features), while `readOnly`
       says whether the org is *frozen from writing*. It's a UI hint; the server still enforces it — a
