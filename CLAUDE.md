@@ -70,7 +70,9 @@ Rules are guarded in up to three layers, and docs reflect this pattern — keep 
   "Security Review Notes" section of open items** (authentication is the weak area: password hashing,
   brute-force protection, MFA, token revocation, `store_pin`, and an escalation-ceiling rule on role
   assignment are all still unspecified). Consult it before proposing auth changes.
-- `docs/plans.md` — plans, features, billing (bill = plan's per-store price × store count).
+- `docs/plans.md` — plans, add-ons, features, billing. An org subscribes to **offerings** (a base plan +
+  stackable add-ons, one table `offering` told apart by `type` PLAN|ADDON); each offering is a priced
+  bundle of features. Bill = Σ live offerings' per-store price × store count.
 - `docs/database.md` — schema (tables, indexes, RLS). Note: `permission_condition` /
   `role_permission_condition` are referenced in the Indexes/RLS sections but not yet defined as tables.
 - `docs/ui.md` — one app, one set of screens; a store switcher sets context, memberships decide

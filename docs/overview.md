@@ -38,7 +38,7 @@ An **organization** is the business. It owns many **stores** and **handles admin
 | Stores | Create and manage stores. |
 | Products | Manage Products across all stores. |
 | Customers | Manage Customers across all stores. |
-| Plan | The org's plan subscription(s); features are scoped per store or per org (stores get the store-scoped ones). |
+| Plans & Add-ons | The org subscribes to offerings — a base plan plus optional add-ons; their features are scoped per store or per org (stores get the store-scoped ones). |
 | AI Chatbot | Feed KB to AI chatbot, and let each store owner chat with it. |
 | AI Recommendations | Get Organization based Recommendations. |
 | Org-level scope | Make org-level changes |
@@ -68,7 +68,7 @@ A **store** is where selling happens, you can't sell at the organization level. 
 The detail lives in focused docs:
 
 - **`auth.md`** — users, memberships, roles, permissions, and access (authn & authz).
-- **`plans.md`** — plans, features, and billing.
+- **`plans.md`** — plans, add-ons, features, and billing.
 - **`database.md`** — the database schema (tables, indexes, RLS).
 - **`costs.md`** — estimate of development and maintenance costs.
 - **`api.md`** — high level api schema.

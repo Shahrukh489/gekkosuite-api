@@ -10,18 +10,29 @@ CREATE TYPE scope AS ENUM ('ORGANIZATION', 'STORE');
 -- CANCELED = ended (blocked). See auth.md's subscription gate and plans.md.
 CREATE TYPE subscription_status AS ENUM ('TRIALING', 'ACTIVE', 'PAST_DUE', 'UNPAID', 'CANCELED');
 
--- A plan: what an org subscribes to. Priced per store. Its features are scoped STORE or ORGANIZATION;
--- stores get the plan's store-scoped features, the org gets the org-scoped ones (see plans.md).
-CREATE TABLE plan (
-    -- plan id
-    plan_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    -- display name, e.g. 'Basic', 'Pro' (unique across plans)
+-- What an org can subscribe to: a base PLAN or a stackable ADDON. Both are the same shape — a priced
+-- bundle of features — so they share one table, told apart by `type`. (See plans.md.)
+CREATE TYPE offering_type AS ENUM ('PLAN', 'ADDON');
+
+-- An offering: a priced bundle of features an org subscribes to. Priced per store. Its features are
+-- scoped STORE or ORGANIZATION; stores get the store-scoped ones, the org gets the org-scoped ones.
+-- A PLAN is the baseline (an org has one); an ADDON stacks on top (an org can have several). See plans.md.
+CREATE TABLE offering (
+    -- offering id
+    offering_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- PLAN = baseline plan; ADDON = stackable extra bought on top
+    type            offering_type NOT NULL,
+    -- display name, e.g. 'Basic', 'Pro', 'Marketing' (unique across offerings)
     name            TEXT NOT NULL UNIQUE,
-    -- optional blurb about the plan
-    description     TEXT
+    -- optional blurb about the offering
+    description     TEXT,
+    -- per-store price; the bill adds this × store count for each of the org's live offerings (0 = free)
+    price_per_store NUMERIC NOT NULL DEFAULT 0,
+    -- still offered in the catalog? (FALSE = retired; existing subscriptions keep it)
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE
 );
 
--- A feature: one capability a plan can include (reports, returns, multi-store, ...).
+-- A feature: one capability an offering can include (reports, returns, multi-store, ...).
 CREATE TABLE feature (
     -- feature id
     feature_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -36,15 +47,15 @@ CREATE TABLE feature (
     description TEXT
 );
 
--- plan_feature: which features a plan includes (many-to-many). Adding a row gives every org on that
--- plan the feature instantly (see plans.md).
-CREATE TABLE plan_feature (
-    -- the plan
-    plan_id    UUID NOT NULL REFERENCES plan (plan_id),
+-- offering_feature: which features an offering includes (many-to-many). Adding a row gives every org
+-- subscribed to that offering the feature instantly (see plans.md).
+CREATE TABLE offering_feature (
+    -- the offering
+    offering_id UUID NOT NULL REFERENCES offering (offering_id),
     -- the feature it includes
-    feature_id UUID NOT NULL REFERENCES feature (feature_id),
-    -- a plan can't list the same feature twice
-    PRIMARY KEY (plan_id, feature_id)
+    feature_id  UUID NOT NULL REFERENCES feature (feature_id),
+    -- an offering can't list the same feature twice
+    PRIMARY KEY (offering_id, feature_id)
 );
 
 -- The organization: the business and the tenant (unit of isolation). Owns stores, users, and settings.
@@ -69,11 +80,11 @@ CREATE TABLE organization (
     deleted_at       TIMESTAMPTZ
 );
 
--- A subscription: ties an org to a plan with a billing status and dates. An org can have MORE THAN ONE
--- live subscription at once — e.g. a paid Basic plus a TRIALING Pro trial. The org's effective features
--- are the UNION of the features of all its live subscriptions' plans (so a Pro trial adds Pro's features
--- on top of Basic). Past rows are kept (ended_at set) as history — that's how we know an org already
--- tried a plan, so we never offer that trial again.
+-- A subscription: ties an org to an offering (a plan or an add-on) with a billing status and dates. An
+-- org normally has MANY live subscriptions at once — one base PLAN plus any number of ADDONs (and a plan
+-- can coexist with a trialing upgrade). The org's effective features are the UNION of the features of
+-- all its live subscriptions' offerings. Past rows are kept (ended_at set) as history — that's how we
+-- know an org already tried an offering, so we never offer that trial again.
 -- Note is_active on the org is the ADMIN lifecycle (suspended/deleted); subscription_status is the
 -- BILLING lifecycle — separate axes, both must be good for full access.
 CREATE TABLE subscription (
@@ -81,8 +92,8 @@ CREATE TABLE subscription (
     subscription_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- the org this subscription belongs to
     organization_id     UUID NOT NULL REFERENCES organization (organization_id),
-    -- the plan this subscription is for — its features contribute to the org's effective feature set
-    plan_id             UUID NOT NULL REFERENCES plan (plan_id),
+    -- the offering this subscription is for — its features contribute to the org's effective feature set
+    offering_id         UUID NOT NULL REFERENCES offering (offering_id),
     -- TRIALING | ACTIVE | PAST_DUE | UNPAID | CANCELED
     status              subscription_status NOT NULL DEFAULT 'TRIALING',
     -- when a free trial ends (NULL if not trialing)
@@ -95,12 +106,6 @@ CREATE TABLE subscription (
     ended_at            TIMESTAMPTZ
 );
 CREATE INDEX ON subscription (organization_id);
--- an org can hold the same plan live at most once (no duplicate live Basic + Basic), but CAN have a
--- past ended row for it (history / re-subscribe). "Already trialed plan X?" is a history query:
--- EXISTS (... WHERE organization_id = X AND plan_id = P AND status was TRIALING).
-CREATE UNIQUE INDEX subscription_one_live_per_org_plan
-    ON subscription (organization_id, plan_id)
-    WHERE ended_at IS NULL;
 
 -- A store: the business unit where selling happens. Owned by one org;
 CREATE TABLE store (
@@ -635,9 +640,9 @@ automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns 
 
 | Table | Primary key | Query it serves |
 |---|---|---|
-| `plan` | `plan_id` | get a plan by id |
+| `offering` | `offering_id` | get an offering (plan or add-on) by id |
 | `feature` | `feature_id` | get a feature by id |
-| `plan_feature` | `(plan_id, feature_id)` | list the features in a given plan |
+| `offering_feature` | `(offering_id, feature_id)` | list the features in a given offering |
 | `subscription` | `subscription_id` | get a subscription by id |
 | `organization` | `organization_id` | get an org by id (resolve the tenant) |
 | `store` | `store_id` | get a store by id (`/stores/{storeId}/...`) |
@@ -666,7 +671,7 @@ automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns 
 
 | Constraint | Query / rule it serves |
 |---|---|
-| `plan.name` | look up a plan by name / no two plans share a name |
+| `offering.name` | look up an offering by name / no two offerings share a name |
 | `feature.code` | look up a feature by its code / codes don't collide |
 | `user.email` | **login: find the account for an email** / one account per email |
 | `permission (resource, action)` | look up a permission like `product:read` / no duplicates |
@@ -683,7 +688,6 @@ automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns 
 | `role_managed_name_uq` — `role(name) WHERE is_managed` | find a system role by name / managed names unique |
 | `membership_store_uq` — `membership(user_id, store_id) WHERE store_id IS NOT NULL AND NOT is_deleted` | is this user a live member of this store? / one live membership per store |
 | `membership_org_uq` — `membership(user_id) WHERE scope='ORGANIZATION' AND NOT is_deleted` | does this user have a live org membership? / at most one |
-| `subscription_one_live_per_org_plan` — `subscription(organization_id, plan_id) WHERE ended_at IS NULL` | no duplicate live plan for an org / one live row per (org, plan) |
 
 ## Plain indexes
 

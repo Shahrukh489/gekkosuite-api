@@ -131,9 +131,9 @@ scattered as one-off handlers:
   shared customer vs. create a new one. (`customer.create_attempt` → find-or-link.)
 - **Retention / cleanup** — scheduled: hard-delete soft-deleted memberships after N days;
   deactivate users with zero active memberships. (Scheduled workflows.)
-- **Plan-change side effects** — provisioning / welcome email / feature toggling when a store
-  changes plan. (The feature *derivation* through the plan stays structural; the *reactions*
-  are workflows.)
+- **Offering side effects** — provisioning / welcome email / feature toggling when an org subscribes
+  to or cancels an offering (a plan or add-on). (The feature *derivation* through the offering stays
+  structural — `subscription → offering_feature → feature`; the *reactions* are workflows.)
 - **Role clone** — copy a built-in role + its permissions into a new custom role. (A templated
   multi-step action; fits the action library later. Low priority.)
 

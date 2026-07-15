@@ -156,7 +156,7 @@ If the endpoint declares a `STORE` scope (a store action), then the following ru
 
 **4. If the endpoint declares a required feature, do the org's effective features include it at the declared `requiredFeatureScope`?**
 
-- The org's **effective features** are the **union** of the features of every **live** subscription's plan (so a Basic plan plus a live Pro trial gives the org Basic's *and* Pro's features).
+- The org's **effective features** are the **union** of the features of every **live** subscription's offering (so a base plan plus an active add-on gives the org both offerings' features).
 - If the endpoint declares **no** feature → skip this; the action isn't plan-gated (e.g. selling, reading). User is authorized.
 - If the effective features **include** it (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
 - If they **do not** → return **402 Payment Required** — the user is allowed, but no current plan covers this. (Distinct from `403` so the client can prompt an upgrade.)
@@ -176,7 +176,7 @@ If the endpoint declares an `ORGANIZATION` scope (an org action), then the follo
 
 **2. If the endpoint declares a required feature, do the org's effective features include it at the declared `requiredFeatureScope`?**
 
-- The org's effective features are the **union** of every live subscription's plan features.
+- The org's effective features are the **union** of every live subscription's offering features.
 - If the endpoint declares **no** feature → skip this; the action isn't plan-gated. User is authorized.
 - If the effective features **include** it (matching `requiredFeature` + `requiredFeatureScope`) → user is authorized.
 - If they **do not** → return **402 Payment Required** — the user is allowed, but no current plan covers this. (Distinct from `403` so the client can prompt an upgrade.)
@@ -195,7 +195,7 @@ A user can have many memberships. So we go through each one and ask: "does this 
 
 The endpoint gives us these to check against: its `requiredMembershipScope` (`STORE` or `ORGANIZATION`), its `requiredPermission`, and — for paid capabilities only — a `requiredFeature` plus its `requiredFeatureScope`.
 
-First we decide if the **user** is allowed (membership + role + permission). If they are, and the endpoint declares a feature, we then check the **org's plan** includes it.
+First we decide if the **user** is allowed (membership + role + permission). If they are, and the endpoint declares a feature, we then check the **org's offerings** include it.
 
 ```
 allowed = false
@@ -223,7 +223,7 @@ if not allowed:
     return 403                        -- the user isn't allowed
 
 -- 4. feature gate: is this a paid capability covered by the org's effective features?
---    effective features = union of features across the org's live subscriptions' plans
+--    effective features = union of features across the org's live subscriptions' offerings
 if endpoint.requiredFeature is set:
     if org's effective features do NOT include (endpoint.requiredFeature, endpoint.requiredFeatureScope):
         return 402                    -- allowed, but no current plan covers it
