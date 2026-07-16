@@ -13,8 +13,8 @@ The structural work (auth, org, store, RBAC, billing reads) is specified below. 
 | Customers | Stores | `store_customer`, `customer` | Dual-write sharing (always shared org-wide). |
 | Sales & Returns | Stores | `sales_order(+_product)`, `sales_order_return(+_product)` | Core money path: totals breakdown, status enums, refund flow. |
 
-Also deferred (needs the payment/Stripe flow): change plan, cancel subscription, invoices, payment
-method — stubbed under *Organization → Plans & Features*.
+Also deferred (needs the payment/Stripe flow): change plan, add/remove add-ons, cancel subscription,
+invoices, payment method — stubbed under *Organization → Plans, Add-ons & Features*.
 
 # Summary
 
@@ -22,7 +22,8 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 
 | Endpoint | Description | Scope |
 |---|---|---|
-| `GET /plans` | List the available plans for the signup page. | public |
+| `GET /plans` | List the available base plans for the signup page. | public |
+| `GET /addons` | List the available add-ons (stackable extras). | public |
 | `POST /onboarding` | Create a tenant — org, owner (pending), subscription, first store. | public |
 | `POST /onboarding/verify` | Verify the owner's email and activate the account. | public |
 | `POST /auth/login` | Exchange email + password for an access token. | public |
@@ -30,7 +31,7 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 | `POST /auth/logout` | End the session and invalidate the token. | any authenticated |
 | `GET /organization` | The org record + its billing state. | ORGANIZATION |
 | `GET /organization/permissions` | The caller's permissions in the org. | ORGANIZATION |
-| `GET /organization/features` | The org-scoped features the plan enables. | ORGANIZATION |
+| `GET /organization/features` | The org-scoped features the org's offerings enable. | ORGANIZATION |
 | `POST /users` | Create a user (login only, no membership). | ORGANIZATION |
 | `GET /users` | List the org's users (identity only). | ORGANIZATION |
 | `GET /users/{userId}` | One user's record + full memberships (admin detail). | ORGANIZATION |
@@ -49,7 +50,7 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 | `PATCH /stores/{storeId}` | Update a store's details. | ORGANIZATION |
 | `DELETE /stores/{storeId}` | Soft-delete a store (not the default). | ORGANIZATION |
 | `GET /stores/{storeId}` | One store's full record + read-only flag. | STORE |
-| `GET /stores/{storeId}/features` | The store-scoped features the plan enables. | STORE |
+| `GET /stores/{storeId}/features` | The store-scoped features the org's offerings enable. | STORE |
 | `GET /stores/{storeId}/permissions` | The caller's permissions in this store. | STORE |
 | `GET /stores/{storeId}/users` | The store's staff roster. | STORE |
 | `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/deactivate` | Suspend a membership at this store (store route). | STORE |
@@ -62,9 +63,9 @@ the owner it belongs to.
 
 | # | Section | Contains |
 |---|---|---|
-| 1 | **Onboarding** | Public signup — plans, create tenant, verify email. Runs before auth. |
+| 1 | **Onboarding** | Public signup — create tenant (base plan auto-assigned), verify email. Runs before auth. |
 | 2 | **Auth** | The way in — login, the current-user (self) read, logout. |
-| 3 | **Organization** | Org-owned (the tenant): the org itself, Users & Access, **managing the store set** (create/list/edit/delete stores), Suppliers, Purchases, Expenses, Plans & Features. |
+| 3 | **Organization** | Org-owned (the tenant): the org itself, Users & Access, **managing the store set** (create/list/edit/delete stores), Suppliers, Purchases, Expenses, Plans, Add-ons & Features. |
 | 4 | **Stores** | Acting *within* a single store (`/stores/{storeId}/...`): the store record, its staff roster, Products, Customers, Sales & Returns. |
 
 Within a section, each area is a sub-section and each endpoint sits under it. A resource lives under the
@@ -79,12 +80,13 @@ diagram of how they branch.
 
 ## Sign up (new tenant)
 
-Public, pre-auth. Pick a plan, create the tenant, verify the email — then the owner can log in.
+Public, pre-auth. Create the tenant, verify the email — then the owner can log in. There's one base plan
+today, so nothing to pick: the backend assigns it. (When multiple plans exist, a `GET /plans` step is
+added here to choose one.)
 
 ```mermaid
 flowchart LR
-    A["GET /plans<br/>show plan options"] --> B["POST /onboarding<br/>create org + owner (pending)<br/>+ subscription + first store"]
-    B --> C["POST /onboarding/verify<br/>activate the account"]
+    B["POST /onboarding<br/>create org + owner (pending)<br/>+ subscription (base plan) + first store"] --> C["POST /onboarding/verify<br/>activate the account"]
     C --> D["→ Log in"]
 ```
 
@@ -166,12 +168,14 @@ first store). All onboarding endpoints are **public** (no token; the user doesn'
 a prime abuse target: rate-limit them, protect with a captcha, and gate account use behind email
 verification. The owner account is created **pending** and cannot log in until verified.
 
-### `GET /plans` — List plans
+### `GET /plans` — List base plans
 
-- **Description:** Lists the available plans so the signup page can show options and the user can pick one.
+- **Description:** Lists the available **base plans** (`offering.type = 'PLAN'`). There's one today, so
+  signup doesn't call this (the backend auto-assigns it); it exists for the change-plan screen and for
+  when multiple plans are offered. Add-ons are a separate catalog (`GET /addons`).
 - **Security:** public and read-only, so low risk.
   - Rate-limit by IP.
-  - Cache the response (plans rarely change).
+  - Cache the response (offerings rarely change).
 - **Method:** `GET`
 - **URL:** `/plans`
 - **Scope:** _(public — no token required)_
@@ -184,7 +188,7 @@ verification. The owner account is created **pending** and cannot log in until v
   ```json
   [
     {
-      "planId": "plan_pro",
+      "offeringId": "off_pro",
       "name": "Pro",
       "description": "For growing chains",
       "pricePerStore": 150.00
@@ -195,11 +199,45 @@ verification. The owner account is created **pending** and cannot log in until v
 - **Errors:** _(none — public)_
 
 
+### `GET /addons` — List add-ons
+
+- **Description:** Lists the available **add-ons** (`offering.type = 'ADDON'`) — the stackable extras an
+  org can turn on top of its base plan. Same shape as `GET /plans`; backs the in-app add-ons screen.
+- **Security:** public and read-only, so low risk.
+  - Rate-limit by IP.
+  - Cache the response (offerings rarely change).
+- **Method:** `GET`
+- **URL:** `/addons`
+- **Scope:** _(public — no token required)_
+- **Permission:** _(none)_
+- **Request Headers:** _(none)_
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  [
+    {
+      "offeringId": "off_marketing",
+      "name": "Marketing",
+      "description": "Email & SMS campaigns",
+      "pricePerStore": 30.00
+    }
+  ]
+  ```
+
+- **Errors:** _(none — public)_
+
+
 ### `POST /onboarding` — Sign up - @TODO: investigate
 
 - **Description:** Creates a new tenant in one transaction — the organization, its owner (pending email
-  verification), a **subscription** to the chosen plan (status `TRIALING` or `ACTIVE`), and a first
-  store. Sends a verification email and returns no token.
+  verification), a **subscription** to the base plan, and a first store. The base plan isn't chosen by the
+  client: there's only one `PLAN` offering today, so the backend assigns it automatically (status
+  `TRIALING`). Add-ons aren't picked here either — they're turned on later from the in-app add-ons screen.
+  Sends a verification email and returns no token.
+  > When more than one base plan exists, add a `offeringId` (a `type=PLAN` offering) to the request body
+  > and validate it; until then the single plan is implicit.
 - **Security:** public **and** it writes data, so this is the main abuse target. Layer these:
   - **Email verification** — the account is created *pending* and inert until verified; a background job hard-deletes unverified signups after ~24–48h.
   - **Rate-limit by IP and by email** — caps volume and prevents email-bombing a victim.
@@ -219,7 +257,6 @@ verification. The owner account is created **pending** and cannot log in until v
   ```json
   {
     "organizationName": "Acme Inc",
-    "planId": "plan_pro",
     "owner": {
       "email": "maria@acme.com",
       "password": "••••••••",
@@ -243,7 +280,7 @@ verification. The owner account is created **pending** and cannot log in until v
   ```
 
 - **Errors:**
-  - `400` — missing/invalid fields (e.g. weak password, unknown `planId`)
+  - `400` — missing/invalid fields (e.g. weak password)
   - `409` — the email is already registered
   - `429` — too many attempts (rate-limited)
 
@@ -411,16 +448,16 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 
 The organization is the tenant, and there's exactly one per caller — fixed in the token at login. It's a
 **singleton** resource: the endpoints are id-less (`/organization`), because the token already says which
-org. The resource, the caller's permissions, and the plan's enabled features are three separate endpoints.
+org. The resource, the caller's permissions, and the features its offerings enable are three separate endpoints.
 
 ### The Organization
 
-The org resource itself, the caller's permissions in it, and the plan's enabled org-scoped features.
+The org resource itself, the caller's permissions in it, and the org-scoped features its offerings enable.
 
 #### `GET /organization` — Get organization
 
-- **Description:** Returns the organization — its name, plan, default store, settings, and its **billing
-  state**. The org is the paying entity, so this is the source-of-truth surface for whether the account is
+- **Description:** Returns the organization — its name, default store, settings, and its **billing
+  state** (its offerings: base plan + active add-ons). The org is the paying entity, so this is the source-of-truth surface for whether the account is
   read-only: `billing.status` (derived from the org's live subscriptions) and `billing.readOnly` (writes
   frozen when overdue), with a `message` prompting payment. The UI uses this on entering the org context
   to disable write actions and show a "pay now" banner.
@@ -439,7 +476,6 @@ The org resource itself, the caller's permissions in it, and the plan's enabled 
     "organizationId": "acme...",
     "name": "Acme Inc",
     "description": "Coffee chain",
-    "planId": "plan_pro",
     "defaultStoreId": "s1...",
     "allowShareProducts": false,
     "createdAt": "2026-01-05T12:00:00Z",
@@ -451,10 +487,21 @@ The org resource itself, the caller's permissions in it, and the plan's enabled 
       "subscriptions": [
         {
           "subscriptionId": "sub1...",
-          "planId": "plan_pro",
-          "planName": "Pro",
-          "status": "PAST_DUE",
+          "offeringId": "off_pro",
+          "offeringName": "Pro",
+          "type": "PLAN",
+          "status": "ACTIVE",
           "pricePerStore": 150.00,
+          "trialEndsAt": null,
+          "currentPeriodEnd": "2026-08-01T00:00:00Z"
+        },
+        {
+          "subscriptionId": "sub2...",
+          "offeringId": "off_marketing",
+          "offeringName": "Marketing",
+          "type": "ADDON",
+          "status": "ACTIVE",
+          "pricePerStore": 30.00,
           "trialEndsAt": null,
           "currentPeriodEnd": "2026-08-01T00:00:00Z"
         }
@@ -465,21 +512,25 @@ The org resource itself, the caller's permissions in it, and the plan's enabled 
 
   - **`billing`** — the org's overall billing state, plus its subscription detail (this is the Billing
     screen's data; there's no separate subscription endpoint):
-    - `status` — the org's overall status, one of `TRIALING` / `ACTIVE` / `PAST_DUE` / `UNPAID` /
-      `CANCELED`, derived across its live subscriptions.
+    - `status` — the org's overall **payment** status (`organization.billing_status`), one of `ACTIVE` /
+      `PAST_DUE` / `UNPAID` / `CANCELED`. Payment is org-level (one itemized bill for all subscriptions),
+      so this is a single value — not per-subscription. (A free trial isn't a payment status; a trialing
+      org shows `ACTIVE` here, and its trial is visible on the individual subscriptions' `status`.)
     - `readOnly` — `true` when writes are blocked (overdue: `UNPAID` / `CANCELED`). The UI disables write
       buttons and shows `message` when this is `true`.
     - `message` — a human prompt (with a "pay now" call to action when overdue); `null` when all is well.
     - `storeCount` — the org's active store count (the per-store billing quantity; see `plans.md` →
       *Billing & store count*).
-    - `subscriptions` — the org's **live** subscriptions (usually one). Each carries its plan, per-plan
-      `status`, `pricePerStore`, `trialEndsAt`, and `currentPeriodEnd`. An org can hold more than one live
-      subscription (e.g. a paid Basic + a Pro trial); the org's effective features are the union of all of
-      them (see `plans.md`). The bill is `sum over paid subscriptions of pricePerStore × storeCount`.
-    - This is separate from features: `GET .../features` returns what the plan *includes* (a missed
-      payment doesn't strip features — an unpaid Pro org still lists Pro features), while `readOnly` says
-      whether the org is *frozen from writing*. It's a UI hint; the server still enforces it — a write
-      while read-only returns `402` (see `auth.md`'s billing gate).
+    - `subscriptions` — the org's **live** subscriptions: one base plan plus any active add-ons. Each
+      carries its offering (`offeringId`, `offeringName`, `type` `PLAN`/`ADDON`), a per-subscription
+      `status` that is **lifecycle only** (`TRIALING` / `ACTIVE` / `CANCELED` — whether that offering is
+      on, on trial, or off; never a payment state), `pricePerStore`, `trialEndsAt`, and
+      `currentPeriodEnd`. The org's effective features are the union across all of them (see `plans.md`).
+      The bill is `sum over ACTIVE subscriptions of pricePerStore × storeCount` (trials are free).
+    - This is separate from features: `GET .../features` returns what the org's offerings *include* (a
+      missed payment doesn't strip features — an unpaid org still lists its features), while `readOnly`
+      says whether the org is *frozen from writing*. It's a UI hint; the server still enforces it — a
+      write while read-only returns `402` (see `auth.md`'s billing gate).
 
 - **Errors:**
   - `401` — not authenticated
@@ -511,9 +562,10 @@ The org resource itself, the caller's permissions in it, and the plan's enabled 
 
 #### `GET /organization/features` — Get organization features
 
-- **Description:** Returns the **organization-scoped** feature codes the org's plan enables (e.g. billing,
-  multi-store). Used by the UI to show or hide org-level features. Store-scoped features are not returned
-  here — a store reads its own via `GET /stores/{storeId}/features`.
+- **Description:** Returns the **organization-scoped** feature codes the org's live offerings enable (e.g.
+  billing, multi-store) — the union across its base plan and any active add-ons. Used by the UI to show or
+  hide org-level features. Store-scoped features are not returned here — a store reads its own via `GET
+  /stores/{storeId}/features`.
 - **Method:** `GET`
 - **URL:** `/organization/features`
 - **Scope:** `ORGANIZATION`
@@ -1112,28 +1164,41 @@ The org owns and manages the store set — creating, editing, and removing store
   - `404` — the store is not in the caller's org
   - `409` — the store is the org's default store (reassign the default before deleting)
 
-### Plans & Features
+### Plans, Add-ons & Features
 
-Billing lives on the org. The current plan, status, trial, period, store count, and live subscriptions
-are already returned in **`GET /organization`** under `billing` — that's the Billing screen's read, so
-there's no separate "get subscription" endpoint. What the plan *includes* is on **`GET
-/organization/features`** (org-scoped) and **`GET /stores/{storeId}/features`** (store-scoped). To pick a
-plan (e.g. when changing), plans are listed by **`GET /plans`** (public; reused here).
+Billing lives on the org. The current offerings (base plan + active add-ons), status, trial, period,
+store count, and live subscriptions are already returned in **`GET /organization`** under `billing` —
+that's the Billing screen's read, so there's no separate "get subscription" endpoint. What those
+offerings *include* is on **`GET /organization/features`** (org-scoped) and **`GET
+/stores/{storeId}/features`** (store-scoped). To pick a base plan (e.g. when changing), plans are listed
+by **`GET /plans`**; the add-on catalog is **`GET /addons`** (both public; reused here).
 
 The **management** actions below all move money, so they're blocked on the payment/Stripe flow (the same
 `@TODO` as *Create store*) and are left as stubs:
 
 #### Change plan — @TODO (needs payment flow)
 
-- **URL:** `POST /organization/subscription` (upgrade/downgrade / add a subscription)
+- **URL:** `POST /organization/subscription` (subscribe to a base `PLAN` offering — upgrade/downgrade)
 - Blocked on the payment design: a plan change reprices via Stripe (proration). Decide the flow before
   speccing (redirect to Checkout, or charge the saved card).
+
+#### Add an add-on — @TODO (needs payment flow)
+
+- **URL:** `POST /organization/addons` with `{ "offeringId": "off_marketing" }` (subscribe to an `ADDON`
+  offering; a new `subscription` row stacks on the base plan)
+- Same payment/Stripe dependency as *Change plan* — turning an add-on on raises the per-store rate and
+  reprices via Stripe. Spec once payment is settled.
+
+#### Remove an add-on — @TODO (needs payment flow)
+
+- **URL:** `DELETE /organization/addons/{offeringId}` (end the live subscription to that add-on)
+- Lowers the per-store rate; Stripe credits the proration. Its features disappear for the org immediately.
 
 #### Cancel subscription — @TODO (needs payment flow)
 
 - **URL:** `POST /organization/subscription/{subscriptionId}/cancel`
-- Ends a live subscription (immediately or at period end). Interacts with the read-only/billing gate and
-  Stripe. Spec once payment is settled.
+- Ends a live subscription — a plan or an add-on (immediately or at period end). Interacts with the
+  read-only/billing gate and Stripe. Spec once payment is settled.
 
 #### Invoices / billing history — @TODO (needs payment flow)
 
@@ -1156,7 +1221,7 @@ Managing the store set itself (create, list, edit, delete) is an org action and 
 
 ### The Store
 
-The store record and its plan's store-scoped features.
+The store record and the store-scoped features its org's offerings enable.
 
 #### `GET /stores/{storeId}` — Get store
 
@@ -1206,8 +1271,9 @@ The store record and its plan's store-scoped features.
 
 #### `GET /stores/{storeId}/features` — Get store features
 
-- **Description:** Returns the **store-scoped** feature codes the store's plan enables (e.g. returns, AI
-  recommendations). The store inherits its org's plan, but only store-applicable features are returned —
+- **Description:** Returns the **store-scoped** feature codes the org's live offerings enable (e.g.
+  returns, AI recommendations) — the union across its base plan and any active add-ons. The store inherits
+  its org's offerings, but only store-applicable features are returned —
   a store user never sees the org's features (like billing). Used by the UI to show or hide store tabs.
 - **Method:** `GET`
 - **URL:** `/stores/{storeId}/features`

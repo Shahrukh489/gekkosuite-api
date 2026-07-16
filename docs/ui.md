@@ -80,7 +80,7 @@ across contexts; the context scopes the data inside.
 | Suppliers | Manage the org's suppliers |
 | Purchases | Purchase orders (buying inventory) |
 | Expenses | Non-inventory spending |
-| Billing | The org's plan and billing |
+| Billing | The org's plan, add-ons & billing |
 | Reports | Aggregate reports across all stores |
 | Stores | Create and manage stores |
 | Users | Create and manage users |
