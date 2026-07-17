@@ -1,9 +1,9 @@
 # Local Development
 - Install docker and docker compose
 - Install .Net10
-- Run `docker compose up` (starts Postgres on `5432` and Adminer on `9000`)
+- `cd local` then run `docker compose up` (starts Postgres on `5432` and Adminer on `9000`)
 - Run the DB migration against local (see **Db Migrations** below)
-- Manually run `mock_data.sql` to insert mock data (paste it in Adminer, or run it with `psql`)
+- Load mock data: run `local/mock_data.sql` (paste it in Adminer, or `psql ... -f local/mock_data.sql`)
 - Adminer (DB browser) at localhost:9000
     - system: `PostgreSQL`
     - server: `db`
