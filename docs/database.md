@@ -75,16 +75,7 @@ CREATE TABLE organization (
     name             TEXT NOT NULL,
     -- optional free-text note about the business
     description      TEXT,
-    -- the owner; full access that can't be stripped (transfer only)
-    owner_user_id    UUID REFERENCES "user" (user_id),
-    -- store to land in by default (e.g. single-store orgs)
-    default_store_id UUID REFERENCES store (store_id),
-    -- org-wide product sharing (off = each store's catalog is its own)
-    allow_share_products  BOOLEAN NOT NULL DEFAULT FALSE,
-    -- the org's overall payment state for its ONE itemized bill (all subscriptions). This is the single
-    -- source of truth for the read-only freeze (UNPAID/CANCELED → read-only) — see auth.md's billing gate.
-    -- Purely about paying (no TRIALING — that's a per-subscription lifecycle state). A brand-new org on a
-    -- free trial owes nothing and isn't frozen, so it starts ACTIVE; "in trial" is read from its subs.
+    -- the org's overall payment state for its ONE itemized bill (all subscriptions). 
     billing_status   billing_status NOT NULL DEFAULT 'ACTIVE',
     -- when the org was onboarded (stored UTC)
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -153,6 +144,9 @@ CREATE TABLE store (
     phone            TEXT,
     -- store contact email
     email            TEXT,
+    -- the org's default store — where single-store orgs (and org users) land. Exactly one per org, enforced
+    -- by the partial unique index below. Replaces organization.default_store_id (avoids a circular FK).
+    is_default       BOOLEAN NOT NULL DEFAULT FALSE,
     -- when the store was created (stored UTC)
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- soft-delete flag; TRUE = store removed but kept for history
@@ -161,6 +155,8 @@ CREATE TABLE store (
     deleted_at       TIMESTAMPTZ
 );
 CREATE INDEX ON store (organization_id);   -- an org's stores
+-- at most one default store per org (only live stores count)
+CREATE UNIQUE INDEX store_one_default_per_org ON store (organization_id) WHERE is_default AND NOT is_deleted;
 
 
 -- A user: one login per person. Where they can act comes from their memberships (see auth.md).
@@ -179,6 +175,9 @@ CREATE TABLE "user" (
     phone              TEXT,
     -- account kill switch; false = all memberships suspended (the way to revoke, not delete)
     is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+    -- the org owner — full access that can't be stripped (transfer only). Exactly one per org, enforced by
+    -- the partial unique index below. Replaces organization.owner_user_id (avoids a circular FK).
+    is_org_owner       BOOLEAN NOT NULL DEFAULT FALSE,
     -- the org admin who created this account
     created_by_user_id UUID REFERENCES "user" (user_id),
     -- when the account was created (stored UTC)
@@ -192,6 +191,8 @@ CREATE TABLE "user" (
 );
 
 CREATE INDEX ON "user" (organization_id);   -- users in their home org
+-- exactly one owner per org (only live users count)
+CREATE UNIQUE INDEX user_one_owner_per_org ON "user" (organization_id) WHERE is_org_owner AND NOT is_deleted;
 
 
 -- A role: a named bundle of permissions. Either a managed role we ship, or an org's own custom role.
@@ -705,6 +706,8 @@ automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns 
 | `role_managed_name_uq` — `role(name) WHERE is_managed` | find a system role by name / managed names unique |
 | `membership_store_uq` — `membership(user_id, store_id) WHERE store_id IS NOT NULL AND NOT is_deleted` | is this user a live member of this store? / one live membership per store |
 | `membership_org_uq` — `membership(user_id) WHERE scope='ORGANIZATION' AND NOT is_deleted` | does this user have a live org membership? / at most one |
+| `user_one_owner_per_org` — `"user"(organization_id) WHERE is_org_owner AND NOT is_deleted` | find an org's owner / exactly one owner per org |
+| `store_one_default_per_org` — `store(organization_id) WHERE is_default AND NOT is_deleted` | find an org's default store / exactly one default per org |
 
 ## Plain indexes
 

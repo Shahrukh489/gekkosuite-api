@@ -9,18 +9,11 @@
 
   <ItemGroup>
     <PackageReference Include="dbup-postgresql" Version="7.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Migration scripts are embedded so DbUp reads them from the assembly -->
     <EmbeddedResource Include="Migrations\*.sql" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- Local, git-ignored connection string; copied next to the exe so config can read it -->
-    <None Include="appsettings.Local.json" Condition="Exists('appsettings.Local.json')" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

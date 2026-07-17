@@ -82,4 +82,23 @@ Rules are guarded in up to three layers, and docs reflect this pattern — keep 
 When editing docs, keep the heavy cross-referencing between files intact (they cite each other by
 name), and preserve the existing voice: worked examples, tables, and explicit "why this matters" notes.
 
+# Coding style (C#)
+
+Follow these when writing or editing code in this repo:
+
+- **No expression-bodied members (`=>`) for methods.** Every method uses a block body with braces and an
+  explicit `return` — even one-liners. (Lambdas passed as arguments are fine; this rule is about member
+  bodies.)
+- **Every method has a `<summary>` doc comment**, plus a `<param>` for each parameter (and `<returns>` when
+  it returns a value, `<typeparam>` for generics).
+- **No section-divider comments** (e.g. `// ----- store-scoped -----`). Group related methods without banners.
+- **Inline comments only where the code needs explaining** — short, not verbose, and only for the non-obvious
+  (e.g. the RLS `set_config` lines). Don't narrate self-evident code.
+- **Keep argument lists on one line** when calling or defining a method — do not put one parameter per
+  line. E.g. `await connection.ExecuteAsync("SELECT set_config('app.current_store', @store, true)", new { store = storeId.Value.ToString() });`
+- **Interfaces live in an `Interfaces/` subfolder** next to their implementations (namespace unchanged).
+- **Repositories** extend `BaseRepository` and pass **raw SQL strings** to its `QueryAsync` /
+  `QuerySingleAsync` / `ExecuteAsync` helpers — never open connections directly (RLS tenant-stamping lives
+  in `BaseRepository`).
+
 
