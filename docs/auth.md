@@ -23,6 +23,19 @@ user  ──<  membership  ──<  membership_assignment  >──  role  ──
 
 ---
 
+## Local dev test account
+
+For exercising `POST /auth/login` against a local database, `tools/GekkoSuite.Database/Seed/dev_seed.sql`
+inserts one organization + one active user (outside `Migrations/` on purpose — it's a throwaway fixture,
+not a real migration; see the script's header comment). Local-only fake data, never a real secret:
+
+```
+email:    dev@gekkosuite.local
+password: DevPassword123!
+```
+
+---
+
 # FAQ
 
 ## How is a user created and given access?

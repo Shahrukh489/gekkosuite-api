@@ -1,3 +1,4 @@
+using GekkoSuite.Api.Configuration;
 using GekkoSuite.Api.Repositories;
 using GekkoSuite.Api.Services;
 
@@ -8,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
+builder.Services.AddSingleton<IAuthService, AuthService>();
 
 // Postgres connection string: env var first (12-factor / containers), config fallback.
 var connectionString =
@@ -19,6 +21,27 @@ var connectionString =
 // NpgsqlDataSource IS the pooled connection source — registered once, injected into repositories.
 builder.Services.AddNpgsqlDataSource(connectionString);
 builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>();
+builder.Services.AddSingleton<IUserRepository, UserRepository>();
+
+// JWT signing settings: env var first (same 12-factor pattern as the connection string above), config
+// fallback. The secret must never be checked in — set it via the environment in every real deployment.
+var jwtOptions = new JwtOptions
+{
+    Secret =
+        Environment.GetEnvironmentVariable("JWT_SECRET")
+        ?? builder.Configuration["Jwt:Secret"]
+        ?? throw new InvalidOperationException("No JWT secret. Set JWT_SECRET or Jwt:Secret."),
+    Issuer =
+        Environment.GetEnvironmentVariable("JWT_ISSUER")
+        ?? builder.Configuration["Jwt:Issuer"]
+        ?? "gekkosuite-api",
+    Audience =
+        Environment.GetEnvironmentVariable("JWT_AUDIENCE")
+        ?? builder.Configuration["Jwt:Audience"]
+        ?? "gekkosuite-clients",
+    AccessTokenLifetimeMinutes = 15
+};
+builder.Services.AddSingleton(jwtOptions);
 
 var app = builder.Build();
 

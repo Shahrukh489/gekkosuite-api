@@ -9,6 +9,7 @@ namespace GekkoSuite.Api.Repositories;
 ///  Two levels (see auth.md):
 ///   - org actions   → set app.current_org (prevent different orgs from leaking data)
 ///   - store actions → set app.current_org AND app.current_store (prevent different stores in same org from leaking data)
+/// One narrow exception: QuerySingleOrDefaultUnscopedAsync, for the pre-tenant lookups (e.g. login).
 /// </summary>
 public abstract class BaseRepository
 {
@@ -123,6 +124,24 @@ public abstract class BaseRepository
     protected Task<int> ExecuteAsync(Guid organizationId, Guid storeId, string sql, object? parameters = null)
     {
         return RunAsync(organizationId, storeId, c => c.ExecuteAsync(sql, parameters));
+    }
+
+    /// <summary>
+    /// Runs a SELECT expected to return one row or none, WITHOUT stamping a tenant onto the session — so
+    /// it runs outside RLS's org/store scoping entirely. This is a narrow, deliberate exception to the
+    /// tenant-first pattern above: it exists only for lookups that must happen *before* the tenant is
+    /// known, e.g. finding a user by email during login (you don't know their org until you've found
+    /// them). Only safe for queries that don't need a tenant filter to stay correct — e.g. matching on a
+    /// column that's already globally unique, like user.email.
+    /// </summary>
+    /// <typeparam name="T">The type the row maps to.</typeparam>
+    /// <param name="sql">The raw SQL to run.</param>
+    /// <param name="parameters">Dapper parameters for the SQL (anonymous object), or null.</param>
+    /// <returns>The matched row, or default if none.</returns>
+    protected async Task<T?> QuerySingleOrDefaultUnscopedAsync<T>(string sql, object? parameters = null)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        return await connection.QuerySingleOrDefaultAsync<T>(sql, parameters);
     }
 
     /// <summary>
