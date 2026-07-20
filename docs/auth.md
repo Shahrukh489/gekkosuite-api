@@ -25,14 +25,17 @@ user  ──<  membership  ──<  membership_assignment  >──  role  ──
 
 ## Local dev test account
 
-For exercising `POST /auth/login` against a local database, `tools/GekkoSuite.Database/Seed/dev_seed.sql`
-inserts one organization + one active user (outside `Migrations/` on purpose — it's a throwaway fixture,
-not a real migration; see the script's header comment). Local-only fake data, never a real secret:
+For exercising `POST /auth/login` against a local database, `local/mock_data.sql` (run once, after the
+schema migration — see the repo's `README.md`) seeds a few accounts. Local-only fake data, never a real
+secret:
 
 ```
 email:    dev@gekkosuite.local
 password: DevPassword123!
 ```
+
+(`local/mock_data.sql` also seeds `maria@acme.com` / `sara@acme.com` / `marcus@acme.com`, all sharing
+the password `Password123!`, under a separate mock organization — see the script's own comments.)
 
 ---
 

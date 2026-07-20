@@ -15,7 +15,7 @@ public class UserRepository : BaseRepository, IUserRepository
     /// </summary>
     /// <param name="email">The login email to look up.</param>
     /// <returns>The matching user, or null if no live account has that email.</returns>
-    public Task<User?> FindByEmailAsync(string email)
+    public Task<UserEntity?> FindByEmailAsync(string email)
     {
         // Login has to find the user BEFORE it knows their org, so this can't go through the normal
         // org-scoped helpers on BaseRepository (they require the tenant up front). Safe without a tenant
@@ -40,6 +40,6 @@ public class UserRepository : BaseRepository, IUserRepository
             WHERE email = @email AND NOT is_deleted
             """;
 
-        return QuerySingleOrDefaultUnscopedAsync<User>(sql, new { email });
+        return QuerySingleOrDefaultUnscopedAsync<UserEntity>(sql, new { email });
     }
 }

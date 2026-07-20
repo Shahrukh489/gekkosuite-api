@@ -2,34 +2,6 @@ using GekkoSuite.Api.Dtos.Auth;
 
 namespace GekkoSuite.Api.Services;
 
-/// <summary>
-/// The three things a login attempt can end in. Kept as a plain enum (not an HTTP status) so AuthService
-/// stays ignorant of HTTP — the controller is the only place that maps an outcome to a status code.
-/// </summary>
-public enum LoginOutcome
-{
-    /// <summary>Credentials checked out and the account is active; Response on the result is set.</summary>
-    Success,
-
-    /// <summary>No live account matched the email, or the password was wrong. Deliberately the SAME
-    /// outcome for both cases (see auth.md's Security Review, R12) so a client can never learn which one
-    /// it was — that would let an attacker enumerate valid accounts.</summary>
-    InvalidCredentials,
-
-    /// <summary>The email/password matched, but the account is disabled (user.is_active = false).</summary>
-    AccountDisabled
-}
-
-/// <summary>
-/// The result of a login attempt. Response is only populated when Outcome is Success.
-/// </summary>
-public class LoginResult
-{
-    public LoginOutcome Outcome { get; set; }
-
-    public LoginResponse? Response { get; set; }
-}
-
 public interface IAuthService
 {
     /// <summary>
@@ -37,6 +9,10 @@ public interface IAuthService
     /// account is active, issues a signed access token.
     /// </summary>
     /// <param name="request">The login credentials from the request body.</param>
-    /// <returns>The outcome of the attempt, and the issued token when it succeeded.</returns>
-    Task<LoginResult> LoginAsync(LoginRequest request);
+    /// <returns>
+    /// The issued token, or null if login should be refused for any reason — no such email, wrong
+    /// password, or a disabled account all look identical from the outside (see auth.md's Security
+    /// Review, R12 — don't give an attacker a way to tell them apart).
+    /// </returns>
+    Task<LoginResponse?> LoginAsync(LoginRequest request);
 }

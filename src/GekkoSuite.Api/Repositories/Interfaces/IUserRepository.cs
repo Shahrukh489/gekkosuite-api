@@ -9,5 +9,5 @@ public interface IUserRepository
     /// </summary>
     /// <param name="email">The login email to look up.</param>
     /// <returns>The matching user, or null if no live account has that email.</returns>
-    public Task<User?> FindByEmailAsync(string email);
+    public Task<UserEntity?> FindByEmailAsync(string email);
 }

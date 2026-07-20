@@ -24,9 +24,9 @@ public class AuthController : ControllerBase
     /// </summary>
     /// <param name="request">The login credentials.</param>
     /// <returns>
-    /// 200 with the access token on success; 400 if a field is missing; 401 for any invalid credentials
-    /// (unknown email and wrong password look identical, on purpose — see LoginOutcome); 403 if the
-    /// account is disabled.
+    /// 200 with the access token on success; 400 if a field is missing; 401 for anything else that
+    /// refuses login — unknown email, wrong password, and a disabled account all look identical on
+    /// purpose (see IAuthService.LoginAsync).
     /// </returns>
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
@@ -36,18 +36,12 @@ public class AuthController : ControllerBase
             return BadRequest("Email and password are required.");
         }
 
-        var result = await _authService.LoginAsync(request);
-
-        if (result.Outcome == LoginOutcome.InvalidCredentials)
+        var response = await _authService.LoginAsync(request);
+        if (response is null)
         {
             return Unauthorized();
         }
 
-        if (result.Outcome == LoginOutcome.AccountDisabled)
-        {
-            return StatusCode(StatusCodes.Status403Forbidden);
-        }
-
-        return Ok(result.Response);
+        return Ok(response);
     }
 }

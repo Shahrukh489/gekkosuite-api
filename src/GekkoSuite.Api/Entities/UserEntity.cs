@@ -4,7 +4,7 @@ namespace GekkoSuite.Api.Models;
 /// Maps a row of the "user" table (docs/database.md) — a login, nothing more. Where a user can act
 /// comes from their memberships (see docs/auth.md), which are not part of this record.
 /// </summary>
-public class User
+public class UserEntity
 {
     /// <summary>The user's id.</summary>
     public Guid UserId { get; set; }

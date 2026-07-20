@@ -37,26 +37,23 @@ public class AuthService : IAuthService
     /// account is active, issues a signed access token.
     /// </summary>
     /// <param name="request">The login credentials from the request body.</param>
-    /// <returns>The outcome of the attempt, and the issued token when it succeeded.</returns>
-    public async Task<LoginResult> LoginAsync(LoginRequest request)
+    /// <returns>
+    /// The issued token, or null if login should be refused for any reason — no such email, wrong
+    /// password, or a disabled account all look identical from the outside (see auth.md's Security
+    /// Review, R12 — don't give an attacker a way to tell them apart).
+    /// </returns>
+    public async Task<LoginResponse?> LoginAsync(LoginRequest request)
     {
         var user = await _userRepository.FindByEmailAsync(request.Email);
 
-        // Same outcome whether the email doesn't exist or the password is wrong — see LoginOutcome's
-        // doc comment. Checking the hash even when user is null would be nice for timing-attack hygiene,
-        // but is skipped here for simplicity; the meaningful secret (the password) is never exposed.
-        if (user is null || !VerifyPassword(request.Password, user.Password))
+        // Checking the hash even when user is null would be nice for timing-attack hygiene, but is
+        // skipped here for simplicity; the meaningful secret (the password) is never exposed either way.
+        if (user is null || !VerifyPassword(request.Password, user.Password) || !user.IsActive)
         {
-            return new LoginResult { Outcome = LoginOutcome.InvalidCredentials };
+            return null;
         }
 
-        if (!user.IsActive)
-        {
-            return new LoginResult { Outcome = LoginOutcome.AccountDisabled };
-        }
-
-        var response = IssueAccessToken(user);
-        return new LoginResult { Outcome = LoginOutcome.Success, Response = response };
+        return IssueAccessToken(user);
     }
 
     /// <summary>
@@ -108,7 +105,7 @@ public class AuthService : IAuthService
     /// </summary>
     /// <param name="user">The authenticated user.</param>
     /// <returns>The signed token and its lifetime in seconds.</returns>
-    private LoginResponse IssueAccessToken(User user)
+    private LoginResponse IssueAccessToken(UserEntity user)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.Secret));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);

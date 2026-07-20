@@ -4,12 +4,13 @@ using Npgsql;
 namespace GekkoSuite.Api.Repositories;
 
 /// <summary>
-/// Base for all repositories. Every call opens one transaction that first stamps the tenant onto the DB
+/// Base for all repositories. Most calls open one transaction that first stamps the tenant onto the DB
 /// session so Row-Level Security scopes the query, then runs the raw SQL.
 ///  Two levels (see auth.md):
 ///   - org actions   → set app.current_org (prevent different orgs from leaking data)
 ///   - store actions → set app.current_org AND app.current_store (prevent different stores in same org from leaking data)
-/// One narrow exception: QuerySingleOrDefaultUnscopedAsync, for the pre-tenant lookups (e.g. login).
+/// The pre-tenant lookups (e.g. login, where the tenant isn't known yet) instead use
+/// QuerySingleOrDefaultUnscopedAsync — see its own doc comment for when that's safe to use.
 /// </summary>
 public abstract class BaseRepository
 {
