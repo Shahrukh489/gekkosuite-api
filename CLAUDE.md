@@ -100,5 +100,18 @@ Follow these when writing or editing code in this repo:
 - **Repositories** extend `BaseRepository` and pass **raw SQL strings** to its `QueryAsync` /
   `QuerySingleAsync` / `ExecuteAsync` helpers — never open connections directly (RLS tenant-stamping lives
   in `BaseRepository`).
+- **DTO naming by layer** — the service always speaks in `Dto`s (both directions); `Request`/`Response`
+  are the controller edges. The flow:
+  `CreateUserRequest` (API in) → `CreateUserDto` (service consumes) → `UserEntity` (DB row the repo maps)
+  → `UserDto` (service returns) → **optionally** `UserResponse` (API out).
+    - The controller maps the inbound `Request` → service `Dto`.
+    - On the way out it may return the service's `UserDto` **directly**, OR map it to a `UserResponse` when
+      the endpoint needs a different/trimmed shape.
+    - **Load-bearing rule:** the service-out `Dto` (`UserDto`) must contain **only client-safe fields** (no
+      password hash, no internal-only flags) — that's what makes returning it directly safe. The moment an
+      endpoint needs to expose something the safe `Dto` shouldn't carry, add a `Response` and map to it.
+    - Input and output Dtos are distinct types (`CreateUserDto` has a password; `UserDto` never does).
+    - `Entity` and a `Dto` may be one collapsed type while the DB and service shapes are identical; split
+      them when they diverge.
 
 

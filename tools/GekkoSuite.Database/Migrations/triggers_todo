@@ -1,0 +1,110 @@
+-- -- ============================================================================
+-- -- V1.0.1 — RBAC schema (roles, permissions, memberships) + the managed role
+-- -- catalog. Mirrors docs/database.md's role/permission/membership tables and
+-- -- the four cross-table trigger invariants documented there but not given as
+-- -- SQL. Seeds Cashier, Manager, and Org Admin (the three roles every worked
+-- -- example across the docs settles on) plus every permission those docs name
+-- -- by resource:action.
+-- --
+-- -- Same convention as 1_0_0.sql: NO column defaults, NO server-side value
+-- -- generation. Every value — ids, timestamps, flags — is supplied explicitly,
+-- -- including in the seed INSERTs below (this is reference/system data every
+-- -- environment needs, unlike local/mock_data.sql's throwaway tenant fixtures).
+-- -- ============================================================================
+
+-- -- ============================================================================
+-- -- Triggers — cross-table invariants a CHECK can't express because they read
+-- -- sibling rows or other tables (see database.md's "Optional Triggers" table).
+-- -- ============================================================================
+
+-- -- An elevated permission (is_elevated = TRUE) may only sit on an ORGANIZATION-scope role, so a store
+-- -- role can never carry a company-level power like user:create.
+-- CREATE FUNCTION role_permission_elevated_guard_fn() RETURNS TRIGGER AS $$
+-- DECLARE
+--     v_is_elevated BOOLEAN;
+--     v_role_scope  scope;
+-- BEGIN
+--     SELECT is_elevated INTO v_is_elevated FROM permission WHERE permission_id = NEW.permission_id;
+--     SELECT scope INTO v_role_scope FROM role WHERE role_id = NEW.role_id;
+
+--     IF v_is_elevated AND v_role_scope <> 'ORGANIZATION' THEN
+--         RAISE EXCEPTION 'Elevated permission (%) cannot be granted to a % role', NEW.permission_id, v_role_scope;
+--     END IF;
+
+--     RETURN NEW;
+-- END;
+-- $$ LANGUAGE plpgsql;
+
+-- CREATE TRIGGER role_permission_elevated_guard
+--     BEFORE INSERT OR UPDATE ON role_permission
+--     FOR EACH ROW EXECUTE FUNCTION role_permission_elevated_guard_fn();
+
+-- -- A role's scope must match the membership it's granted to, so a STORE seat can never end up with an
+-- -- ORGANIZATION role's wider reach.
+-- CREATE FUNCTION membership_assignment_type_guard_fn() RETURNS TRIGGER AS $$
+-- DECLARE
+--     v_role_scope       scope;
+--     v_membership_scope scope;
+-- BEGIN
+--     SELECT scope INTO v_role_scope FROM role WHERE role_id = NEW.role_id;
+--     SELECT scope INTO v_membership_scope FROM membership WHERE membership_id = NEW.membership_id;
+
+--     IF v_role_scope <> v_membership_scope THEN
+--         RAISE EXCEPTION 'Role scope (%) does not match membership scope (%)', v_role_scope, v_membership_scope;
+--     END IF;
+
+--     RETURN NEW;
+-- END;
+-- $$ LANGUAGE plpgsql;
+
+-- CREATE TRIGGER membership_assignment_type_guard
+--     BEFORE INSERT OR UPDATE ON membership_assignment
+--     FOR EACH ROW EXECUTE FUNCTION membership_assignment_type_guard_fn();
+
+-- -- A user can only be given a membership in their own home organization.
+-- CREATE FUNCTION user_organization_membership_guard_fn() RETURNS TRIGGER AS $$
+-- DECLARE
+--     v_user_org UUID;
+-- BEGIN
+--     SELECT organization_id INTO v_user_org FROM "user" WHERE user_id = NEW.user_id;
+
+--     IF v_user_org <> NEW.organization_id THEN
+--         RAISE EXCEPTION 'User (%) belongs to organization (%), cannot be given a membership in (%)', NEW.user_id, v_user_org, NEW.organization_id;
+--     END IF;
+
+--     RETURN NEW;
+-- END;
+-- $$ LANGUAGE plpgsql;
+
+-- CREATE TRIGGER user_organization_membership
+--     BEFORE INSERT OR UPDATE ON membership
+--     FOR EACH ROW EXECUTE FUNCTION user_organization_membership_guard_fn();
+
+-- -- A user is either an ORGANIZATION member or a STORE member, never both (mixing the two would let a
+-- -- store employee also reach org-wide data). Only checks against other LIVE memberships.
+-- CREATE FUNCTION membership_single_kind_guard_fn() RETURNS TRIGGER AS $$
+-- DECLARE
+--     v_conflicting_count INTEGER;
+-- BEGIN
+--     IF NEW.is_deleted THEN
+--         RETURN NEW;
+--     END IF;
+
+--     SELECT COUNT(*) INTO v_conflicting_count
+--     FROM membership
+--     WHERE user_id = NEW.user_id
+--       AND membership_id <> NEW.membership_id
+--       AND NOT is_deleted
+--       AND scope <> NEW.scope;
+
+--     IF v_conflicting_count > 0 THEN
+--         RAISE EXCEPTION 'User (%) already holds a membership of the other scope; a user is either an ORGANIZATION or a STORE member, never both', NEW.user_id;
+--     END IF;
+
+--     RETURN NEW;
+-- END;
+-- $$ LANGUAGE plpgsql;
+
+-- CREATE TRIGGER membership_single_kind_guard
+--     BEFORE INSERT OR UPDATE ON membership
+--     FOR EACH ROW EXECUTE FUNCTION membership_single_kind_guard_fn();

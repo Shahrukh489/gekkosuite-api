@@ -1,6 +1,13 @@
-using GekkoSuite.Api.Dtos.Auth;
-
 namespace GekkoSuite.Api.Services;
+
+public class LoginResponse
+{
+    /// <summary>The signed JWT the client sends as "Authorization: Bearer {accessToken}" on every request.</summary>
+    public string AccessToken { get; set; } = string.Empty;
+
+    /// <summary>Seconds until the access token expires.</summary>
+    public int ExpiresIn { get; set; }
+}
 
 public interface IAuthService
 {
@@ -8,11 +15,10 @@ public interface IAuthService
     /// Verifies an email + password against the stored account and, if the credentials are valid and the
     /// account is active, issues a signed access token.
     /// </summary>
-    /// <param name="request">The login credentials from the request body.</param>
+    /// <param name="email">The login email from the request body.</param>
+    /// <param name="password">The login password from the request body.</param>
     /// <returns>
-    /// The issued token, or null if login should be refused for any reason — no such email, wrong
-    /// password, or a disabled account all look identical from the outside (see auth.md's Security
-    /// Review, R12 — don't give an attacker a way to tell them apart).
+    /// The issued token, or null if login should be refused
     /// </returns>
-    Task<LoginResponse?> LoginAsync(LoginRequest request);
+    Task<LoginResponse?> LoginAsync(string email, string password);
 }

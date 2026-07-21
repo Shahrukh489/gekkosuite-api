@@ -4,11 +4,6 @@ using GekkoSuite.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Local-only overrides (gitignored — see .gitignore) so a developer sets the JWT secret / connection
-// string once here instead of exporting env vars every session. Optional: absent in every real
-// deployment, where these come from the environment/secret store instead (see the fallbacks below).
-builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
-
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();

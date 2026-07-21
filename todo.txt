@@ -13,3 +13,17 @@ what if org is not paying subscription
 - create libraries for auth and plans etc.. common stuff I can add to other SaaS projects
 - add db sql policies
 - add email based login so we send pin to email every login instead of passwqord only
+
+
+# database
+add caps and limits to text fields such as 256
+
+# auth code
+ - Change hash format to self-describing $argon2id$v=19$m=,t=,p=$salt$hash (instead of salt:hash)
+ - Add a pepper — app-wide secret from env (not DB) via Argon2id KnownSecret, with a version tag
+ - Add a jti claim to the JWT
+ - Use sub for the user id claim instead of "userId"
+ - Switch to Microsoft.IdentityModel.JsonWebTokens
+ - Guard JWT secret ≥32 bytes at startup
+-  User-enumeration timing side channel, always do Argon Hash check so null user still takes time
+-  Make created_by_user_id mandatory

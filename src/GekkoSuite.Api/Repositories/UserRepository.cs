@@ -1,8 +1,7 @@
 using Npgsql;
 
-using GekkoSuite.Api.Models;
-
 namespace GekkoSuite.Api.Repositories;
+
 
 public class UserRepository : BaseRepository, IUserRepository
 {
