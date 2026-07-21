@@ -4,9 +4,9 @@ namespace GekkoSuite.Api.Services;
 
 public class OrganizationService : IOrganizationService
 {
-    private readonly OrganizationRepository _organizationRepository;
+    private readonly IOrganizationRepository _organizationRepository;
 
-    public OrganizationService(OrganizationRepository organizationRepository)
+    public OrganizationService(IOrganizationRepository organizationRepository)
     {
         _organizationRepository = organizationRepository;
     }
