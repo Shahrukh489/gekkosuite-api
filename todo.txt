@@ -16,7 +16,9 @@ what if org is not paying subscription
 
 
 # database
-add caps and limits to text fields such as 256
+add rls policies
+
+
 
 # auth code
  - Change hash format to self-describing $argon2id$v=19$m=,t=,p=$salt$hash (instead of salt:hash)
@@ -61,13 +63,7 @@ add caps and limits to text fields such as 256
   Finding: Custom "userId" claim instead of standard sub
   Exploit / Impact: Non-idiomatic; validation middleware won't auto-map identity; weaker tooling interop
   Fix: Use JwtRegisteredClaimNames.Sub; keep organizationId custom
-  ────────────────────────────────────────
-  ID: I6
-  Severity: 🟢 Low
-  Finding: new JwtSecurityTokenHandler() created per call
-  Exploit / Impact: Negligible perf waste (stateless helper)
-  Fix: Make it a static readonly field
-  ────────────────────────────────────────
+
   ID: I7
   Severity: 🟢 Low
   Finding: Legacy System.IdentityModel.Tokens.Jwt handler
