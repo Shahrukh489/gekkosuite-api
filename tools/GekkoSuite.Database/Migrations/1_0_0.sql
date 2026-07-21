@@ -20,6 +20,8 @@ CREATE TABLE organization (
     billing_status   billing_status NOT NULL,
     -- when the org was onboarded (stored UTC)
     created_at       TIMESTAMPTZ NOT NULL,
+    -- when the org was last modified (stored UTC)
+    updated_at       TIMESTAMPTZ NOT NULL,
     -- soft-delete flag; TRUE = org removed but kept for history
     is_deleted       BOOLEAN NOT NULL,
     -- when it was soft-deleted (stored UTC); NULL while active
@@ -49,12 +51,20 @@ CREATE TABLE "user" (
     created_by_user_id UUID REFERENCES "user" (user_id),
     -- when the account was created (stored UTC)
     created_at         TIMESTAMPTZ NOT NULL,
+    -- when the account was last modified (stored UTC)
+    updated_at         TIMESTAMPTZ NOT NULL,
     -- soft-delete flag; TRUE = removed but kept for history
     is_deleted         BOOLEAN NOT NULL,
     -- when it was soft-deleted (stored UTC); NULL while active
     deleted_at         TIMESTAMPTZ,
     -- one email = one account across the whole system
-    UNIQUE (email)
+    UNIQUE (email),
+    -- audit trail is mandatory for everyone EXCEPT the bootstrap owner (who has no creator). This also
+    -- keeps org → user from being a circular FK — the owner is flagged, not pointed at.
+    CHECK ((is_org_owner AND created_by_user_id IS NULL)
+        OR (NOT is_org_owner AND created_by_user_id IS NOT NULL)),
+    -- emails are stored lowercased so the case-sensitive UNIQUE(email) can't allow Foo@x / foo@x dupes
+    CHECK (email = lower(email))
 );
 
 CREATE INDEX ON "user" (organization_id);
@@ -83,8 +93,8 @@ CREATE TABLE store (
     state            VARCHAR(128),
     -- postal/zip code — text to preserve leading zeros and non-numeric formats
     postal_code      VARCHAR(32),
-    -- ISO country code, e.g. 'US'
-    country          VARCHAR(128),
+    -- ISO 3166-1 alpha-2 country code, e.g. 'US'
+    country          VARCHAR(2),
     -- ISO 4217 currency the store sells in, e.g. 'USD'
     currency         VARCHAR(3),
     -- store contact phone ('+', spaces, extensions)
@@ -95,6 +105,8 @@ CREATE TABLE store (
     is_default       BOOLEAN NOT NULL,
     -- when the store was created (stored UTC)
     created_at       TIMESTAMPTZ NOT NULL,
+    -- when the store was last modified (stored UTC)
+    updated_at       TIMESTAMPTZ NOT NULL,
     -- soft-delete flag; TRUE = store removed but kept for history
     is_deleted       BOOLEAN NOT NULL,
     -- when it was soft-deleted (stored UTC); NULL while active
