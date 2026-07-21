@@ -12,6 +12,14 @@
     - username / password: both `postgres`
     - database: `gekkosuite`
 
+## Local dev test account
+
+```
+email:    dev@gekkosuite.local
+password: DevPassword123!
+```
+
+
 # Db Migrations
 
 The migration runner is `tools/GekkoSuite.Database`. It applies the SQL files in `Migrations/` via DbUp.

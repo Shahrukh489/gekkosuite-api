@@ -16,7 +16,9 @@ what if org is not paying subscription
 
 
 # database
-add caps and limits to text fields such as 256
+add rls policies
+
+
 
 # auth code
  - Change hash format to self-describing $argon2id$v=19$m=,t=,p=$salt$hash (instead of salt:hash)
@@ -27,3 +29,43 @@ add caps and limits to text fields such as 256
  - Guard JWT secret ≥32 bytes at startup
 -  User-enumeration timing side channel, always do Argon Hash check so null user still takes time
 -  Make created_by_user_id mandatory
+
+
+
+  ID: I1
+  Severity: 🔴 Critical
+  Finding: JWT secret length unguarded — any-length Secret accepted for HS256
+  Exploit / Impact: Weak/short secret ("changeme") → brute-force the HMAC key offline from one token → mint tokens for any user/org
+  (full account + tenant takeover)
+  Fix: Reject Secret < 32 bytes at startup (fail fast)
+  ────────────────────────────────────────
+  ID: I2
+  Severity: 🟠 High
+  Finding: No jti (unique token id) — tokens are anonymous
+  Exploit / Impact: Can't identify, denylist, or forensically trace an individual token; impossible to retrofit revocation without
+  reissuing everyone
+  Fix: Add new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+  ────────────────────────────────────────
+  ID: I3
+  Severity: 🟡 Medium
+  Finding: iat/nbf rely on library defaults (present but implicit)
+  Exploit / Impact: A future change to token construction could silently drop them; loses token-age/replay-window controls
+  Fix: Set iat/nbf explicitly so they can't vanish by accident
+  ────────────────────────────────────────
+  ID: I4
+  Severity: 🟡 Medium
+  Finding: No guard that the secret matches the algorithm (HS256)
+  Exploit / Impact: If an asymmetric key is ever wired into Secret, issuance misbehaves; implicit coupling
+  Fix: Assert secret is intended for symmetric HS256
+  ────────────────────────────────────────
+  ID: I5
+  Severity: 🟢 Low
+  Finding: Custom "userId" claim instead of standard sub
+  Exploit / Impact: Non-idiomatic; validation middleware won't auto-map identity; weaker tooling interop
+  Fix: Use JwtRegisteredClaimNames.Sub; keep organizationId custom
+
+  ID: I7
+  Severity: 🟢 Low
+  Finding: Legacy System.IdentityModel.Tokens.Jwt handler
+  Exploit / Impact: Not a vulnerability; older/slower than current library
+  Fix: Switch to Microsoft.IdentityModel.JsonWebTokens
