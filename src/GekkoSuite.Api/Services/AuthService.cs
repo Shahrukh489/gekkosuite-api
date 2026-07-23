@@ -7,22 +7,13 @@ using Konscious.Security.Cryptography;
 using Microsoft.IdentityModel.Tokens;
 
 using GekkoSuite.Api.Configuration;
-using GekkoSuite.Api.Dtos.Auth;
-using GekkoSuite.Api.Models;
 using GekkoSuite.Api.Repositories;
 
 namespace GekkoSuite.Api.Services;
 
+
 public class AuthService : IAuthService
 {
-    // OWASP's minimum recommended Argon2id baseline (m=19 MiB, t=2, p=1). Kept as constants rather than
-    // config because changing them doesn't need to be an ops-level decision, and every hash must be
-    // verified with the SAME parameters it was created with (they aren't stored alongside the hash).
-    private const int ArgonMemoryKb = 19 * 1024;
-    private const int ArgonIterations = 2;
-    private const int ArgonParallelism = 1;
-    private const int ArgonHashLengthBytes = 32;
-
     private readonly IUserRepository _userRepository;
     private readonly JwtOptions _jwtOptions;
 
@@ -42,13 +33,13 @@ public class AuthService : IAuthService
     /// password, or a disabled account all look identical from the outside (see auth.md's Security
     /// Review, R12 — don't give an attacker a way to tell them apart).
     /// </returns>
-    public async Task<LoginResponse?> LoginAsync(LoginRequest request)
+    public async Task<LoginResponse?> LoginAsync(string email, string password)
     {
-        var user = await _userRepository.FindByEmailAsync(request.Email);
+        var user = await _userRepository.FindByEmailAsync(email);
 
         // Checking the hash even when user is null would be nice for timing-attack hygiene, but is
         // skipped here for simplicity; the meaningful secret (the password) is never exposed either way.
-        if (user is null || !VerifyPassword(request.Password, user.Password) || !user.IsActive)
+        if (user is null || !VerifyPassword(password, user.Password) || !user.IsActive)
         {
             return null;
         }
@@ -60,11 +51,11 @@ public class AuthService : IAuthService
     /// Checks a plaintext password against a stored Argon2id hash.
     /// </summary>
     /// <param name="password">The plaintext password from the request.</param>
-    /// <param name="storedHash">The value from user.password, formatted as "{base64Salt}:{base64Hash}".</param>
+    /// <param name="storedHashPassword">The value from user.password, formatted as "{base64Salt}:{base64Hash}".</param>
     /// <returns>True if the password matches the hash.</returns>
-    private static bool VerifyPassword(string password, string storedHash)
+    private static bool VerifyPassword(string password, string storedHashPassword)
     {
-        var parts = storedHash.Split(':');
+        var parts = storedHashPassword.Split(':');
         if (parts.Length != 2)
         {
             return false;
@@ -87,6 +78,11 @@ public class AuthService : IAuthService
     /// <returns>The raw hash bytes.</returns>
     private static byte[] HashPassword(string password, byte[] salt)
     {
+        const int ArgonMemoryKb = 19 * 1024;
+        const int ArgonIterations = 2;
+        const int ArgonParallelism = 1;
+        const int ArgonHashLengthBytes = 32;
+        
         using var argon2 = new Argon2id(Encoding.UTF8.GetBytes(password))
         {
             Salt = salt,

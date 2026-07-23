@@ -1,15 +1,3 @@
--- ============================================================================
--- V1.0.0 — initial schema (organizations, users, stores)
--- Mirrors docs/database.md. Tables are ordered so every FK points at a table
--- that already exists — organization is referenced by user/store, and never
--- references them back (the owner/default-store pointers live on the child as
--- is_org_owner / is_default flags, which avoids a circular FK).
---
--- The DB is schema only: NO column defaults and NO value generation (gen_random_uuid,
--- now(), DEFAULT, ...). Every value — ids, timestamps, flags — is supplied by the
--- application code on insert.
--- ============================================================================
-
 -- The scope a membership/role/feature operates at.
 CREATE TYPE scope AS ENUM ('ORGANIZATION', 'STORE');
 
@@ -25,13 +13,15 @@ CREATE TABLE organization (
     -- tenant id
     organization_id  UUID PRIMARY KEY,
     -- the business's display name (required)
-    name             TEXT NOT NULL,
+    name             VARCHAR(256) NOT NULL,
     -- optional free-text note about the business
-    description      TEXT,
+    description      VARCHAR(1024),
     -- the org's overall payment state for its ONE itemized bill (all subscriptions)
     billing_status   billing_status NOT NULL,
     -- when the org was onboarded (stored UTC)
     created_at       TIMESTAMPTZ NOT NULL,
+    -- when the org was last modified (stored UTC)
+    updated_at       TIMESTAMPTZ NOT NULL,
     -- soft-delete flag; TRUE = org removed but kept for history
     is_deleted       BOOLEAN NOT NULL,
     -- when it was soft-deleted (stored UTC); NULL while active
@@ -40,24 +30,43 @@ CREATE TABLE organization (
 
 -- A user: one login per person. Where they can act comes from their memberships (see auth.md).
 CREATE TABLE "user" (
+    -- user id
     user_id            UUID PRIMARY KEY,
     -- home org (set once, immutable) — the tenant boundary
     organization_id    UUID NOT NULL REFERENCES organization (organization_id),
-    email              TEXT NOT NULL,
-    -- password hash — slow salted KDF (argon2id/bcrypt); NEVER plaintext (see auth.md)
-    password           TEXT NOT NULL,
-    name               TEXT NOT NULL,
-    phone              TEXT,
+    -- login identifier; globally unique (see UNIQUE below). 254 = RFC 5321 max email length
+    email              VARCHAR(254) NOT NULL,
+    -- password hash — slow salted KDF (argon2id); NEVER plaintext (see auth.md). Sized for the encoded
+    -- self-describing hash (algorithm + params + salt + hash), not just the raw digest
+    password           VARCHAR(512) NOT NULL,
+    -- display name shown in the UI
+    name               VARCHAR(256) NOT NULL,
+    -- contact phone (TEXT-like: '+', spaces, extensions); optional
+    phone              VARCHAR(32),
     -- account kill switch; false = all memberships suspended (revoke, not delete)
     is_active          BOOLEAN NOT NULL,
-    -- the org owner — full access that can't be stripped (transfer only). Exactly one per org (index below).
+    -- the org owner — full access that can't be stripped (transfer only). Exactly one per org (index below)
     is_org_owner       BOOLEAN NOT NULL,
+    -- the admin who created this account (audit); NULL only for the bootstrap owner
     created_by_user_id UUID REFERENCES "user" (user_id),
+    -- when the account was created (stored UTC)
     created_at         TIMESTAMPTZ NOT NULL,
+    -- when the account was last modified (stored UTC)
+    updated_at         TIMESTAMPTZ NOT NULL,
+    -- soft-delete flag; TRUE = removed but kept for history
     is_deleted         BOOLEAN NOT NULL,
+    -- when it was soft-deleted (stored UTC); NULL while active
     deleted_at         TIMESTAMPTZ,
-    UNIQUE (email)
+    -- one email = one account across the whole system
+    UNIQUE (email),
+    -- audit trail is mandatory for everyone EXCEPT the bootstrap owner (who has no creator). This also
+    -- keeps org → user from being a circular FK — the owner is flagged, not pointed at.
+    CHECK ((is_org_owner AND created_by_user_id IS NULL)
+        OR (NOT is_org_owner AND created_by_user_id IS NOT NULL)),
+    -- emails are stored lowercased so the case-sensitive UNIQUE(email) can't allow Foo@x / foo@x dupes
+    CHECK (email = lower(email))
 );
+
 CREATE INDEX ON "user" (organization_id);
 -- exactly one owner per org (only live users count)
 CREATE UNIQUE INDEX user_one_owner_per_org ON "user" (organization_id) WHERE is_org_owner AND NOT is_deleted;
@@ -65,24 +74,42 @@ CREATE UNIQUE INDEX user_one_owner_per_org ON "user" (organization_id) WHERE is_
 
 -- A store: the business unit where selling happens. Owned by one org.
 CREATE TABLE store (
+    -- store id
     store_id         UUID PRIMARY KEY,
+    -- owning org (the tenant)
     organization_id  UUID NOT NULL REFERENCES organization (organization_id),
-    name             TEXT NOT NULL,
+    -- store display name
+    name             VARCHAR(256) NOT NULL,
+    -- ONLINE | PHYSICAL: how the store sells
     type             store_type NOT NULL,
-    description      TEXT,
-    -- physical location (all NULL for an ONLINE store)
-    address          TEXT,
-    city             TEXT,
-    state            TEXT,
-    postal_code      TEXT,
-    country          TEXT,
-    currency         TEXT,
-    phone            TEXT,
-    email            TEXT,
-    -- the org's default store — where single-store orgs (and org users) land. Exactly one per org (index below).
+    -- description / notes about the store
+    description      VARCHAR(1024),
+    -- physical location (all NULL for an ONLINE store) --
+    -- street address
+    address          VARCHAR(256),
+    -- geographic city
+    city             VARCHAR(128),
+    -- geographic state/province
+    state            VARCHAR(128),
+    -- postal/zip code — text to preserve leading zeros and non-numeric formats
+    postal_code      VARCHAR(32),
+    -- ISO 3166-1 alpha-2 country code, e.g. 'US'
+    country          VARCHAR(2),
+    -- ISO 4217 currency the store sells in, e.g. 'USD'
+    currency         VARCHAR(3),
+    -- store contact phone ('+', spaces, extensions)
+    phone            VARCHAR(32),
+    -- store contact email
+    email            VARCHAR(254),
+    -- the org's default store — where single-store orgs (and org users) land. Exactly one per org (index below)
     is_default       BOOLEAN NOT NULL,
+    -- when the store was created (stored UTC)
     created_at       TIMESTAMPTZ NOT NULL,
+    -- when the store was last modified (stored UTC)
+    updated_at       TIMESTAMPTZ NOT NULL,
+    -- soft-delete flag; TRUE = store removed but kept for history
     is_deleted       BOOLEAN NOT NULL,
+    -- when it was soft-deleted (stored UTC); NULL while active
     deleted_at       TIMESTAMPTZ
 );
 CREATE INDEX ON store (organization_id);
