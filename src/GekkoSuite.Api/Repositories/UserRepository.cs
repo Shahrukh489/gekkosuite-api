@@ -42,4 +42,38 @@ public class UserRepository : BaseRepository, IUserRepository
 
         return QuerySingleOrDefaultUnscopedAsync<UserEntity>(sql, new { email });
     }
+
+    /// <summary>
+    /// Finds a live (not soft-deleted) user by id within a specific organization. Used to re-check
+    /// user.is_active fresh on every request once the JWT's claims are already validated — a token being
+    /// unexpired doesn't mean the account wasn't deactivated a minute ago (see auth.md, §1).
+    /// </summary>
+    /// <param name="organizationId">The tenant the user must belong to (from the validated token).</param>
+    /// <param name="userId">The user id to look up (from the validated token).</param>
+    /// <returns>The matching user, or null if no live account matches both.</returns>
+    public Task<UserEntity?> FindByIdAsync(Guid organizationId, Guid userId)
+    {
+        // organization_id is filtered explicitly here, not left to RLS alone — RLS isn't enabled on
+        // this table yet (see database.md's RLS section, still @TODO), and even once it is, app-level
+        // scoping stays the first line of defense, RLS the backstop (see auth.md's safety nets).
+        const string sql = """
+            SELECT
+                user_id AS UserId,
+                organization_id AS OrganizationId,
+                email AS Email,
+                password AS Password,
+                name AS Name,
+                phone AS Phone,
+                is_active AS IsActive,
+                is_org_owner AS IsOrgOwner,
+                created_by_user_id AS CreatedByUserId,
+                created_at AS CreatedAt,
+                is_deleted AS IsDeleted,
+                deleted_at AS DeletedAt
+            FROM "user"
+            WHERE user_id = @userId AND organization_id = @organizationId AND NOT is_deleted
+            """;
+
+        return QuerySingleOrDefaultAsync<UserEntity>(organizationId, sql, new { userId, organizationId });
+    }
 }

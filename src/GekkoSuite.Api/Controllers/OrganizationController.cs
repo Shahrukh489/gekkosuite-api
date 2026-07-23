@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using GekkoSuite.Api.Services;
@@ -25,6 +26,7 @@ public class OrganizationController : ControllerBase
     }
 
     [HttpGet("db-version")]
+    [Authorize]
     public async Task<IActionResult> GetDatabaseVersion([FromQuery] Guid organizationId)
     {
         // TODO: organizationId will come from the validated JWT, not a query param.

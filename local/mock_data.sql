@@ -28,3 +28,21 @@ INSERT INTO "user" (user_id, organization_id, email, password, name, phone, is_a
 INSERT INTO store (store_id, organization_id, name, type, description, address, city, state, postal_code, country, currency, phone, email, is_default, created_at, is_deleted, deleted_at) VALUES
     ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'Downtown', 'PHYSICAL', 'Flagship',    '1 Main St',  'Austin', 'TX', '78701', 'US', 'USD', '+1 555 0200', 'downtown@acme.com', TRUE,  '2026-01-05T12:00:00Z', FALSE, NULL),
     ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'Online',   'ONLINE',   'Web storefront', NULL,        NULL,     NULL, NULL,    'US', 'USD', NULL,          'shop@acme.com',     FALSE, '2026-01-07T10:00:00Z', FALSE, NULL);
+
+-- Memberships: where each mock user can act. Maria (Acme's owner) and the Dev Org user both get an
+-- ORGANIZATION membership; Sara/Marcus get STORE memberships at Downtown. One membership per user
+-- (a user is either an org member or a store member, never both — membership_single_kind_guard).
+INSERT INTO membership (membership_id, user_id, scope, organization_id, store_id, is_active, created_at, is_deleted, deleted_at) VALUES
+    ('50000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'ORGANIZATION', '00000000-0000-0000-0000-000000000001', NULL,                                    TRUE, '2026-01-05T12:00:00Z', FALSE, NULL),
+    ('50000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', 'STORE',        '00000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', TRUE, '2026-01-06T09:00:00Z', FALSE, NULL),
+    ('50000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000003', 'STORE',        '00000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', TRUE, '2026-01-06T09:05:00Z', FALSE, NULL),
+    ('50000000-0000-0000-0000-000000000004', '22222222-2222-2222-2222-222222222222', 'ORGANIZATION', '11111111-1111-1111-1111-111111111111', NULL,                                    TRUE, '2026-01-01T00:00:00Z', FALSE, NULL);
+
+-- Role granted on each membership. Role ids are the managed roles seeded by migration 1_0_1.sql
+-- (Cashier / Manager / Org Admin). assigned_by_user_id is Maria for the staff she "hired"; NULL where
+-- system-seeded (Maria's own membership, the Dev Org user's).
+INSERT INTO membership_assignment (membership_id, role_id, assigned_at, assigned_by_user_id, expires_at) VALUES
+    ('50000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', '2026-01-05T12:00:00Z', NULL,                                     NULL), -- Maria: Org Admin
+    ('50000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '2026-01-06T09:00:00Z', '10000000-0000-0000-0000-000000000001', NULL), -- Sara: Cashier
+    ('50000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000002', '2026-01-06T09:05:00Z', '10000000-0000-0000-0000-000000000001', NULL), -- Marcus: Manager
+    ('50000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000003', '2026-01-01T00:00:00Z', NULL,                                     NULL); -- Dev User: Org Admin

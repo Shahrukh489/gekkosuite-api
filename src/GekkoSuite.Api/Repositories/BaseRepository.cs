@@ -146,6 +146,23 @@ public abstract class BaseRepository
     }
 
     /// <summary>
+    /// Runs a SELECT and returns every matching row, WITHOUT stamping a tenant onto the session. Unlike
+    /// QuerySingleOrDefaultUnscopedAsync (a pre-tenant-known lookup like login), this is for tables that
+    /// are a global catalog with no tenant column at all — e.g. offering (the plan/add-on catalog every
+    /// org reads the same rows from). No organization_id ever applies to these tables, so there is nothing
+    /// for RLS to scope.
+    /// </summary>
+    /// <typeparam name="T">The type each row maps to.</typeparam>
+    /// <param name="sql">The raw SQL to run.</param>
+    /// <param name="parameters">Dapper parameters for the SQL (anonymous object), or null.</param>
+    /// <returns>The matched rows (empty if none).</returns>
+    protected async Task<IEnumerable<T>> QueryUnscopedAsync<T>(string sql, object? parameters = null)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        return await connection.QueryAsync<T>(sql, parameters);
+    }
+
+    /// <summary>
     /// The single place that opens a connection + transaction, stamps the tenant onto the DB session for
     /// RLS, runs the caller's query on that same connection, then commits. Set-tenant and query must share
     /// one transaction — that's what makes set_config's is_local (SET LOCAL) apply and stops the setting
