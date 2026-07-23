@@ -10,14 +10,4 @@ public class OrganizationService : IOrganizationService
     {
         _organizationRepository = organizationRepository;
     }
-
-    public string GetGreeting()
-    {
-        return "Hello from OrganizationService";
-    }
-
-    public Task<string> GetDatabaseVersionAsync(Guid organizationId)
-    {
-        return _organizationRepository.GetDatabaseVersionAsync(organizationId);
-    }
 }

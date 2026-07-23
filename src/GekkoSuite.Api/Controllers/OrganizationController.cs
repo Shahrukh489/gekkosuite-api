@@ -16,19 +16,4 @@ public class OrganizationController : ControllerBase
         _logger = logger;
         _organizationService = organizationService;
     }
-
-    [HttpGet("")]
-    public IActionResult HelloWorld()
-    {
-        _logger.LogDebug("in controller");
-        return Ok(_organizationService.GetGreeting());
-    }
-
-    [HttpGet("db-version")]
-    public async Task<IActionResult> GetDatabaseVersion([FromQuery] Guid organizationId)
-    {
-        // TODO: organizationId will come from the validated JWT, not a query param.
-        var version = await _organizationService.GetDatabaseVersionAsync(organizationId);
-        return Ok(version);
-    }
 }

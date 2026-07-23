@@ -16,7 +16,9 @@ what if org is not paying subscription
 
 
 # database
-add rls policies
+- add rls policies
+- add non admin role for server
+- define list of roles, perms and features for v1
 
 
 

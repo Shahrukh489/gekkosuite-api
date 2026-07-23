@@ -4,27 +4,26 @@ using GekkoSuite.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
-builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
-builder.Services.AddSingleton<IAuthService, AuthService>();
 
-// Postgres connection string: env var first (12-factor / containers), config fallback.
+
+// DB Connection
 var connectionString =
     Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_STRING")
     ?? builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException(
         "No Postgres connection string. Set POSTGRES_CONNECTION_STRING or ConnectionStrings:Postgres.");
 
-// NpgsqlDataSource IS the pooled connection source — registered once, injected into repositories.
 builder.Services.AddNpgsqlDataSource(connectionString);
+
+// Register App Services
 builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>();
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
+builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
+builder.Services.AddSingleton<IAuthService, AuthService>();
 
-// JWT signing settings: env var first (same 12-factor pattern as the connection string above), config
-// fallback. The secret must never be checked in — set it via the environment in every real deployment.
+// JWT signing settings
 var jwtOptions = new JwtOptions
 {
     Secret =
@@ -41,6 +40,7 @@ var jwtOptions = new JwtOptions
         ?? "gekkosuite-clients",
     AccessTokenLifetimeMinutes = 15
 };
+
 builder.Services.AddSingleton(jwtOptions);
 
 var app = builder.Build();

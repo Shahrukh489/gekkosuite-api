@@ -8,8 +8,4 @@ public class OrganizationRepository : BaseRepository, IOrganizationRepository
     {
     }
 
-    public Task<string> GetDatabaseVersionAsync(Guid organizationId)
-    {
-        return QuerySingleAsync<string>(organizationId, "SELECT version();");
-    }
 }

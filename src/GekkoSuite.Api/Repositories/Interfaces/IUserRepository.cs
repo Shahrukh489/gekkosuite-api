@@ -43,9 +43,7 @@ public class UserEntity
 public interface IUserRepository
 {
     /// <summary>
-    /// Finds a live (not soft-deleted) user by their login email.
+    /// Finds an active user by their login email.
     /// </summary>
-    /// <param name="email">The login email to look up.</param>
-    /// <returns>The matching user, or null if no live account has that email.</returns>
     public Task<UserEntity?> FindByEmailAsync(string email);
 }
