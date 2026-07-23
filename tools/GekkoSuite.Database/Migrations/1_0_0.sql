@@ -115,3 +115,124 @@ CREATE TABLE store (
 CREATE INDEX ON store (organization_id);
 -- at most one default store per org (only live stores count)
 CREATE UNIQUE INDEX store_one_default_per_org ON store (organization_id) WHERE is_default AND NOT is_deleted;
+
+
+
+
+-- A role: a named bundle of permissions. Either a managed role we ship, or an org's own custom role.
+CREATE TABLE role (
+    -- role id
+    role_id         UUID PRIMARY KEY,
+    -- display name shown in the role picker, e.g. 'Cashier', 'Org Admin'
+    name            VARCHAR(256) NOT NULL,
+    -- optional human description of what the role is for
+    description     VARCHAR(1024),
+    -- TRUE = system role we ship (org-wide); FALSE = an org's own custom role
+    is_managed      BOOLEAN NOT NULL,
+    -- owning org for a custom role; NULL for managed roles (see CHECK)
+    organization_id UUID REFERENCES organization (organization_id),
+    -- ORGANIZATION | STORE: the level this role attaches at (must match the membership's scope)
+    scope           scope NOT NULL,
+    -- when the role was created (stored UTC)
+    created_at      TIMESTAMPTZ NOT NULL,
+    -- when the role was last modified (stored UTC)
+    updated_at      TIMESTAMPTZ NOT NULL,
+    -- managed roles have no org; custom roles must have one
+    CHECK (
+        (is_managed = TRUE  AND organization_id IS NULL)
+        OR (is_managed = FALSE AND organization_id IS NOT NULL)
+    )
+);
+
+-- no two custom roles in the same org share a name
+CREATE UNIQUE INDEX role_org_name_uq
+    ON role (organization_id, name)
+    WHERE organization_id IS NOT NULL;
+
+-- managed (system) role names are unique among themselves
+CREATE UNIQUE INDEX role_managed_name_uq
+    ON role (name)
+    WHERE is_managed;
+
+-- A permission: one allowed action, like product:read.
+CREATE TABLE permission (
+    -- permission id
+    permission_id UUID PRIMARY KEY,
+    -- the thing acted on, e.g. product, order, role
+    resource      VARCHAR(64) NOT NULL,
+    -- what may be done to it, e.g. read, create, refund, assign
+    action        VARCHAR(64) NOT NULL,
+    -- optional description 
+    description   VARCHAR(1024),
+    -- TRUE = for org roles only, FALSE = can be added to both STORE and ORGANIZATION roles
+    is_elevated   BOOLEAN NOT NULL,
+    -- resource + action is the permission's natural key, e.g. (product, read)
+    UNIQUE (resource, action)
+);
+
+-- role_permission: which permissions a role grants (many-to-many). 
+CREATE TABLE role_permission (
+    -- the role
+    role_id       UUID NOT NULL REFERENCES role (role_id),
+    -- the permission it grants
+    permission_id UUID NOT NULL REFERENCES permission (permission_id),
+    -- a role can't list the same permission twice
+    PRIMARY KEY (role_id, permission_id)
+);
+
+
+-- A membership: a place a user belongs — the whole ORGANIZATION, or one STORE. Sets their reach there.
+CREATE TABLE membership (
+    -- membership id
+    membership_id   UUID PRIMARY KEY,
+    -- the user this membership belongs to
+    user_id         UUID NOT NULL REFERENCES "user" (user_id),
+    -- ORGANIZATION | STORE: the kind of place (see CHECK for the store_id rule)
+    scope           scope NOT NULL,
+    -- the tenant this membership is in (the boundary every request is checked against)
+    organization_id UUID NOT NULL REFERENCES organization (organization_id),
+    -- the store, for a STORE membership; NULL for an ORGANIZATION membership
+    store_id        UUID REFERENCES store (store_id),
+    -- suspend switch for this one place; false = access off here but kept
+    is_active       BOOLEAN NOT NULL,
+    -- when the membership was granted (stored UTC)
+    created_at      TIMESTAMPTZ NOT NULL,
+    -- when the membership was last modified (stored UTC)
+    updated_at      TIMESTAMPTZ NOT NULL,
+    -- soft-delete flag; TRUE = removed from this place but kept for history
+    is_deleted      BOOLEAN NOT NULL,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at      TIMESTAMPTZ,
+    -- org membership has no store; store membership must have one
+    CHECK ((scope = 'ORGANIZATION' AND store_id IS NULL)
+        OR (scope = 'STORE'        AND store_id IS NOT NULL))
+);
+
+-- a user can hold only one live membership at a given store
+CREATE UNIQUE INDEX membership_store_uq
+    ON membership (user_id, store_id)
+    WHERE store_id IS NOT NULL AND NOT is_deleted;
+
+-- a user can hold only one live organization membership
+CREATE UNIQUE INDEX membership_org_uq
+    ON membership (user_id)
+    WHERE scope = 'ORGANIZATION' AND NOT is_deleted;
+
+-- all of a user's memberships
+CREATE INDEX ON membership (user_id);
+
+-- membership_assignment: a role granted to a membership (many-to-many).
+CREATE TABLE membership_assignment (
+    -- the membership the role is granted to
+    membership_id UUID NOT NULL REFERENCES membership (membership_id),
+    -- the role granted
+    role_id       UUID NOT NULL REFERENCES role (role_id),
+    -- when the role was granted (stored UTC)
+    assigned_at   TIMESTAMPTZ NOT NULL,
+    -- who granted it 
+    assigned_by_user_id UUID NOT NULL REFERENCES "user" (user_id),
+    -- optional expiry; NULL = never expires
+    expires_at    TIMESTAMPTZ,
+    -- same role can't be granted to the same membership twice
+    PRIMARY KEY (membership_id, role_id)
+);

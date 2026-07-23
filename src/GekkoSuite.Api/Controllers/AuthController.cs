@@ -30,7 +30,6 @@ public class AuthController : ControllerBase
     /// <summary>
     /// Exchanges an email + password for an access token 
     /// </summary>
-    /// <param name="request">The login credentials.</param>
     [HttpPost("login")]
     [Consumes(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -60,7 +59,7 @@ public class AuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error during login.");
+            _logger.LogError(ex, "Unexpected error.");
             return StatusCode(StatusCodes.Status500InternalServerError);
         }
     }
