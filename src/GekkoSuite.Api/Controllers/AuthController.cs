@@ -28,6 +28,7 @@ public class AuthController : BaseController
     [AllowAnonymous]
     [HttpPost("login")]
     [Consumes(MediaTypeNames.Application.Json)]
+    [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -37,12 +38,12 @@ public class AuthController : BaseController
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
             {
-                return BadRequest("Email and password are required.");
+                return BadRequest(new { message = "Email and password are required." });
             }
 
             if (request.Email.Length > 254 || request.Password.Length > 128)
             {
-                return BadRequest("Email or password is too long.");
+                return BadRequest(new { message = "Email or password is too long."});
             }
 
             LoginResponse? response = await _authService.LoginAsync(request.Email, request.Password);
@@ -65,6 +66,7 @@ public class AuthController : BaseController
     /// </summary>
     [Authorize]
     [HttpGet("me")]
+    [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -78,7 +80,7 @@ public class AuthController : BaseController
             UserDto? user = await _authService.GetMeAsync(organizationId, userId);
             if (user is null)
             {
-                return NotFound();
+                return NotFound(new { message = "User not found."});
             }
 
             return Ok(user);
