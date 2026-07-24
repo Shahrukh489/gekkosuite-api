@@ -41,8 +41,7 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
     }
 
     /// <summary>
-    /// Parses a HasPermission policy name ("scope:permission", permission optional) into a policy carrying a
-    /// PermissionRequirement.
+    /// Parses a HasPermission policy name ("scope:permission") into a policy carrying a PermissionRequirement.
     /// </summary>
     /// <param name="policyName">The prefixed policy name from HasPermissionAttribute.</param>
     /// <returns>The built authorization policy.</returns>
@@ -52,8 +51,7 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
         int separator = body.IndexOf(':');
 
         MembershipScope scope = Enum.Parse<MembershipScope>(body.Substring(0, separator));
-        string permissionText = body.Substring(separator + 1);
-        string? permission = permissionText.Length == 0 ? null : permissionText;
+        string permission = body.Substring(separator + 1);
 
         return new AuthorizationPolicyBuilder()
             .AddRequirements(new PermissionRequirement(scope, permission))

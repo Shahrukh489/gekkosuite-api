@@ -69,19 +69,12 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     /// True when the caller is authorized: they hold at least one membership, and — if a permission is
     /// required — one of those memberships' roles grants it.
     /// </summary>
-    private bool Grants(List<MembershipDto>? memberships, string? permission)
+    private bool Grants(List<MembershipDto>? memberships, string permission)
     {
         if (memberships is null || memberships.Count == 0)
         {
             _logger.LogDebug("Denied: the user holds no membership at this place.");
             return false;
-        }
-
-        // no permission required — holding the membership is enough
-        if (permission is null)
-        {
-            _logger.LogDebug("Allowed: membership is sufficient, no permission required.");
-            return true;
         }
 
         foreach (MembershipDto membership in memberships)
