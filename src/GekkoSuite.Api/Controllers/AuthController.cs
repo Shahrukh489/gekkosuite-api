@@ -11,16 +11,14 @@ namespace GekkoSuite.Api.Controllers;
 
 [ApiController]
 [Route("auth")]
-public class AuthController : ControllerBase
+public class AuthController : BaseController
 {
     private readonly IAuthService _authService;
-    private readonly IUserService _userService;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, IUserService userService, ILogger<AuthController> logger)
+    public AuthController(IAuthService authService, ILogger<AuthController> logger) : base(logger)
     {
         _authService = authService;
-        _userService = userService;
         _logger = logger;
     }
 
@@ -57,8 +55,7 @@ public class AuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error.");
-            return StatusCode(StatusCodes.Status500InternalServerError);
+            return ErrorResponse(ex);
         }
     }
 
@@ -78,7 +75,7 @@ public class AuthController : ControllerBase
             var userId = User.GetUserId();
             var organizationId = User.GetOrganizationId();
 
-            UserDto? user = await _userService.GetUserAsync(organizationId, userId);
+            UserDto? user = await _authService.GetMeAsync(organizationId, userId);
             if (user is null)
             {
                 return NotFound();
@@ -88,8 +85,7 @@ public class AuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error.");
-            return StatusCode(StatusCodes.Status500InternalServerError);
+            return ErrorResponse(ex);
         }
     }
 }

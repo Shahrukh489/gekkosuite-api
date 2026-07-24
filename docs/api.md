@@ -28,7 +28,9 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 | `POST /onboarding/verify` | Verify the owner's email and activate the account. | public |
 | `POST /auth/login` | Exchange email + password for an access token. | public |
 | `GET /auth/me` | The current user and their memberships (self read). | any authenticated |
+| `GET /auth/me/organization/memberships` | The caller's org membership + the roles they hold. | ORGANIZATION |
 | `GET /auth/me/organization/permissions` | The caller's permissions in the org. | ORGANIZATION |
+| `GET /auth/me/stores/{storeId}/memberships` | The caller's membership + roles at this store. | STORE |
 | `GET /auth/me/stores/{storeId}/permissions` | The caller's permissions in this store. | STORE |
 | `POST /auth/logout` | End the session and invalidate the token. | any authenticated |
 | `GET /organization` | The org record + its billing state. | ORGANIZATION |
@@ -389,7 +391,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
     "userType": "ORGANIZATION",
     "defaultStoreId": null,
     "memberships": [
-      { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "role": "Org Admin" }
+      { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "roles": ["Org Admin"] }
     ]
   }
   ```
@@ -405,8 +407,8 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
     "userType": "STORE",
     "defaultStoreId": "s1...",
     "memberships": [
-      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Cashier" },
-      { "type": "STORE", "storeId": "s2...", "name": "Uptown", "role": "Manager" }
+      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "roles": ["Cashier"] },
+      { "type": "STORE", "storeId": "s2...", "name": "Uptown", "roles": ["Manager"] }
     ]
   }
   ```
@@ -420,9 +422,10 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
     guess from array position. `null` for an org user (they land in the org context) and for a user with
     no memberships.
   - **`memberships`** — the list, for rendering names/roles and the store switcher (ordered oldest-first).
-    Each entry carries its `type` (`ORGANIZATION` / `STORE`), the place's id and `name`, and the `role` the
-    user holds there. An org user gets the single `ORGANIZATION` entry; a store user gets their store(s)
-    with the store role at each. Empty when `userType` is `null`. Permissions are not included.
+    Each entry carries its `type` (`ORGANIZATION` / `STORE`), the place's id and `name`, and the `roles` the
+    user holds there (a membership can carry more than one role, so it's a list). An org user gets the single
+    `ORGANIZATION` entry; a store user gets their store(s) with the store role(s) at each. Empty when
+    `userType` is `null`. Permissions are not included.
 
 - **Errors:**
   - `401` — not authenticated
@@ -536,12 +539,41 @@ The org resource itself, the caller's permissions in it, and the org-scoped feat
   - `401` — not authenticated
   - `403` — lacks `organization:read`
 
+#### `GET /auth/me/organization/memberships` — Get my organization membership
+
+- **Description:** Returns the caller's ORGANIZATION membership and the **roles** they hold on it — so the
+  user can see who they are in the org (e.g. "Org Admin"). A membership can carry more than one role
+  (`membership ──< membership_assignment >── role`), so `roles` is a list. This is the *identity* read
+  ("what roles do I hold here"); the separate `/permissions` endpoint is the *gating* read ("what may I
+  do here").
+- **Method:** `GET`
+- **URL:** `/auth/me/organization/memberships`
+- **Scope:** `ORGANIZATION`
+- **Permission:** _(none beyond an org membership)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body:**
+
+  ```json
+  {
+    "membership": { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "roles": ["Org Admin"] }
+  }
+  ```
+
+  - **`membership`** — the caller's ORGANIZATION membership: the place's `organizationId` and `name`, and the
+    `roles` held there (one or more). Same membership the caller sees in `GET /auth/me`.
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — the caller has no organization membership
+
 #### `GET /auth/me/organization/permissions` — Get my organization permissions
 
-- **Description:** Returns the caller's org **membership** (the place and the role they hold there) plus the
-  flat **permissions** that role grants — so one call tells the UI both *who the caller is* in the org and
-  *what they may do*. Used to show or hide org tabs and actions. The `role` names the role (e.g. `Org
-  Admin`); `permissions` is the resolved leaf set the UI actually gates on.
+- **Description:** Returns the permissions the caller holds in the organization — the flat, resolved set the
+  UI gates on. Used to show or hide org tabs and actions. (To see *which roles* the caller holds, use `GET
+  /auth/me/organization/memberships`.)
 - **Method:** `GET`
 - **URL:** `/auth/me/organization/permissions`
 - **Scope:** `ORGANIZATION`
@@ -554,16 +586,9 @@ The org resource itself, the caller's permissions in it, and the org-scoped feat
 
   ```json
   {
-    "membership": { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "role": "Org Admin" },
     "permissions": ["organization:read", "user:create", "store:create", "product:edit", "order:refund"]
   }
   ```
-
-  - **`membership`** — the caller's ORGANIZATION membership: the place's `organizationId` and `name`, and the
-    `role` held there. This is the same membership the caller sees in `GET /auth/me`; it's echoed here so the
-    permissions response is self-contained.
-  - **`permissions`** — the flat, resolved permission codes the role grants (`role → role_permission →
-    permission`). This is what the UI gates on; the role name is for display.
 
 - **Errors:**
   - `401` — not authenticated
@@ -1305,6 +1330,47 @@ The store record and the store-scoped features its org's offerings enable.
   - `403` — the caller has no access to this store
   - `404` — the store is not in the caller's org
 
+#### `GET /auth/me/stores/{storeId}/memberships` — Get my store membership
+
+- **Description:** Returns the caller's membership **at this store** and the **roles** they hold on it — so
+  the user can see who they are here (e.g. "Cashier", "Manager"). A store membership can carry more than one
+  role, so `roles` is a list. Which membership answers depends on how the caller reaches the store: a
+  **store user** gets their `STORE` membership at this store; an **org user** (who has no store membership)
+  gets their `ORGANIZATION` membership, whose roles reach every store — so `type` tells the client whether
+  the roles come from the store directly or from the org. This is the *identity* read; the separate
+  `/permissions` endpoint is the *gating* read.
+- **Method:** `GET`
+- **URL:** `/auth/me/stores/{storeId}/memberships`
+- **Scope:** `STORE`
+- **Permission:** _(none beyond access to the store)_
+- **Request Headers:**
+  - `Authorization: Bearer <accessToken>`
+- **Request Body:** _(none)_
+- **Response Status:** `200 OK`
+- **Response Body** (store user — their membership at this store):
+
+  ```json
+  {
+    "membership": { "type": "STORE", "storeId": "s1...", "name": "Downtown", "roles": ["Cashier", "Manager"] }
+  }
+  ```
+
+- **Response Body** (org user reaching in — their org membership grants the access):
+
+  ```json
+  {
+    "membership": { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "roles": ["Org Admin"] }
+  }
+  ```
+
+  - **`membership`** — the membership that grants the caller access to this store, with the `roles` held on
+    it. `type` distinguishes a direct `STORE` membership from an `ORGANIZATION` membership reaching in.
+
+- **Errors:**
+  - `401` — not authenticated
+  - `403` — the caller has no access to this store
+  - `404` — the store is not in the caller's org
+
 #### `GET /auth/me/stores/{storeId}/permissions` — Get my store permissions
 
 - **Description:** Returns the permissions the caller holds **in this store** — used by the UI to show or
@@ -1344,10 +1410,10 @@ The staff roster of a single store.
 #### `GET /stores/{storeId}/users` — List store users
 
 - **Description:** Lists the users who have a membership at this store — the store's staff roster, with
-  each person's role there. A store admin can list **their own** store's roster; an org user can list any
-  store's in the org. Identity fields plus the store role only — no other-store or org membership info is
-  exposed. (Uses the same `user:read` permission as the org user list; the store scope limits a store
-  admin to their own store.)
+  each person's role(s) there (a membership can carry more than one role, so `roles` is a list). A store
+  admin can list **their own** store's roster; an org user can list any store's in the org. Identity fields
+  plus the store role(s) only — no other-store or org membership info is exposed. (Uses the same `user:read`
+  permission as the org user list; the store scope limits a store admin to their own store.)
 - **Method:** `GET`
 - **URL:** `/stores/{storeId}/users`
 - **Scope:** `STORE`
@@ -1365,14 +1431,14 @@ The staff roster of a single store.
       "name": "Sara",
       "email": "sara@acme.com",
       "isActive": true,
-      "role": "Cashier"
+      "roles": ["Cashier"]
     },
     {
       "userId": "u4...",
       "name": "Marcus",
       "email": "marcus@acme.com",
       "isActive": true,
-      "role": "Manager"
+      "roles": ["Manager", "Inventory Manager"]
     }
   ]
   ```

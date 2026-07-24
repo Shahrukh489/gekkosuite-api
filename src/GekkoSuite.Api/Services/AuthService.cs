@@ -15,13 +15,15 @@ namespace GekkoSuite.Api.Services;
 
 public class AuthService : IAuthService
 {
-    private readonly IAuthRepository _authRepository;
+    private readonly IUserService _userService;
+    private readonly IUserRepository _userRepository;
     private readonly JwtOptions _jwtOptions;
 
-    public AuthService(IAuthRepository authRepository, JwtOptions jwtOptions)
+    public AuthService(JwtOptions jwtOptions, IUserService userService, IUserRepository userRepository)
     {
-        _authRepository = authRepository;
         _jwtOptions = jwtOptions;
+        _userService = userService;
+        _userRepository = userRepository;
     }
 
     /// <summary>
@@ -91,7 +93,7 @@ public class AuthService : IAuthService
     /// <inheritdoc />
     public async Task<LoginResponse?> LoginAsync(string email, string password)
     {
-        var user = await _authRepository.GetUserByEmailAsync(email);
+        var user = await _userRepository.GetUserByEmailAsync(email);
 
         // Checking the hash even when user is null would be nice for timing-attack hygiene, but is
         // skipped here for simplicity; the meaningful secret (the password) is never exposed either way.
@@ -101,5 +103,17 @@ public class AuthService : IAuthService
         }
 
         return IssueAccessToken(user);
+    }
+
+    /// <inheritdoc />
+    public async Task<UserDto?> GetMeAsync(Guid organizationId, Guid currentUserId)
+    {
+        UserDto? userDto = await _userService.GetUserAsync(organizationId, currentUserId);
+        if (userDto == null)
+        {
+            return null;
+        }
+
+        return userDto;
     }
 }

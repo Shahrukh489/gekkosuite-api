@@ -8,4 +8,9 @@ public interface IAuthService
     /// Verifies an email + password against the stored credentials
     /// </summary>
     Task<LoginResponse?> LoginAsync(string email, string password);
+
+    /// <summary>
+    /// Gets current user's profile and memberships
+    /// </summary>
+    Task<UserDto?> GetMeAsync(Guid organizationId, Guid userId);
 }

@@ -11,9 +11,15 @@ public class MembershipEntity
     /// <summary>The place's display name — the org name or the store name.</summary>
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>The role id.</summary>
-    public Guid? RoleId { get; set; }
+    /// <summary>The granted role's id.</summary>
+    public Guid RoleId { get; set; }
 
-    /// <summary>The role held on this membership.</summary>
+    /// <summary>The granted role's display name (e.g. "Cashier", "Org Admin").</summary>
     public string RoleName { get; set; } = string.Empty;
+
+    /// <summary>When the role was granted (stored UTC).</summary>
+    public DateTimeOffset AssignedAt { get; set; }
+
+    /// <summary>Optional expiry; null = never expires.</summary>
+    public DateTimeOffset? ExpiresAt { get; set; }
 }

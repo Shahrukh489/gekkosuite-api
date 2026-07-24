@@ -13,12 +13,12 @@ public interface IUserService
     /// <summary>
     /// Returns the user's single live ORGANIZATION membership (with its role), or null if they have none.
     /// </summary>
-    Task<MembershipDto?> GetOrganizationMembershipAsync(Guid organizationId, Guid userId);
+    Task<MembershipDto?> GetUserOrganizationMembershipAsync(Guid organizationId, Guid userId);
 
     /// <summary>
     /// Returns the user's live STORE memberships (each with its store name and role), oldest-first.
     /// </summary>
-    Task<List<MembershipDto>?> GetStoreMembershipsAsync(Guid organizationId, Guid userId);
+    Task<List<MembershipDto>?> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
     /// Builds the self-read view for the current user — their profile plus userType, defaultStoreId, and

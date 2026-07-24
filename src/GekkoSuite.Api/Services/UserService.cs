@@ -1,4 +1,5 @@
 using GekkoSuite.Api.Dtos;
+using GekkoSuite.Api.Exceptions;
 using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Repositories;
 
@@ -27,9 +28,9 @@ public class UserService : IUserService
     }
 
     /// <inheritdoc />
-    public async Task<MembershipDto?> GetOrganizationMembershipAsync(Guid organizationId, Guid userId)
+    public async Task<MembershipDto?> GetUserOrganizationMembershipAsync(Guid organizationId, Guid userId)
     {
-        MembershipEntity? membershipEntity = await _userRepository.GetOrganizationMembershipAsync(organizationId, userId);
+        MembershipEntity? membershipEntity = await _userRepository.GetUserOrganizationMembershipAsync(organizationId, userId);
         if (membershipEntity == null)
         {
             return null;
@@ -39,9 +40,9 @@ public class UserService : IUserService
     }
 
     /// <inheritdoc />
-    public async Task<List<MembershipDto>?> GetStoreMembershipsAsync(Guid organizationId, Guid userId)
+    public async Task<List<MembershipDto>?> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId)
     {
-        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetStoreMembershipsAsync(organizationId, userId);
+        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserStoreMembershipsAsync(organizationId, userId);
         if (membershipEntities.Count() == 0)
         {
             return null;
@@ -61,14 +62,14 @@ public class UserService : IUserService
 
         // A user is EITHER an org member OR a store member, never both (the one-kind rule).
         // If we detect both then we throw an Exception, something went wrong in our database that allowed this to happen
-        var orgMembership = await GetOrganizationMembershipAsync(organizationId, userId);
-        var storeMemberships = await GetStoreMembershipsAsync(organizationId, userId);
+        var orgMembership = await GetUserOrganizationMembershipAsync(organizationId, userId);
+        var storeMemberships = await GetUserStoreMembershipsAsync(organizationId, userId);
         if (orgMembership is not null && storeMemberships is not null)
         {
-            throw new InvalidOperationException($"User {userId} holds both an organization and store membership, violating the one-kind rule.");
+            throw new ValidationException($"User {userId} can not hold both an organization and store membership.");
         }
 
-
+        // add the memberships a user
         if (orgMembership is not null)
         {
             userDto.UserType = Constants.ORGANIZATION;
@@ -82,7 +83,6 @@ public class UserService : IUserService
             // @TODO: sort by oldest membership createdAt Timestamp
             // land in the oldest store membership — the query returns them oldest-first
             userDto.DefaultStoreId = storeMemberships[0].StoreId;
-
         }
         else
         {

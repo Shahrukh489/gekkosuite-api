@@ -11,6 +11,24 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
+    public Task<UserEntity?> GetUserByEmailAsync(string email)
+    {
+        const string sql = """
+            SELECT
+                user_id AS UserId,
+                organization_id AS OrganizationId,
+                password AS Password,
+                is_active AS IsActive
+            FROM "user"
+            WHERE email = @email
+                AND NOT is_deleted
+                AND is_active
+            """;
+
+        return QuerySingleOrDefaultUnscopedAsync<UserEntity>(sql, new { email });
+    }
+
+    /// <inheritdoc />
     public Task<UserEntity?> GetUserByIdAsync(Guid organizationId, Guid userId)
     {
         const string sql = """
@@ -35,13 +53,16 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
-    public Task<MembershipEntity?> GetOrganizationMembershipAsync(Guid organizationId, Guid userId)
+    public Task<MembershipEntity?> GetUserOrganizationMembershipAsync(Guid organizationId, Guid userId)
     {
         const string sql = """
             SELECT
                 o.organization_id AS OrganizationId,
                 o.name AS Name,
-                r.name AS RoleName
+                r.role_id AS RoleId,
+                r.name AS RoleName,
+                ma.assigned_at AS AssignedAt,
+                ma.expires_at AS ExpiresAt
             FROM membership m
             JOIN membership_assignment ma ON ma.membership_id = m.membership_id
             JOIN role r ON r.role_id = ma.role_id AND r.scope = 'ORGANIZATION'
@@ -59,13 +80,16 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<MembershipEntity>> GetStoreMembershipsAsync(Guid organizationId, Guid userId)
+    public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId)
     {
         const string sql = """
             SELECT
                 s.store_id AS StoreId,
                 s.name AS Name,
-                r.name AS RoleName
+                r.role_id AS RoleId,
+                r.name AS RoleName,
+                ma.assigned_at AS AssignedAt,
+                ma.expires_at AS ExpiresAt
             FROM membership m
             JOIN membership_assignment ma ON ma.membership_id = m.membership_id
             JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
