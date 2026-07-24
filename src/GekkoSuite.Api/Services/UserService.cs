@@ -78,6 +78,40 @@ public class UserService : IUserService
     }
 
     /// <inheritdoc />
+    public async Task<List<MembershipDto>?> GetUserStoreMembershipsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId)
+    {
+        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserStoreMembershipsByStoreIdAsync(organizationId, userId, storeId);
+        if (membershipEntities.Count() == 0)
+        {
+            return null;
+        }
+
+        return new MembershipDto().FromEntityList(membershipEntities.ToList());
+    }
+
+    /// <inheritdoc />
+    public async Task<List<string>> GetUserStorePermissionsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId)
+    {
+        List<MembershipDto>? memberships = await GetUserStoreMembershipsByStoreIdAsync(organizationId, userId, storeId);
+        if (memberships is null)
+        {
+            return [];
+        }
+
+        // flatten each role's permissions into one deduped set
+        HashSet<string> permissions = new HashSet<string>();
+        foreach (MembershipDto membership in memberships)
+        {
+            foreach (string permission in membership.Permissions)
+            {
+                permissions.Add(permission);
+            }
+        }
+
+        return permissions.ToList();
+    }
+
+    /// <inheritdoc />
     public async Task<UserDto?> GetUserAsync(Guid organizationId, Guid userId)
     {
         // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user

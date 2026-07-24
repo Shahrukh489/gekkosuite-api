@@ -122,4 +122,10 @@ public class AuthService : IAuthService
     {
         return await _userService.GetUserOrganizationPermissionsAsync(organizationId, currentUserId);
     }
+
+    /// <inheritdoc />
+    public async Task<List<string>> GetCurrentUserStorePermissionsByStoreIdAsync(Guid organizationId, Guid currentUserId, Guid storeId)
+    {
+        return await _userService.GetUserStorePermissionsByStoreIdAsync(organizationId, currentUserId, storeId);
+    }
 }

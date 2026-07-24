@@ -24,4 +24,9 @@ public interface IUserRepository
     /// Returns the user's live STORE memberships (each with its store name and role), oldest-first.
     /// </summary>
     public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId);
+
+    /// <summary>
+    /// Returns the user's live STORE membership rows (one per role) at the given store, empty if none.
+    /// </summary>
+    public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId);
 }

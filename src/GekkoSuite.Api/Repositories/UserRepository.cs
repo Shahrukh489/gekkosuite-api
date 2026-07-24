@@ -114,4 +114,36 @@ public class UserRepository : BaseRepository, IUserRepository
 
         return QueryAsync<MembershipEntity>(organizationId, sql, new { userId, organizationId });
     }
+
+    /// <inheritdoc />
+    public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId)
+    {
+        const string sql = """
+            SELECT
+                s.store_id AS StoreId,
+                s.name AS Name,
+                r.role_id AS RoleId,
+                r.name AS RoleName,
+                ma.assigned_at AS AssignedAt,
+                ma.expires_at AS ExpiresAt,
+                array_agg(p.resource || ':' || p.action) AS Permissions
+            FROM membership m
+            JOIN membership_assignment ma ON ma.membership_id = m.membership_id
+            JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
+            JOIN role_permission rp ON rp.role_id = r.role_id
+            JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
+            JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
+            JOIN user_account u ON u.user_id = m.user_id
+            WHERE m.user_id = @userId
+              AND m.organization_id = @organizationId
+              AND m.store_id = @storeId
+              AND m.scope = 'STORE'
+              AND u.is_active AND NOT u.is_deleted
+              AND m.is_active AND NOT m.is_deleted
+              AND (ma.expires_at IS NULL OR ma.expires_at > now())
+            GROUP BY s.store_id, s.name, r.role_id, r.name, ma.assigned_at, ma.expires_at
+            """;
+
+        return QueryAsync<MembershipEntity>(organizationId, storeId, sql, new { userId, organizationId, storeId });
+    }
 }

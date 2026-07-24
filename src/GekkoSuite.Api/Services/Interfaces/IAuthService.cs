@@ -18,4 +18,9 @@ public interface IAuthService
     /// Gets the current user's flat, deduped permissions in their organization.
     /// </summary>
     Task<List<string>> GetCurrentUserOrganizationPermissionsAsync(Guid organizationId, Guid userId);
+
+    /// <summary>
+    /// Gets the current user's flat, deduped permissions at the given store.
+    /// </summary>
+    Task<List<string>> GetCurrentUserStorePermissionsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId);
 }

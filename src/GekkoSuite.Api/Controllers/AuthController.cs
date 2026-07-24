@@ -72,7 +72,7 @@ public class AuthController : BaseController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<UserDto>> GetMeAsync()
+    public async Task<ActionResult<UserDto>> GetCurrentUserAsync()
     {
         try
         {
@@ -103,7 +103,7 @@ public class AuthController : BaseController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult> GetMyOrganizationPermissionsAsync()
+    public async Task<ActionResult> GetCurrentUserOrganizationPermissionsAsync()
     {
         try
         {
@@ -111,6 +111,33 @@ public class AuthController : BaseController
             var organizationId = User.GetOrganizationId();
 
             List<string> permissions = await _authService.GetCurrentUserOrganizationPermissionsAsync(organizationId, userId);
+            return Ok(permissions);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
+    /// Returns the caller's flat set of permissions at the given store — their effective set for that store.
+    /// </summary>
+    // @TODO: gate with [HasPermission(MembershipScope.STORE)] once the STORE branch of PermissionHandler exists.
+    [HttpGet("me/stores/{storeId}/permissions")]
+    [Authorize]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult> GetCurrentUserStorePermissionsByStoreIdAsync(Guid storeId)
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            var organizationId = User.GetOrganizationId();
+
+            List<string> permissions = await _authService.GetCurrentUserStorePermissionsByStoreIdAsync(organizationId, userId, storeId);
             return Ok(permissions);
         }
         catch (Exception ex)
