@@ -36,22 +36,13 @@ public class UserController : ControllerBase
             var userId = User.GetUserId();
             var organizationId = User.GetOrganizationId();
 
-            var user = await _userService.GetUserByIdAsync(organizationId, userId);
+            var user = await _userService.GetUserAsync(organizationId, userId);
             if (user is null)
             {
                 return NotFound();
             }
 
-            // minimal client-safe shape for now (no password hash); the full self-read response with
-            // userType/defaultStoreId/memberships is the next step.
-            return Ok(new
-            {
-                userId = user.UserId,
-                firstName = user.FirstName,
-                lastName = user.LastName,
-                email = user.Email,
-                organizationId = user.OrganizationId
-            });
+            return Ok(user);
         }
         catch (Exception ex)
         {
