@@ -28,10 +28,6 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 | `POST /onboarding/verify` | Verify the owner's email and activate the account. | public |
 | `POST /auth/login` | Exchange email + password for an access token. | public |
 | `GET /auth/me` | The current user and their memberships (self read). | any authenticated |
-| `GET /auth/me/organization/memberships` | The caller's org membership + the roles they hold. | ORGANIZATION |
-| `GET /auth/me/organization/permissions` | The caller's permissions in the org. | ORGANIZATION |
-| `GET /auth/me/stores/{storeId}/memberships` | The caller's membership + roles at this store. | STORE |
-| `GET /auth/me/stores/{storeId}/permissions` | The caller's permissions in this store. | STORE |
 | `POST /auth/logout` | End the session and invalidate the token. | any authenticated |
 | `GET /organization` | The org record + its billing state. | ORGANIZATION |
 | `GET /organization/features` | The org-scoped features the org's offerings enable. | ORGANIZATION |

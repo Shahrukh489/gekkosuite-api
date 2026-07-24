@@ -41,28 +41,6 @@ public class UserService : IUserService
     }
 
     /// <inheritdoc />
-    public async Task<List<string>> GetUserOrganizationPermissionsAsync(Guid organizationId, Guid userId)
-    {
-        List<MembershipDto>? memberships = await GetUserOrganizationMembershipsAsync(organizationId, userId);
-        if (memberships is null)
-        {
-            return [];
-        }
-
-        // flatten each role's permissions into one deduped set
-        HashSet<string> permissions = new HashSet<string>();
-        foreach (MembershipDto membership in memberships)
-        {
-            foreach (string permission in membership.Permissions)
-            {
-                permissions.Add(permission);
-            }
-        }
-
-        return permissions.ToList();
-    }
-
-    /// <inheritdoc />
     public async Task<List<MembershipDto>?> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId)
     {
         IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserStoreMembershipsAsync(organizationId, userId);
@@ -87,28 +65,6 @@ public class UserService : IUserService
         }
 
         return new MembershipDto().FromEntityList(membershipEntities.ToList());
-    }
-
-    /// <inheritdoc />
-    public async Task<List<string>> GetUserStorePermissionsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId)
-    {
-        List<MembershipDto>? memberships = await GetUserStoreMembershipsByStoreIdAsync(organizationId, userId, storeId);
-        if (memberships is null)
-        {
-            return [];
-        }
-
-        // flatten each role's permissions into one deduped set
-        HashSet<string> permissions = new HashSet<string>();
-        foreach (MembershipDto membership in memberships)
-        {
-            foreach (string permission in membership.Permissions)
-            {
-                permissions.Add(permission);
-            }
-        }
-
-        return permissions.ToList();
     }
 
     /// <inheritdoc />
