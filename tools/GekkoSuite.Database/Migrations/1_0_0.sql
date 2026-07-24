@@ -4,9 +4,56 @@ CREATE TYPE scope AS ENUM ('ORGANIZATION', 'STORE');
 -- How a store sells: a storefront kind.
 CREATE TYPE store_type AS ENUM ('ONLINE', 'PHYSICAL');
 
--- The org's overall billing status (organization.billing_status). Purely about paying — no TRIALING
--- (that's a per-subscription lifecycle state). See docs/database.md and auth.md's billing gate.
+-- The org's overall billing status
 CREATE TYPE billing_status AS ENUM ('ACTIVE', 'PAST_DUE', 'UNPAID', 'CANCELED');
+
+-- A subscription's LIFECYCLE
+CREATE TYPE offering_status AS ENUM ('TRIALING', 'ACTIVE', 'CANCELED');
+
+-- What an org can subscribe to: a base PLAN or a optional ADDON. 
+CREATE TYPE offering_type AS ENUM ('PLAN', 'ADDON');
+
+-- An offering: a priced bundle of features an org subscribes to. Either a base PLAN or a stackable ADDON.
+CREATE TABLE offering (
+    -- offering id
+    offering_id     UUID PRIMARY KEY,
+    -- PLAN | ADDON: PLAN = baseline plan; ADDON = stackable extra bought on top
+    type            offering_type NOT NULL,
+    -- display name shown in the plan/add-on catalog, e.g. 'Basic', 'Pro', 'Marketing'
+    name            VARCHAR(256) NOT NULL UNIQUE,
+    -- optional human description of what the offering includes
+    description     VARCHAR(1024),
+    -- per-store price; the bill adds this × store count for each of the org's live offerings (0 = free)
+    price_per_store NUMERIC NOT NULL,
+    -- still offered in the catalog? (FALSE = retired; existing subscriptions keep it)
+    is_active       BOOLEAN NOT NULL
+);
+
+-- A feature: one capability an offering can include (reports, returns, multi-store, ...).
+CREATE TABLE feature (
+    -- feature id
+    feature_id  UUID PRIMARY KEY,
+    -- fixed key the app looks up in code, e.g. 'store_reporting', 'ai_chatbot' — never rename it (breaks checks)
+    code        VARCHAR(64) NOT NULL UNIQUE,
+    -- display name shown to users, e.g. 'Multi-store' — safe to rename anytime
+    label       VARCHAR(256) NOT NULL,
+    -- ORGANIZATION | STORE: where the feature applies (org-level like billing, or shown in a store)
+    scope       scope NOT NULL,
+    -- optional human description of what the feature does
+    description VARCHAR(1024)
+);
+
+-- offering_feature: which features an offering includes (many-to-many).
+CREATE TABLE offering_feature (
+    -- the offering
+    offering_id UUID NOT NULL REFERENCES offering (offering_id),
+    -- the feature it includes
+    feature_id  UUID NOT NULL REFERENCES feature (feature_id),
+    -- an offering can't list the same feature twice
+    PRIMARY KEY (offering_id, feature_id)
+);
+
+
 
 -- The organization: the business and the tenant (unit of isolation). Owns stores, users, and settings.
 CREATE TABLE organization (
@@ -27,6 +74,27 @@ CREATE TABLE organization (
     -- when it was soft-deleted (stored UTC); NULL while active
     deleted_at       TIMESTAMPTZ
 );
+
+-- A subscription: ties an org to an offering (a plan or an add-on)
+CREATE TABLE subscription (
+    -- subscription id
+    subscription_id     UUID PRIMARY KEY,
+    -- the org this subscription belongs to
+    organization_id     UUID NOT NULL REFERENCES organization (organization_id),
+    -- the offering this subscription is for — its features contribute to the org's effective feature set
+    offering_id         UUID NOT NULL REFERENCES offering (offering_id),
+    -- TRIALING (free trial, features on) | ACTIVE (on & billed) | CANCELED (off)
+    status              offering_status NOT NULL,
+    -- when a free trial ends (NULL if not trialing)
+    trial_ends_at       TIMESTAMPTZ,
+    -- end of the current paid period (renewal/billing boundary)
+    current_period_end  TIMESTAMPTZ,
+    -- when this subscription row started (stored UTC)
+    created_at          TIMESTAMPTZ NOT NULL,
+    -- when it ended (NULL = still live). A live row counts toward the org's features & bill.
+    ended_at            TIMESTAMPTZ
+);
+CREATE INDEX ON subscription (organization_id);
 
 -- A user: one login per person. Where they can act comes from their memberships (see auth.md).
 CREATE TABLE user_account (
@@ -73,7 +141,6 @@ CREATE INDEX ON user_account (organization_id);
 -- exactly one owner per org (only live users count)
 CREATE UNIQUE INDEX user_one_owner_per_org ON user_account (organization_id) WHERE is_org_owner AND NOT is_deleted;
 
-
 -- A store: the business unit where selling happens. Owned by one org.
 CREATE TABLE store (
     -- store id
@@ -117,8 +184,6 @@ CREATE TABLE store (
 CREATE INDEX ON store (organization_id);
 -- at most one default store per org (only live stores count)
 CREATE UNIQUE INDEX store_one_default_per_org ON store (organization_id) WHERE is_default AND NOT is_deleted;
-
-
 
 
 -- A role: a named bundle of permissions. Either a managed role we ship, or an org's own custom role.

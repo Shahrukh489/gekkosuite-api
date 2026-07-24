@@ -58,6 +58,7 @@ public class UserRepository : BaseRepository, IUserRepository
         const string sql = """
             SELECT
                 m.membership_id AS MembershipId,
+                m.scope::text AS Scope,
                 o.organization_id AS OrganizationId,
                 o.name AS Name,
                 r.role_id AS RoleId,
@@ -78,7 +79,7 @@ public class UserRepository : BaseRepository, IUserRepository
               AND u.is_active AND NOT u.is_deleted
               AND m.is_active AND NOT m.is_deleted
               AND (ma.expires_at IS NULL OR ma.expires_at > now())
-            GROUP BY m.membership_id, o.organization_id, o.name, r.role_id, r.name, ma.assigned_at, ma.expires_at
+            GROUP BY m.membership_id, m.scope, o.organization_id, o.name, r.role_id, r.name, ma.assigned_at, ma.expires_at
             """;
 
         return QueryAsync<MembershipEntity>(organizationId, sql, new { userId, organizationId });
@@ -90,6 +91,7 @@ public class UserRepository : BaseRepository, IUserRepository
         const string sql = """
             SELECT
                 m.membership_id AS MembershipId,
+                m.scope::text AS Scope,
                 s.store_id AS StoreId,
                 s.name AS Name,
                 r.role_id AS RoleId,
@@ -110,7 +112,7 @@ public class UserRepository : BaseRepository, IUserRepository
               AND u.is_active AND NOT u.is_deleted
               AND m.is_active AND NOT m.is_deleted
               AND (ma.expires_at IS NULL OR ma.expires_at > now())
-            GROUP BY m.membership_id, s.store_id, s.name, r.role_id, r.name, ma.assigned_at, ma.expires_at, m.created_at
+            GROUP BY m.membership_id, m.scope, s.store_id, s.name, r.role_id, r.name, ma.assigned_at, ma.expires_at, m.created_at
             ORDER BY m.created_at
             """;
 
@@ -123,6 +125,7 @@ public class UserRepository : BaseRepository, IUserRepository
         const string sql = """
             SELECT
                 m.membership_id AS MembershipId,
+                m.scope::text AS Scope,
                 s.store_id AS StoreId,
                 s.name AS Name,
                 r.role_id AS RoleId,
@@ -144,7 +147,7 @@ public class UserRepository : BaseRepository, IUserRepository
               AND u.is_active AND NOT u.is_deleted
               AND m.is_active AND NOT m.is_deleted
               AND (ma.expires_at IS NULL OR ma.expires_at > now())
-            GROUP BY m.membership_id, s.store_id, s.name, r.role_id, r.name, ma.assigned_at, ma.expires_at
+            GROUP BY m.membership_id, m.scope, s.store_id, s.name, r.role_id, r.name, ma.assigned_at, ma.expires_at
             """;
 
         return QueryAsync<MembershipEntity>(organizationId, storeId, sql, new { userId, organizationId, storeId });

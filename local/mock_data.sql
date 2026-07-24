@@ -64,3 +64,33 @@ VALUES
     ('50000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000004', '2026-01-06T09:05:00Z', '22222222-2222-2222-2222-222222222222', NULL),
     ('50000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000005', '2026-01-06T09:05:00Z', '22222222-2222-2222-2222-222222222222', NULL),
     ('50000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000004', '2026-01-08T09:05:00Z', '22222222-2222-2222-2222-222222222222', NULL);
+
+
+INSERT INTO offering
+    (offering_id, type, name, description, price_per_store, is_active)
+VALUES
+    ('60000000-0000-0000-0000-000000000001', 'PLAN', 'Essentials', 'The base plan — everything a store needs to start selling', 50.00, TRUE);
+
+
+INSERT INTO feature
+    (feature_id, code, label, scope, description)
+VALUES
+    ('70000000-0000-0000-0000-000000000001', 'multi_store',         'Multi-store',        'ORGANIZATION', 'Run more than one store under the organization'),
+    ('70000000-0000-0000-0000-000000000002', 'cross_store_reports', 'Cross-store reports','ORGANIZATION', 'Reporting across every store in the organization'),
+    ('70000000-0000-0000-0000-000000000003', 'store_reports',       'Store reports',      'STORE',        'Sales and inventory reports for a single store'),
+    ('70000000-0000-0000-0000-000000000004', 'returns',             'Returns',            'STORE',        'Process customer returns and refunds');
+
+
+INSERT INTO offering_feature
+    (offering_id, feature_id)
+VALUES
+    ('60000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001'),
+    ('60000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000002'),
+    ('60000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000003'),
+    ('60000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000004');
+
+
+INSERT INTO subscription
+    (subscription_id, organization_id, offering_id, status, trial_ends_at, current_period_end, created_at, ended_at)
+VALUES
+    ('80000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '60000000-0000-0000-0000-000000000001', 'ACTIVE', NULL, '2026-08-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL);

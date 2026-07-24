@@ -1,8 +1,16 @@
+SELECT * FROM offering;
+
+SELECT * FROM offering_feature;
+
+SELECT * FROM feature;
+
+SELECT * FROM subscription;
+
 SELECT * FROM organization;
 
 SELECT * FROM store;
 
-SELECT * FROM user_accou;
+SELECT * FROM user_account;
 
 SELECT * FROM membership;
 

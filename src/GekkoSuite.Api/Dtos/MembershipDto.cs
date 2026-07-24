@@ -10,8 +10,8 @@ public class MembershipDto
     /// <summary>The membership's id.</summary>
     public Guid MembershipId { get; set; }
 
-    /// <summary>"ORGANIZATION" or "STORE".</summary>
-    public string Scope { get; set; } = string.Empty;
+    /// <summary>The membership's scope (ORGANIZATION or STORE).</summary>
+    public MembershipScope Scope { get; set; }
 
     /// <summary>The organization id (set for an ORGANIZATION membership); omitted for a STORE membership.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -45,7 +45,7 @@ public class MembershipDto
         return new MembershipDto()
         {
             MembershipId = membershipEntity.MembershipId,
-            Scope = membershipEntity.OrganizationId != null ? MembershipScope.ORGANIZATION.ToString() : MembershipScope.STORE.ToString(),
+            Scope = membershipEntity.Scope,
             OrganizationId = membershipEntity.OrganizationId,
             StoreId = membershipEntity.StoreId,
             Name = membershipEntity.Name,

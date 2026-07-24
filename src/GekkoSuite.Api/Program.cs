@@ -13,7 +13,12 @@ using GekkoSuite.Api.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
-builder.Services.AddControllers();
+
+// serialize enums as their names (e.g. "ORGANIZATION"), not their underlying integer
+builder.Services.AddControllers().AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+});
 
 // Suppress the framework's automatic RFC-9110 ProblemDetails body on error responses (e.g. 401);
 // endpoints return their own responses, so a bare status code goes out with an empty body.

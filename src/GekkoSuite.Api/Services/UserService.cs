@@ -90,12 +90,12 @@ public class UserService : IUserService
         // add the memberships a user
         if (orgMemberships is not null)
         {
-            userDto.UserType = MembershipScope.ORGANIZATION.ToString();
+            userDto.UserType = MembershipScope.ORGANIZATION;
             userDto.Memberships = orgMemberships;
         }
         else if (storeMemberships is not null)
         {
-            userDto.UserType = MembershipScope.STORE.ToString();
+            userDto.UserType = MembershipScope.STORE;
             userDto.Memberships = storeMemberships;
         }
         else

@@ -1,3 +1,5 @@
+using GekkoSuite.Api.Dtos;
+using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Repositories;
 
 namespace GekkoSuite.Api.Services;
@@ -9,5 +11,17 @@ public class OrganizationService : IOrganizationService
     public OrganizationService(IOrganizationRepository organizationRepository)
     {
         _organizationRepository = organizationRepository;
+    }
+
+    /// <inheritdoc />
+    public async Task<OrganizationDto?> GetOrganizationByIdAsync(Guid organizationId)
+    {
+        OrganizationEntity? organizationEntity = await _organizationRepository.GetOrganizationByIdAsync(organizationId);
+        if (organizationEntity == null)
+        {
+            return null;
+        }
+
+        return new OrganizationDto().FromEntity(organizationEntity);
     }
 }

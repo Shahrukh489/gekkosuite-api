@@ -1,4 +1,5 @@
 using GekkoSuite.Api.Entities;
+using GekkoSuite.Api.Enums;
 
 namespace GekkoSuite.Api.Dtos;
 
@@ -22,8 +23,8 @@ public class UserDto
     /// <summary>Account kill switch; false = every membership is suspended.</summary>
     public bool IsActive { get; set; }
 
-    /// <summary>"ORGANIZATION", "STORE", or null when the user has no memberships yet.</summary>
-    public string? UserType { get; set; } = null;
+    /// <summary>The user's type (ORGANIZATION or STORE), or null when they have no memberships yet.</summary>
+    public MembershipScope? UserType { get; set; } = null;
 
     /// <summary>The user's memberships (org entry, or store entries oldest-first); empty when UserType is null.</summary>
     public List<MembershipDto>? Memberships { get; set; } = [];
