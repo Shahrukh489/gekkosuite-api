@@ -23,6 +23,9 @@ public class StoreDto
     /// <summary>When the store was created (stored UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
+    /// <summary>The store-scoped feature codes the org's live offerings enable (for gating store screens).</summary>
+    public List<string> Features { get; set; } = [];
+
     /// <summary>Map from StoreEntity to StoreDto.</summary>
     public StoreDto FromEntity(StoreEntity storeEntity)
     {

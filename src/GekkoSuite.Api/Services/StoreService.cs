@@ -24,4 +24,25 @@ public class StoreService : IStoreService
 
         return new StoreDto().FromEntity(storeEntity);
     }
+
+    /// <inheritdoc />
+    public async Task<List<string>> GetStoreFeaturesAsync(Guid organizationId)
+    {
+        IEnumerable<string> features = await _storeRepository.GetStoreFeaturesAsync(organizationId);
+        return features.ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<StoreDto?> GetStoreAsync(Guid organizationId, Guid storeId)
+    {
+        StoreDto? storeDto = await GetStoreByIdAsync(organizationId, storeId);
+        if (storeDto is null)
+        {
+            return null;
+        }
+
+        storeDto.Features = await GetStoreFeaturesAsync(organizationId);
+
+        return storeDto;
+    }
 }
