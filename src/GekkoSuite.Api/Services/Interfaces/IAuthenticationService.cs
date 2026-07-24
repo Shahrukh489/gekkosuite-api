@@ -2,7 +2,7 @@ using GekkoSuite.Api.Dtos;
 
 namespace GekkoSuite.Api.Services;
 
-public interface IAuthService
+public interface IAuthenticationService
 {
     /// <summary>
     /// Verifies an email + password against the stored credentials

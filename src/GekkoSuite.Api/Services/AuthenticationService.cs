@@ -13,14 +13,14 @@ using GekkoSuite.Api.Dtos;
 
 namespace GekkoSuite.Api.Services;
 
-public class AuthService : IAuthService
+public class AuthenticationService : IAuthenticationService
 {
-    private readonly IAuthRepository _authRepository;
+    private readonly IAuthenticationRepository _authenticationRepository;
     private readonly JwtOptions _jwtOptions;
 
-    public AuthService(IAuthRepository authRepository, JwtOptions jwtOptions)
+    public AuthenticationService(IAuthenticationRepository authenticationRepository, JwtOptions jwtOptions)
     {
-        _authRepository = authRepository;
+        _authenticationRepository = authenticationRepository;
         _jwtOptions = jwtOptions;
     }
 
@@ -91,7 +91,7 @@ public class AuthService : IAuthService
     /// <inheritdoc />
     public async Task<LoginResponse?> LoginAsync(string email, string password)
     {
-        var user = await _authRepository.GetUserByEmailAsync(email);
+        var user = await _authenticationRepository.GetUserByEmailAsync(email);
 
         // Checking the hash even when user is null would be nice for timing-attack hygiene, but is
         // skipped here for simplicity; the meaningful secret (the password) is never exposed either way.

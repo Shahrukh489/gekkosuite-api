@@ -10,14 +10,14 @@ namespace GekkoSuite.Api.Controllers;
 
 [ApiController]
 [Route("auth")]
-public class AuthController : ControllerBase
+public class AuthenticationController : ControllerBase
 {
-    private readonly IAuthService _authService;
-    private readonly ILogger<AuthController> _logger;
+    private readonly IAuthenticationService _authenticationService;
+    private readonly ILogger<AuthenticationController> _logger;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    public AuthenticationController(IAuthenticationService authenticationService, ILogger<AuthenticationController> logger)
     {
-        _authService = authService;
+        _authenticationService = authenticationService;
         _logger = logger;
     }
 
@@ -44,7 +44,7 @@ public class AuthController : ControllerBase
                 return BadRequest("Email or password is too long.");
             }
 
-            LoginResponse? response = await _authService.LoginAsync(request.Email, request.Password);
+            LoginResponse? response = await _authenticationService.LoginAsync(request.Email, request.Password);
             if (response is null)
             {
                 return Unauthorized();
