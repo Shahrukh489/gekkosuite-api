@@ -12,6 +12,13 @@ using GekkoSuite.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// single-line console logs with a short timestamp (default logger)
+builder.Logging.AddSimpleConsole(options =>
+{
+    options.SingleLine = true;
+    options.TimestampFormat = "HH:mm:ss ";
+});
+
 builder.Services.AddOpenApi();
 
 // serialize enums as their names (e.g. "ORGANIZATION"), not their underlying integer
