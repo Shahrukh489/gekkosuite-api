@@ -122,9 +122,8 @@ public class AuthController : BaseController
     /// <summary>
     /// Returns the caller's flat set of permissions at the given store — their effective set for that store.
     /// </summary>
-    // @TODO: gate with [HasPermission(MembershipScope.STORE)] once the STORE branch of PermissionHandler exists.
-    [HttpGet("me/stores/{storeId}/permissions")]
-    [Authorize]
+    [HttpGet("me/stores/{" + Constants.STORE_ID + "}/permissions")]
+    [HasPermission(MembershipScope.STORE)]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]

@@ -35,6 +35,45 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
                 context.Succeed(requirement);
             }
         }
+
+        if (requirement.Scope == MembershipScope.STORE)
+        {
+            Guid? storeId = GetRouteStoreId(context);
+            if (storeId is null)
+            {
+                return;
+            }
+
+            List<MembershipDto>? memberships = await _userService.GetUserStoreMembershipsByStoreIdAsync(organizationId, userId, storeId.Value);
+            if (Grants(memberships, requirement.Permission))
+            {
+                context.Succeed(requirement);
+            }
+
+            // @TODO: an ORGANIZATION membership reaches every store — allow it here too, filtered to
+            // store-relevant (non-elevated) permissions. Needs the store-relevant-org-permissions query.
+        }
+    }
+
+    /// <summary>
+    /// Reads the {storeId} route value as a Guid, or null if it is absent or malformed (fail closed).
+    /// </summary>
+    /// <param name="context">The authorization context whose Resource is the HttpContext.</param>
+    /// <returns>The parsed store id, or null.</returns>
+    private static Guid? GetRouteStoreId(AuthorizationHandlerContext context)
+    {
+        if (context.Resource is not HttpContext httpContext)
+        {
+            return null;
+        }
+
+        object? routeValue = httpContext.Request.RouteValues[Constants.STORE_ID];
+        if (routeValue is not null && Guid.TryParse(routeValue.ToString(), out Guid storeId))
+        {
+            return storeId;
+        }
+
+        return null;
     }
 
     // @TODO: how to check if role and membership scope are same along with whether or now the permission is elevated

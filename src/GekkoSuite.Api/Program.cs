@@ -145,4 +145,11 @@ app.UseAuthentication();
 app.UseMiddleware<AuthenticationMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
+
+// print the bound addresses once the server is actually listening
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    Console.WriteLine($"Server started successfully on {string.Join(", ", app.Urls)}");
+});
+
 app.Run();
