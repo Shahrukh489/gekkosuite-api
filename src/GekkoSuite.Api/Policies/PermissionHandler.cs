@@ -22,10 +22,10 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
 
 
     /// <summary>
-    /// Checks whether the user's ORGANIZATION membership grants access — the membership exists and, if a
-    /// permission is required, one of its roles grants it.
+    /// Checks whether the user's ORGANIZATION membership grants access — the membership exists and one of its
+    /// roles grants the permission.
     /// </summary>
-    private async Task<bool> CheckOrganizationAccess(Guid organizationId, Guid userId, string? permission)
+    private async Task<bool> CheckOrganizationAccess(Guid organizationId, Guid userId, string permission)
     {
         _logger.LogDebug("Authorizing user {UserId} via ORGANIZATION membership in org {OrganizationId}, required permission {Permission}.", userId, organizationId, permission);
         List<MembershipDto>? memberships = await _userService.GetUserOrganizationMembershipsAsync(organizationId, userId);
@@ -33,10 +33,10 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     }
 
     /// <summary>
-    /// Checks whether the user may act on the given store — the membership exists and, if a
-    /// permission is required, one of its roles grants it.
+    /// Checks whether the user may act on the given store — the membership exists and one of its roles grants
+    /// the permission.
     /// </summary>
-    private async Task<bool> CheckStoreAccess(Guid organizationId, Guid userId, Guid storeId, string? permission)
+    private async Task<bool> CheckStoreAccess(Guid organizationId, Guid userId, Guid storeId, string permission)
     {
         _logger.LogDebug("Authorizing user {UserId} for a STORE action on store {StoreId} in org {OrganizationId}, required permission {Permission}.", userId, storeId, organizationId, permission);
         List<MembershipDto>? storeMemberships = await _userService.GetUserStoreMembershipsByStoreIdAsync(organizationId, userId, storeId);
