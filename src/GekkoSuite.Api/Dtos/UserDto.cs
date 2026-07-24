@@ -25,9 +25,6 @@ public class UserDto
     /// <summary>"ORGANIZATION", "STORE", or null when the user has no memberships yet.</summary>
     public string UserType { get; set; } = string.Empty;
 
-    /// <summary>For a store user, the store to land in (oldest membership); null otherwise.</summary>
-    public Guid? DefaultStoreId { get; set; }
-
     /// <summary>The user's memberships (org entry, or store entries oldest-first); empty when UserType is null.</summary>
     public List<MembershipDto>? Memberships { get; set; } = [];
 

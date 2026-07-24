@@ -15,5 +15,5 @@ public class JwtOptions
     public string Audience { get; set; } = string.Empty;
 
     /// <summary>How long an access token stays valid, in minutes.</summary>
-    public int AccessTokenLifetimeMinutes { get; set; } = 15;
+    public int AccessTokenLifetimeMinutes { get; set; } = 60;
 }

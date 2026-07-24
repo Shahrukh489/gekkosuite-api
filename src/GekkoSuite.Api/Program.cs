@@ -53,7 +53,7 @@ var jwtOptions = new JwtOptions
         Environment.GetEnvironmentVariable("JWT_AUDIENCE")
         ?? builder.Configuration["Jwt:Audience"]
         ?? "gekkosuite-clients",
-    AccessTokenLifetimeMinutes = 15
+    AccessTokenLifetimeMinutes = 60
 };
 
 // Fail fast if the signing secret is too weak. HS256 needs a key at least as long as its output (256 bits = 32 bytes);

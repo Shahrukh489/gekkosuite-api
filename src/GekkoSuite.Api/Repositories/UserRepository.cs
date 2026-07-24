@@ -62,10 +62,13 @@ public class UserRepository : BaseRepository, IUserRepository
                 r.role_id AS RoleId,
                 r.name AS RoleName,
                 ma.assigned_at AS AssignedAt,
-                ma.expires_at AS ExpiresAt
+                ma.expires_at AS ExpiresAt,
+                array_agg(p.resource || ':' || p.action) AS Permissions
             FROM membership m
             JOIN membership_assignment ma ON ma.membership_id = m.membership_id
             JOIN role r ON r.role_id = ma.role_id AND r.scope = 'ORGANIZATION'
+            JOIN role_permission rp ON rp.role_id = r.role_id
+            JOIN permission p ON p.permission_id = rp.permission_id
             JOIN organization o ON o.organization_id = m.organization_id AND NOT o.is_deleted
             JOIN user_account u ON u.user_id = m.user_id
             WHERE m.user_id = @userId
@@ -74,6 +77,7 @@ public class UserRepository : BaseRepository, IUserRepository
               AND u.is_active AND NOT u.is_deleted
               AND m.is_active AND NOT m.is_deleted
               AND (ma.expires_at IS NULL OR ma.expires_at > now())
+            GROUP BY o.organization_id, o.name, r.role_id, r.name, ma.assigned_at, ma.expires_at
             """;
 
         return QuerySingleOrDefaultAsync<MembershipEntity>(organizationId, sql, new { userId, organizationId });
@@ -89,10 +93,13 @@ public class UserRepository : BaseRepository, IUserRepository
                 r.role_id AS RoleId,
                 r.name AS RoleName,
                 ma.assigned_at AS AssignedAt,
-                ma.expires_at AS ExpiresAt
+                ma.expires_at AS ExpiresAt,
+                array_agg(p.resource || ':' || p.action) AS Permissions
             FROM membership m
             JOIN membership_assignment ma ON ma.membership_id = m.membership_id
             JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
+            JOIN role_permission rp ON rp.role_id = r.role_id
+            JOIN permission p ON p.permission_id = rp.permission_id
             JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
             JOIN user_account u ON u.user_id = m.user_id
             WHERE m.user_id = @userId
@@ -101,6 +108,7 @@ public class UserRepository : BaseRepository, IUserRepository
               AND u.is_active AND NOT u.is_deleted
               AND m.is_active AND NOT m.is_deleted
               AND (ma.expires_at IS NULL OR ma.expires_at > now())
+            GROUP BY s.store_id, s.name, r.role_id, r.name, ma.assigned_at, ma.expires_at, m.created_at
             ORDER BY m.created_at
             """;
 

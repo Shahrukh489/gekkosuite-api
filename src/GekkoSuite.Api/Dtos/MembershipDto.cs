@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using GekkoSuite.Api.Entities;
 
 namespace GekkoSuite.Api.Dtos;
@@ -7,10 +9,12 @@ public class MembershipDto
     /// <summary>"ORGANIZATION" or "STORE".</summary>
     public string Type { get; set; } = string.Empty;
 
-    /// <summary>The organization id (set for an ORGANIZATION membership).</summary>
+    /// <summary>The organization id (set for an ORGANIZATION membership); omitted for a STORE membership.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? OrganizationId { get; set; }
 
-    /// <summary>The store id (set for a STORE membership).</summary>
+    /// <summary>The store id (set for a STORE membership); omitted for an ORGANIZATION membership.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? StoreId { get; set; }
 
     /// <summary>The place's display name — the org name or the store name.</summary>
@@ -28,6 +32,9 @@ public class MembershipDto
     /// <summary>Optional expiry; null = never expires.</summary>
     public DateTimeOffset? ExpiresAt { get; set; }
 
+    /// <summary>The permission codes this role grants, e.g. "product:read".</summary>
+    public List<string> Permissions { get; set; } = [];
+
     ///<summary>Map from MembershipEntity to MembershipDto </summary>
     public MembershipDto FromEntity(MembershipEntity membershipEntity)
     {
@@ -40,7 +47,8 @@ public class MembershipDto
             RoleId = membershipEntity.RoleId,
             RoleName = membershipEntity.RoleName,
             AssignedAt = membershipEntity.AssignedAt,
-            ExpiresAt = membershipEntity.ExpiresAt
+            ExpiresAt = membershipEntity.ExpiresAt,
+            Permissions = membershipEntity.Permissions.ToList()
         };
     }
     ///<summary>Map from MembershipEntityList to MembershipDtoList </summary>

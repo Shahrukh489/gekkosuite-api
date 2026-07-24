@@ -36,6 +36,7 @@ public class UserService : IUserService
             return null;
         }
 
+
         return new MembershipDto().FromEntity(membershipEntity);
     }
 
@@ -48,12 +49,16 @@ public class UserService : IUserService
             return null;
         }
 
+        // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user
+
         return new MembershipDto().FromEntityList(membershipEntities.ToList());
     }
 
     /// <inheritdoc />
     public async Task<UserDto?> GetUserAsync(Guid organizationId, Guid userId)
     {
+        // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user
+
         UserDto? userDto = await GetUserByIdAsync(organizationId, userId);
         if (userDto is null)
         {
@@ -79,10 +84,6 @@ public class UserService : IUserService
         {
             userDto.UserType = Constants.STORE;
             userDto.Memberships = storeMemberships;
-
-            // @TODO: sort by oldest membership createdAt Timestamp
-            // land in the oldest store membership — the query returns them oldest-first
-            userDto.DefaultStoreId = storeMemberships[0].StoreId;
         }
         else
         {
