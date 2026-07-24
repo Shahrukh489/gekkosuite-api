@@ -14,8 +14,11 @@ public class UserEntity
     /// <summary>Argon2id password hash. Never plaintext — see docs/auth.md's Security Review, R2.</summary>
     public string Password { get; set; } = string.Empty;
 
-    /// <summary>Display name shown in the UI.</summary>
-    public string Name { get; set; } = string.Empty;
+    /// <summary>First name.</summary>
+    public string FirstName { get; set; } = string.Empty;
+
+    /// <summary>Last name.</summary>
+    public string LastName { get; set; } = string.Empty;
 
     /// <summary>Contact phone; optional.</summary>
     public string? Phone { get; set; }

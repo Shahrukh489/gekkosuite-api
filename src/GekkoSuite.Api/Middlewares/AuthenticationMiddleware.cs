@@ -42,7 +42,7 @@ public class AuthenticationMiddleware
             }
 
             var user = await userService.GetUserByIdAsync(Guid.Parse(organizationId!), Guid.Parse(userId!));
-            if (user is null)
+            if (user is null || !user.IsActive)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;

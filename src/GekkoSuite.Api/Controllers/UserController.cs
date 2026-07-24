@@ -47,7 +47,8 @@ public class UserController : ControllerBase
             return Ok(new
             {
                 userId = user.UserId,
-                name = user.Name,
+                firstName = user.FirstName,
+                lastName = user.LastName,
                 email = user.Email,
                 organizationId = user.OrganizationId
             });

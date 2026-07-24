@@ -39,8 +39,10 @@ CREATE TABLE "user" (
     -- password hash — slow salted KDF (argon2id); NEVER plaintext (see auth.md). Sized for the encoded
     -- self-describing hash (algorithm + params + salt + hash), not just the raw digest
     password           VARCHAR(512) NOT NULL,
-    -- display name shown in the UI
-    name               VARCHAR(256) NOT NULL,
+    -- first name
+    first_name         VARCHAR(128) NOT NULL,
+    -- last name
+    last_name          VARCHAR(128) NOT NULL,
     -- contact phone (TEXT-like: '+', spaces, extensions); optional
     phone              VARCHAR(32),
     -- account kill switch; false = all memberships suspended (revoke, not delete)

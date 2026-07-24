@@ -93,7 +93,7 @@ public class AuthService : IAuthService
 
         // Checking the hash even when user is null would be nice for timing-attack hygiene, but is
         // skipped here for simplicity; the meaningful secret (the password) is never exposed either way.
-        if (user is null || !VerifyPassword(password, user.Password))
+        if (user is null || !VerifyPassword(password, user.Password) || !user.IsActive)
         {
             return null;
         }
