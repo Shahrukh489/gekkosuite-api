@@ -1,0 +1,11 @@
+using GekkoSuite.Api.Entities;
+
+namespace GekkoSuite.Api.Repositories;
+
+public interface IStoreRepository
+{
+    /// <summary>
+    /// Finds a live store by id within the given organization, or null if it isn't in that org.
+    /// </summary>
+    public Task<StoreEntity?> GetStoreByIdAsync(Guid organizationId, Guid storeId);
+}
