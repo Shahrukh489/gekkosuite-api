@@ -5,6 +5,8 @@ using System.Net.Mime;
 using GekkoSuite.Api.Extensions;
 using GekkoSuite.Api.Services;
 using GekkoSuite.Api.Dtos;
+using GekkoSuite.Api.Enums;
+using GekkoSuite.Api.Policies;
 
 namespace GekkoSuite.Api.Controllers;
 
@@ -14,11 +16,13 @@ namespace GekkoSuite.Api.Controllers;
 public class AuthController : BaseController
 {
     private readonly IAuthService _authService;
+    private readonly IOrganizationService _organizationService;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger) : base(logger)
+    public AuthController(IAuthService authService, IOrganizationService organizationService, ILogger<AuthController> logger) : base(logger)
     {
         _authService = authService;
+        _organizationService = organizationService;
         _logger = logger;
     }
 
@@ -84,6 +88,32 @@ public class AuthController : BaseController
             }
 
             return Ok(user);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
+    /// Returns the caller's flat set of permissions in their organization. The org membership is required
+    /// (enforced by the policy); no specific permission is needed beyond holding an org membership.
+    /// </summary>
+    [HasPermission(MembershipScope.ORGANIZATION)]
+    [HttpGet("me/organization/permissions")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult> GetMyOrganizationPermissionsAsync()
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            var organizationId = User.GetOrganizationId();
+
+            List<string> permissions = await _organizationService.GetUserOrganizationPermissionsAsync(organizationId, userId);
+            return Ok(permissions);
         }
         catch (Exception ex)
         {
