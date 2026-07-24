@@ -14,6 +14,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 
+// Suppress the framework's automatic RFC-9110 ProblemDetails body on error responses (e.g. 401);
+// endpoints return their own responses, so a bare status code goes out with an empty body.
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+{
+    options.SuppressMapClientErrors = true;
+});
+
 
 // DB Connection
 var connectionString =
