@@ -7,6 +7,9 @@ namespace GekkoSuite.Api.Dtos;
 
 public class MembershipDto
 {
+    /// <summary>The membership's id.</summary>
+    public Guid MembershipId { get; set; }
+
     /// <summary>"ORGANIZATION" or "STORE".</summary>
     public string Scope { get; set; } = string.Empty;
 
@@ -41,6 +44,7 @@ public class MembershipDto
     {
         return new MembershipDto()
         {
+            MembershipId = membershipEntity.MembershipId,
             Scope = membershipEntity.OrganizationId != null ? MembershipScope.ORGANIZATION.ToString() : MembershipScope.STORE.ToString(),
             OrganizationId = membershipEntity.OrganizationId,
             StoreId = membershipEntity.StoreId,

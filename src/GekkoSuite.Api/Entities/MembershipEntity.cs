@@ -2,6 +2,9 @@ namespace GekkoSuite.Api.Entities;
 
 public class MembershipEntity
 {
+    /// <summary>The membership's id.</summary>
+    public Guid MembershipId { get; set; }
+
     /// <summary>The organization the membership is in (set for an ORGANIZATION membership).</summary>
     public Guid? OrganizationId { get; set; }
 

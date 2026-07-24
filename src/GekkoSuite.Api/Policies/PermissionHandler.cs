@@ -10,10 +10,12 @@ namespace GekkoSuite.Api.Policies;
 public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
 {
     private readonly IUserService _userService;
+    private readonly ILogger<PermissionHandler> _logger;
 
-    public PermissionHandler(IUserService userService)
+    public PermissionHandler(IUserService userService, ILogger<PermissionHandler> logger)
     {
         _userService = userService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -29,6 +31,7 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
 
         if (requirement.Scope == MembershipScope.ORGANIZATION)
         {
+            _logger.LogDebug("Authorizing user {UserId} for an ORGANIZATION action in org {OrganizationId}, required permission {Permission}.", userId, organizationId, requirement.Permission);
             List<MembershipDto>? memberships = await _userService.GetUserOrganizationMembershipsAsync(organizationId, userId);
             if (Grants(memberships, requirement.Permission))
             {
@@ -41,9 +44,11 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
             Guid? storeId = GetRouteStoreId(context);
             if (storeId is null)
             {
+                _logger.LogDebug("Denying STORE action for user {UserId}: no valid {RouteParam} in the route.", userId, Constants.STORE_ID);
                 return;
             }
 
+            _logger.LogDebug("Authorizing user {UserId} for a STORE action on store {StoreId} in org {OrganizationId}, required permission {Permission}.", userId, storeId.Value, organizationId, requirement.Permission);
             List<MembershipDto>? memberships = await _userService.GetUserStoreMembershipsByStoreIdAsync(organizationId, userId, storeId.Value);
             if (Grants(memberships, requirement.Permission))
             {
@@ -78,7 +83,7 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
 
     // @TODO: how to check if role and membership scope are same along with whether or now the permission is elevated
     // so it cant be on store role accidentally/.
-    
+
     /// <summary>
     /// True when the caller is authorized: they hold at least one membership, and — if a permission is
     /// required — one of those memberships' roles grants it.
@@ -86,28 +91,31 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     /// <param name="memberships">The caller's memberships at the place, or null if they hold none.</param>
     /// <param name="permission">The required permission code, or null if membership alone suffices.</param>
     /// <returns>Whether the memberships authorize the request.</returns>
-    private static bool Grants(List<MembershipDto>? memberships, string? permission)
+    private bool Grants(List<MembershipDto>? memberships, string? permission)
     {
         if (memberships is null || memberships.Count == 0)
         {
+            _logger.LogDebug("Denied: the user holds no membership at this place.");
             return false;
         }
 
-        // if we dont have to check a permission then return authorized
+        // no permission required — holding the membership is enough
         if (permission is null)
         {
+            _logger.LogDebug("Allowed: membership is sufficient, no permission required.");
             return true;
         }
 
-        // loop through each membership and check if any one them have the required permission
         foreach (MembershipDto membership in memberships)
         {
             if (membership.Permissions.Contains(permission))
             {
+                _logger.LogDebug("Allowed: membership {MembershipId} role {RoleName} ({RoleId}) grants permission {Permission}.", membership.MembershipId, membership.RoleName, membership.RoleId, permission);
                 return true;
             }
         }
 
+        _logger.LogDebug("Denied: none of the user's roles grant permission {Permission}.", permission);
         return false;
     }
 }
