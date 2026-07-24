@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 
-using GekkoSuite.Api.Configuration;
+using GekkoSuite.Api.Configurations;
 using GekkoSuite.Api.Middlewares;
 using GekkoSuite.Api.Repositories;
 using GekkoSuite.Api.Services;
@@ -27,6 +27,7 @@ builder.Services.AddNpgsqlDataSource(connectionString);
 // Register App Services
 builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>();
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
+builder.Services.AddSingleton<IAuthRepository, AuthRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
 builder.Services.AddSingleton<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUserService, UserService>();

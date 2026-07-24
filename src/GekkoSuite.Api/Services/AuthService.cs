@@ -6,19 +6,21 @@ using System.Text;
 using Konscious.Security.Cryptography;
 using Microsoft.IdentityModel.Tokens;
 
-using GekkoSuite.Api.Configuration;
+using GekkoSuite.Api.Configurations;
 using GekkoSuite.Api.Repositories;
+using GekkoSuite.Api.Entities;
+using GekkoSuite.Api.Dtos;
 
 namespace GekkoSuite.Api.Services;
 
 public class AuthService : IAuthService
 {
-    private readonly IUserRepository _userRepository;
+    private readonly IAuthRepository _authRepository;
     private readonly JwtOptions _jwtOptions;
 
-    public AuthService(IUserRepository userRepository, JwtOptions jwtOptions)
+    public AuthService(IAuthRepository authRepository, JwtOptions jwtOptions)
     {
-        _userRepository = userRepository;
+        _authRepository = authRepository;
         _jwtOptions = jwtOptions;
     }
 
@@ -89,7 +91,7 @@ public class AuthService : IAuthService
     /// <inheritdoc />
     public async Task<LoginResponse?> LoginAsync(string email, string password)
     {
-        var user = await _userRepository.GetUserByEmailAsync(email);
+        var user = await _authRepository.GetUserByEmailAsync(email);
 
         // Checking the hash even when user is null would be nice for timing-attack hygiene, but is
         // skipped here for simplicity; the meaningful secret (the password) is never exposed either way.

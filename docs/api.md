@@ -30,7 +30,7 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 | `GET /user` | The current user and their memberships (self read). | any authenticated |
 | `POST /auth/logout` | End the session and invalidate the token. | any authenticated |
 | `GET /organization` | The org record + its billing state. | ORGANIZATION |
-| `GET /organization/permissions` | The caller's permissions in the org. | ORGANIZATION |
+| `GET /organization/permissions` | The caller's permissions in the org. | ORGANIZATION | 
 | `GET /organization/features` | The org-scoped features the org's offerings enable. | ORGANIZATION |
 | `POST /users` | Create a user (login only, no membership). | ORGANIZATION |
 | `GET /users` | List the org's users (identity only). | ORGANIZATION |

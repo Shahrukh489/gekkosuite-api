@@ -1,13 +1,6 @@
+using GekkoSuite.Api.Dtos;
+
 namespace GekkoSuite.Api.Services;
-
-public class LoginResponse
-{
-    /// <summary>The signed JWT.</summary>
-    public string AccessToken { get; set; } = string.Empty;
-
-    /// <summary>Seconds until the access token expires.</summary>
-    public int ExpiresIn { get; set; }
-}
 
 public interface IAuthService
 {

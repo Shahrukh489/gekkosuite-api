@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 
 using GekkoSuite.Api.Extensions;
 using GekkoSuite.Api.Services;
+using GekkoSuite.Api.Dtos;
 
 namespace GekkoSuite.Api.Controllers;
 
@@ -29,14 +30,14 @@ public class UserController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetUserAsync()
+    public async Task<ActionResult<UserDto>> GetUserAsync()
     {
         try
         {
             var userId = User.GetUserId();
             var organizationId = User.GetOrganizationId();
 
-            var user = await _userService.GetUserAsync(organizationId, userId);
+            UserDto? user = await _userService.GetUserAsync(organizationId, userId);
             if (user is null)
             {
                 return NotFound();
