@@ -89,11 +89,11 @@ public class AuthService : IAuthService
     /// <inheritdoc />
     public async Task<LoginResponse?> LoginAsync(string email, string password)
     {
-        var user = await _userRepository.FindByEmailAsync(email);
+        var user = await _userRepository.GetUserByEmailAsync(email);
 
         // Checking the hash even when user is null would be nice for timing-attack hygiene, but is
         // skipped here for simplicity; the meaningful secret (the password) is never exposed either way.
-        if (user is null || !VerifyPassword(password, user.Password) || !user.IsActive)
+        if (user is null || !VerifyPassword(password, user.Password) || !user.IsActive || user.IsDeleted)
         {
             return null;
         }

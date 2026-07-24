@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Net.Mime;
 
@@ -28,8 +29,9 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Exchanges an email + password for an access token 
+    /// Exchanges an email + password for an access token
     /// </summary>
+    [AllowAnonymous]
     [HttpPost("login")]
     [Consumes(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]

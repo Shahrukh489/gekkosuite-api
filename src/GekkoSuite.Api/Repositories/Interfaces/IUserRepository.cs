@@ -43,7 +43,12 @@ public class UserEntity
 public interface IUserRepository
 {
     /// <summary>
-    /// Finds an active user by their login email.
+    /// Finds a user by their login email.
     /// </summary>
-    public Task<UserEntity?> FindByEmailAsync(string email);
+    public Task<UserEntity?> GetUserByEmailAsync(string email);
+
+    /// <summary>
+    /// Finds a live user by id within the given organization, or null if not found there.
+    /// </summary>
+    public Task<UserEntity?> GetUserByIdAsync(Guid organizationId, Guid userId);
 }
