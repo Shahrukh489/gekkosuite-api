@@ -1,3 +1,5 @@
+using GekkoSuite.Api.Dtos;
+using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Repositories;
 
 namespace GekkoSuite.Api.Services;
@@ -11,13 +13,54 @@ public class OrganizationService : IOrganizationService
         _organizationRepository = organizationRepository;
     }
 
-    public string GetGreeting()
+    /// <inheritdoc />
+    public async Task<OrganizationDto?> GetOrganizationByIdAsync(Guid organizationId)
     {
-        return "Hello from OrganizationService";
+        OrganizationEntity? organizationEntity = await _organizationRepository.GetOrganizationByIdAsync(organizationId);
+        if (organizationEntity == null)
+        {
+            return null;
+        }
+
+        return new OrganizationDto().FromEntity(organizationEntity);
     }
 
-    public Task<string> GetDatabaseVersionAsync(Guid organizationId)
+    /// <inheritdoc />
+    public async Task<List<SubscriptionDto>?> GetOrganizationSubscriptionsAsync(Guid organizationId)
     {
-        return _organizationRepository.GetDatabaseVersionAsync(organizationId);
+        IEnumerable<SubscriptionEntity> subscriptionEntities = await _organizationRepository.GetOrganizationSubscriptionsAsync(organizationId);
+        if (subscriptionEntities.Count() == 0)
+        {
+            return null;
+        }
+
+        return new SubscriptionDto().FromEntityList(subscriptionEntities.ToList());
+    }
+
+    /// <inheritdoc />
+    public async Task<List<string>> GetOrganizationFeaturesAsync(Guid organizationId)
+    {
+        IEnumerable<string> features = await _organizationRepository.GetOrganizationFeaturesAsync(organizationId);
+        return features.ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<OrganizationDto?> GetOrganizationAsync(Guid organizationId)
+    {
+        OrganizationDto? organizationDto = await GetOrganizationByIdAsync(organizationId);
+        if (organizationDto is null)
+        {
+            return null;
+        }
+
+        List<SubscriptionDto>? subscriptions = await GetOrganizationSubscriptionsAsync(organizationId);
+        if (subscriptions is not null)
+        {
+            organizationDto.Subscriptions = subscriptions;
+        }
+
+        organizationDto.Features = await GetOrganizationFeaturesAsync(organizationId);
+
+        return organizationDto;
     }
 }

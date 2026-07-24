@@ -1,10 +1,7 @@
-namespace GekkoSuite.Api.Configuration;
+namespace GekkoSuite.Api.Configurations;
 
 /// <summary>
-/// The signing settings for the access token issued by POST /auth/login. Read once at startup from
-/// environment variables (see Program.cs) — never hardcoded, and never the same secret across
-/// environments. A single symmetric key both issues and (later) validates the token, since this API is
-/// the only party that ever needs to do either.
+/// The signing settings for the access token
 /// </summary>
 public class JwtOptions
 {
@@ -18,5 +15,5 @@ public class JwtOptions
     public string Audience { get; set; } = string.Empty;
 
     /// <summary>How long an access token stays valid, in minutes.</summary>
-    public int AccessTokenLifetimeMinutes { get; set; } = 15;
+    public int AccessTokenLifetimeMinutes { get; set; } = 60;
 }

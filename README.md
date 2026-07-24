@@ -4,21 +4,35 @@
 - `cd local` then run `docker compose up` (starts Postgres on `5432` and Adminer on `9000`)
 - Run the DB migration against local (see **Db Migrations** below)
 - Load mock data: run `local/mock_data.sql` (paste it in Adminer, or `psql ... -f local/mock_data.sql`)
-    - Logs in via `POST /auth/login` with any of `maria@acme.com` / `sara@acme.com` / `marcus@acme.com`, password `Password123!` for all three
-    - Also seeds a standalone `dev@gekkosuite.local` account (separate org), password `DevPassword123!`
 - Adminer (DB browser) at localhost:9000
     - system: `PostgreSQL`
     - server: `db`
     - username / password: both `postgres`
     - database: `gekkosuite`
 
+- run script sensitive\local.env.ps1
+- cd api/GekkoSuite.Api and "dotnet run"
+
+
 ## Local dev test account
 
+organization user:
+
 ```
-email:    dev@gekkosuite.local
-password: DevPassword123!
+{
+    "email":    "admin@gekkosuite.com",
+    "password": "DevPassword123!"
+}
 ```
 
+store user:
+
+```
+{
+    "email":    "marcus@gekkosuite.com",
+    "password": "Password123!"
+}
+```
 
 # Db Migrations
 
