@@ -1,3 +1,5 @@
+using GekkoSuite.Api.Enums;
+
 namespace GekkoSuite.Api.Entities;
 
 public class StoreEntity
@@ -11,8 +13,8 @@ public class StoreEntity
     /// <summary>The store's display name.</summary>
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>How the store sells: "ONLINE" or "PHYSICAL".</summary>
-    public string Type { get; set; } = string.Empty;
+    /// <summary>How the store sells (ONLINE or PHYSICAL).</summary>
+    public StoreType Type { get; set; }
 
     /// <summary>The org's default store — where single-store orgs and org users land.</summary>
     public bool IsDefault { get; set; }

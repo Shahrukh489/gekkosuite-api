@@ -27,7 +27,7 @@ public class UserDto
     public MembershipScope? UserType { get; set; } = null;
 
     /// <summary>The user's memberships (org entry, or store entries oldest-first); empty when UserType is null.</summary>
-    public List<MembershipDto>? Memberships { get; set; } = [];
+    public List<MembershipDto> Memberships { get; set; } = [];
 
     ///<summary>Map from UserEntity to UserDto </summary> 
     public UserDto FromEntity(UserEntity userEntity)

@@ -24,4 +24,43 @@ public class OrganizationService : IOrganizationService
 
         return new OrganizationDto().FromEntity(organizationEntity);
     }
+
+    /// <inheritdoc />
+    public async Task<List<SubscriptionDto>?> GetOrganizationSubscriptionsAsync(Guid organizationId)
+    {
+        IEnumerable<SubscriptionEntity> subscriptionEntities = await _organizationRepository.GetOrganizationSubscriptionsAsync(organizationId);
+        if (subscriptionEntities.Count() == 0)
+        {
+            return null;
+        }
+
+        return new SubscriptionDto().FromEntityList(subscriptionEntities.ToList());
+    }
+
+    /// <inheritdoc />
+    public async Task<List<string>> GetOrganizationFeaturesAsync(Guid organizationId)
+    {
+        IEnumerable<string> features = await _organizationRepository.GetOrganizationFeaturesAsync(organizationId);
+        return features.ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<OrganizationDto?> GetOrganizationAsync(Guid organizationId)
+    {
+        OrganizationDto? organizationDto = await GetOrganizationByIdAsync(organizationId);
+        if (organizationDto is null)
+        {
+            return null;
+        }
+
+        List<SubscriptionDto>? subscriptions = await GetOrganizationSubscriptionsAsync(organizationId);
+        if (subscriptions is not null)
+        {
+            organizationDto.Subscriptions = subscriptions;
+        }
+
+        organizationDto.Features = await GetOrganizationFeaturesAsync(organizationId);
+
+        return organizationDto;
+    }
 }

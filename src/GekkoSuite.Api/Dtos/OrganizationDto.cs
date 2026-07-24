@@ -20,6 +20,12 @@ public class OrganizationDto
     /// <summary>When the org was created (stored UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
+    /// <summary>The org's live subscriptions (billing detail); empty if it has none.</summary>
+    public List<SubscriptionDto> Subscriptions { get; set; } = [];
+
+    /// <summary>The org-scoped feature codes the org's live offerings enable (for gating org screens).</summary>
+    public List<string> Features { get; set; } = [];
+
     /// <summary>Map from OrganizationEntity to OrganizationDto.</summary>
     public OrganizationDto FromEntity(OrganizationEntity organizationEntity)
     {

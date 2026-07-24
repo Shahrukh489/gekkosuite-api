@@ -38,7 +38,7 @@ public class OrganizationController : BaseController
         {
             var organizationId = User.GetOrganizationId();
 
-            OrganizationDto? organization = await _organizationService.GetOrganizationByIdAsync(organizationId);
+            OrganizationDto? organization = await _organizationService.GetOrganizationAsync(organizationId);
             if (organization is null)
             {
                 return NotFound(new { message = "Organization not found." });

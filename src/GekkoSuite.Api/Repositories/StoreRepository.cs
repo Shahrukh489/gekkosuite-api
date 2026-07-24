@@ -18,7 +18,7 @@ public class StoreRepository : BaseRepository, IStoreRepository
                 store_id AS StoreId,
                 organization_id AS OrganizationId,
                 name AS Name,
-                type AS Type,
+                type::text AS Type,
                 is_default AS IsDefault,
                 created_at AS CreatedAt
             FROM store
