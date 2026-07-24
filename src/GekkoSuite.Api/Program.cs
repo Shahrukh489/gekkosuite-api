@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 
 using GekkoSuite.Api.Configurations;
 using GekkoSuite.Api.Middlewares;
+using GekkoSuite.Api.Policies;
 using GekkoSuite.Api.Repositories;
 using GekkoSuite.Api.Services;
 
@@ -37,6 +38,10 @@ builder.Services.AddSingleton<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
 builder.Services.AddSingleton<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUserService, UserService>();
+
+// Authorization: the provider turns a HasPermission policy name into a requirement, the handler evaluates it.
+builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 
 // JWT signing settings
 var jwtOptions = new JwtOptions

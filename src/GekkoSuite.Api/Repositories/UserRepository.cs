@@ -99,7 +99,7 @@ public class UserRepository : BaseRepository, IUserRepository
             JOIN membership_assignment ma ON ma.membership_id = m.membership_id
             JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
             JOIN role_permission rp ON rp.role_id = r.role_id
-            JOIN permission p ON p.permission_id = rp.permission_id
+            JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
             JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
             JOIN user_account u ON u.user_id = m.user_id
             WHERE m.user_id = @userId
