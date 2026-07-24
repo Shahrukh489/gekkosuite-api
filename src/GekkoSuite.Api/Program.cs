@@ -110,7 +110,8 @@ builder.Services
         };
     });
 
-// Deny by default: an endpoint with no explicit policy still requires an authenticated user.
+// Deny by default: an endpoint with no explicit policy will use this FallBack policy 
+// which requires an authenticated user
 builder.Services.AddAuthorization(options =>
 {
     options.FallbackPolicy = new AuthorizationPolicyBuilder()

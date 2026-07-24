@@ -1,6 +1,7 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Net.Mime;
 
+using GekkoSuite.Api.Extensions;
 using GekkoSuite.Api.Services;
 
 namespace GekkoSuite.Api.Controllers;
@@ -20,17 +21,36 @@ public class UserController : ControllerBase
     }
 
     /// <summary>
-    /// Gets a user
+    /// Returns the current user (self read). The userId and organizationId are taken only from the
+    /// validated token, never from the request. Any authenticated user may call this; no permission needed.
     /// </summary>
+    [Authorize]
     [HttpGet("")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<LoginResponse>> GetUserAsync()
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetUserAsync()
     {
         try
         {
-          
+            var userId = User.GetUserId();
+            var organizationId = User.GetOrganizationId();
+
+            var user = await _userService.GetUserByIdAsync(organizationId, userId);
+            if (user is null)
+            {
+                return NotFound();
+            }
+
+            // minimal client-safe shape for now (no password hash); the full self-read response with
+            // userType/defaultStoreId/memberships is the next step.
+            return Ok(new
+            {
+                userId = user.UserId,
+                name = user.Name,
+                email = user.Email,
+                organizationId = user.OrganizationId
+            });
         }
         catch (Exception ex)
         {
