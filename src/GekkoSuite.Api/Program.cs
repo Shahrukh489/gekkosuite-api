@@ -27,9 +27,9 @@ builder.Services.AddNpgsqlDataSource(connectionString);
 // Register App Services
 builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>();
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
-builder.Services.AddSingleton<IAuthenticationRepository, AuthenticationRepository>();
+builder.Services.AddSingleton<IAuthRepository, AuthRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
-builder.Services.AddSingleton<IAuthenticationService, AuthenticationService>();
+builder.Services.AddSingleton<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUserService, UserService>();
 
 // JWT signing settings

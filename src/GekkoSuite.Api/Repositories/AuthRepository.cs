@@ -4,9 +4,9 @@ using GekkoSuite.Api.Entities;
 
 namespace GekkoSuite.Api.Repositories;
 
-public class AuthenticationRepository : BaseRepository, IAuthenticationRepository
+public class AuthRepository : BaseRepository, IAuthRepository
 {
-    public AuthenticationRepository(NpgsqlDataSource db) : base(db)
+    public AuthRepository(NpgsqlDataSource db) : base(db)
     {
     }
 

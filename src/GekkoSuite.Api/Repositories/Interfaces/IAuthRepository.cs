@@ -3,7 +3,7 @@ using GekkoSuite.Api.Entities;
 namespace GekkoSuite.Api.Repositories;
 
 
-public interface IAuthenticationRepository
+public interface IAuthRepository
 {
     /// <summary>
     /// Finds a live user by their login email, returning the fields needed to authenticate (password hash,
