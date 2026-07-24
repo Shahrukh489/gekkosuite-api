@@ -17,8 +17,6 @@ public class HasPermissionAttribute : AuthorizeAttribute
     /// <summary>
     /// Requires the caller to hold a membership of the given scope, and (if provided) a role granting the permission.
     /// </summary>
-    /// <param name="scope">The membership scope the endpoint acts at.</param>
-    /// <param name="permission">The permission the role must grant, or null if membership alone suffices.</param>
     public HasPermissionAttribute(MembershipScope scope, string? permission = null)
     {
         Policy = $"{PolicyPrefix}{scope}:{permission}";

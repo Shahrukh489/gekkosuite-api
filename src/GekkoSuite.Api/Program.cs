@@ -42,6 +42,7 @@ builder.Services.AddSingleton<IUserService, UserService>();
 // Authorization: the provider turns a HasPermission policy name into a requirement, the handler evaluates it.
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
+builder.Services.AddSingleton<IAuthorizationHandler, FeatureHandler>();
 
 // JWT signing settings
 var jwtOptions = new JwtOptions

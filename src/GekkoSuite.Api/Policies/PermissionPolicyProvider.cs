@@ -6,9 +6,9 @@ using GekkoSuite.Api.Enums;
 namespace GekkoSuite.Api.Policies;
 
 /// <summary>
-/// Builds authorization policies for HasPermissionAttribute at request time: it parses the scope and
-/// optional permission encoded in the policy name into a PermissionRequirement, so no policy has to be
-/// pre-registered per permission. Any other policy name falls through to the default provider.
+/// Builds authorization policies for HasPermission and HasFeature at request time: it parses the scope and
+/// permission (or feature) encoded in the policy name into the matching requirement, so no policy has to be
+/// pre-registered per permission or feature. Any other policy name falls through to the default provider.
 /// </summary>
 public class PermissionPolicyProvider : IAuthorizationPolicyProvider
 {
@@ -20,19 +20,34 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
     }
 
     /// <summary>
-    /// Returns the policy for a name. Names starting with the HasPermission prefix are parsed into a
-    /// PermissionRequirement; everything else defers to the default provider.
+    /// Returns the policy for a name. HasPermission and HasFeature prefixed names are parsed into their
+    /// requirement; everything else defers to the default provider.
     /// </summary>
     /// <param name="policyName">The policy name from the endpoint's attribute.</param>
     /// <returns>The built policy, or the default provider's result.</returns>
     public Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
     {
-        if (!policyName.StartsWith(HasPermissionAttribute.PolicyPrefix))
+        if (policyName.StartsWith(HasPermissionAttribute.PolicyPrefix))
         {
-            return _fallbackProvider.GetPolicyAsync(policyName);
+            return Task.FromResult<AuthorizationPolicy?>(BuildPermissionPolicy(policyName));
         }
 
-        // strip the prefix, then split into scope and (optional) permission at the first colon
+        if (policyName.StartsWith(HasFeatureAttribute.PolicyPrefix))
+        {
+            return Task.FromResult<AuthorizationPolicy?>(BuildFeaturePolicy(policyName));
+        }
+
+        return _fallbackProvider.GetPolicyAsync(policyName);
+    }
+
+    /// <summary>
+    /// Parses a HasPermission policy name ("scope:permission", permission optional) into a policy carrying a
+    /// PermissionRequirement.
+    /// </summary>
+    /// <param name="policyName">The prefixed policy name from HasPermissionAttribute.</param>
+    /// <returns>The built authorization policy.</returns>
+    private static AuthorizationPolicy BuildPermissionPolicy(string policyName)
+    {
         string body = policyName.Substring(HasPermissionAttribute.PolicyPrefix.Length);
         int separator = body.IndexOf(':');
 
@@ -40,11 +55,27 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
         string permissionText = body.Substring(separator + 1);
         string? permission = permissionText.Length == 0 ? null : permissionText;
 
-        AuthorizationPolicy policy = new AuthorizationPolicyBuilder()
+        return new AuthorizationPolicyBuilder()
             .AddRequirements(new PermissionRequirement(scope, permission))
             .Build();
+    }
 
-        return Task.FromResult<AuthorizationPolicy?>(policy);
+    /// <summary>
+    /// Parses a HasFeature policy name ("scope:feature") into a policy carrying a FeatureRequirement.
+    /// </summary>
+    /// <param name="policyName">The prefixed policy name from HasFeatureAttribute.</param>
+    /// <returns>The built authorization policy.</returns>
+    private static AuthorizationPolicy BuildFeaturePolicy(string policyName)
+    {
+        string body = policyName.Substring(HasFeatureAttribute.PolicyPrefix.Length);
+        int separator = body.IndexOf(':');
+
+        MembershipScope scope = Enum.Parse<MembershipScope>(body.Substring(0, separator));
+        string feature = body.Substring(separator + 1);
+
+        return new AuthorizationPolicyBuilder()
+            .AddRequirements(new FeatureRequirement(feature, scope))
+            .Build();
     }
 
     /// <summary>Defers the default policy (used when an endpoint has [Authorize] with no policy name).</summary>

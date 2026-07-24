@@ -29,8 +29,8 @@ public class AuthController : BaseController
     /// <summary>
     /// Exchanges an email + password for an access token
     /// </summary>
-    [AllowAnonymous]
     [HttpPost("login")]
+    [AllowAnonymous]
     [Consumes(MediaTypeNames.Application.Json)]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -68,8 +68,8 @@ public class AuthController : BaseController
     /// Returns the current user (self read). The userId and organizationId are taken only from the
     /// validated token, never from the request. Any authenticated user may call this; no permission needed.
     /// </summary>
-    [Authorize]
     [HttpGet("me")]
+    [Authorize]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -99,8 +99,8 @@ public class AuthController : BaseController
     /// Returns the caller's flat set of permissions in their organization. The org membership is required
     /// (enforced by the policy); no specific permission is needed beyond holding an org membership.
     /// </summary>
-    [HasPermission(MembershipScope.ORGANIZATION)]
     [HttpGet("me/organization/permissions")]
+    [HasPermission(MembershipScope.ORGANIZATION)]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
