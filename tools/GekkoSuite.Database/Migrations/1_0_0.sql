@@ -29,7 +29,7 @@ CREATE TABLE organization (
 );
 
 -- A user: one login per person. Where they can act comes from their memberships (see auth.md).
-CREATE TABLE "user" (
+CREATE TABLE user_account (
     -- user id
     user_id            UUID PRIMARY KEY,
     -- home org (set once, immutable) — the tenant boundary
@@ -50,7 +50,7 @@ CREATE TABLE "user" (
     -- the org owner — full access that can't be stripped (transfer only). Exactly one per org (index below)
     is_org_owner       BOOLEAN NOT NULL,
     -- the admin who created this account (audit); NULL only for the bootstrap owner
-    created_by_user_id UUID REFERENCES "user" (user_id),
+    created_by_user_id UUID REFERENCES user_account (user_id),
     -- when the account was created (stored UTC)
     created_at         TIMESTAMPTZ NOT NULL,
     -- when the account was last modified (stored UTC)
@@ -69,9 +69,9 @@ CREATE TABLE "user" (
     CHECK (email = lower(email))
 );
 
-CREATE INDEX ON "user" (organization_id);
+CREATE INDEX ON user_account (organization_id);
 -- exactly one owner per org (only live users count)
-CREATE UNIQUE INDEX user_one_owner_per_org ON "user" (organization_id) WHERE is_org_owner AND NOT is_deleted;
+CREATE UNIQUE INDEX user_one_owner_per_org ON user_account (organization_id) WHERE is_org_owner AND NOT is_deleted;
 
 
 -- A store: the business unit where selling happens. Owned by one org.
@@ -206,7 +206,7 @@ CREATE TABLE membership (
     -- membership id
     membership_id   UUID PRIMARY KEY,
     -- the user this membership belongs to
-    user_id         UUID NOT NULL REFERENCES "user" (user_id),
+    user_id         UUID NOT NULL REFERENCES user_account (user_id),
     -- ORGANIZATION | STORE: the kind of place (see CHECK for the store_id rule)
     scope           scope NOT NULL,
     -- the tenant this membership is in (the boundary every request is checked against)
@@ -272,7 +272,7 @@ CREATE INDEX ON membership (user_id);
 -- -- user, so it's a trigger, not a CHECK.
 -- CREATE OR REPLACE FUNCTION enforce_membership_in_user_org() RETURNS trigger AS $$
 -- BEGIN
---     IF NEW.organization_id <> (SELECT u.organization_id FROM "user" u WHERE u.user_id = NEW.user_id) THEN
+--     IF NEW.organization_id <> (SELECT u.organization_id FROM user_account u WHERE u.user_id = NEW.user_id) THEN
 --         RAISE EXCEPTION 'membership org % does not match user %''s home organization', NEW.organization_id, NEW.user_id;
 --     END IF;
 --     RETURN NEW;
@@ -292,7 +292,7 @@ CREATE TABLE membership_assignment (
     -- when the role was granted (stored UTC)
     assigned_at   TIMESTAMPTZ NOT NULL,
     -- who granted it 
-    assigned_by_user_id UUID NOT NULL REFERENCES "user" (user_id),
+    assigned_by_user_id UUID NOT NULL REFERENCES user_account (user_id),
     -- optional expiry; NULL = never expires
     expires_at    TIMESTAMPTZ,
     -- same role can't be granted to the same membership twice

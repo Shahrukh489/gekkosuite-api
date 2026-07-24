@@ -19,7 +19,7 @@ public class UserRepository : BaseRepository, IUserRepository
                 organization_id AS OrganizationId,
                 password AS Password,
                 is_active AS IsActive
-            FROM "user"
+            FROM user_account
             WHERE email = @email
                 AND NOT is_deleted
                 AND is_active
@@ -43,7 +43,7 @@ public class UserRepository : BaseRepository, IUserRepository
                 is_org_owner AS IsOrgOwner,
                 created_by_user_id AS CreatedByUserId,
                 created_at AS CreatedAt
-            FROM "user"
+            FROM user_account
             WHERE user_id = @userId
               AND organization_id = @organizationId
               AND NOT is_deleted
@@ -67,7 +67,7 @@ public class UserRepository : BaseRepository, IUserRepository
             JOIN membership_assignment ma ON ma.membership_id = m.membership_id
             JOIN role r ON r.role_id = ma.role_id AND r.scope = 'ORGANIZATION'
             JOIN organization o ON o.organization_id = m.organization_id AND NOT o.is_deleted
-            JOIN "user" u ON u.user_id = m.user_id
+            JOIN user_account u ON u.user_id = m.user_id
             WHERE m.user_id = @userId
               AND m.organization_id = @organizationId
               AND m.scope = 'ORGANIZATION'
@@ -94,7 +94,7 @@ public class UserRepository : BaseRepository, IUserRepository
             JOIN membership_assignment ma ON ma.membership_id = m.membership_id
             JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
             JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
-            JOIN "user" u ON u.user_id = m.user_id
+            JOIN user_account u ON u.user_id = m.user_id
             WHERE m.user_id = @userId
               AND m.organization_id = @organizationId
               AND m.scope = 'STORE'

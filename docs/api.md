@@ -260,7 +260,7 @@ verification. The owner account is created **pending** and cannot log in until v
   {
     "organizationName": "Acme Inc",
     "owner": {
-      "email": "maria@acme.com",
+      "email": "maria@gekkosuite.com",
       "password": "••••••••",
       "name": "Maria"
     },
@@ -332,7 +332,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 
   ```json
   {
-    "email": "maria@acme.com",
+    "email": "maria@gekkosuite.com",
     "password": "••••••••"
   }
   ```
@@ -386,7 +386,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   {
     "userId": "u1...",
     "name": "Maria",
-    "email": "maria@acme.com",
+    "email": "maria@gekkosuite.com",
     "organizationId": "acme...",
     "userType": "ORGANIZATION",
     "defaultStoreId": null,
@@ -402,7 +402,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   {
     "userId": "u2...",
     "name": "Bob",
-    "email": "bob@acme.com",
+    "email": "bob@gekkosuite.com",
     "organizationId": "acme...",
     "userType": "STORE",
     "defaultStoreId": "s1...",
@@ -650,7 +650,7 @@ account and memberships — is `GET /auth/me`, under **Auth**.)
   ```json
   {
     "name": "Sara",
-    "email": "sara@acme.com",
+    "email": "sara@gekkosuite.com",
     "password": "••••••••",
     "phone": "+1 512 555 0300"
   }
@@ -665,7 +665,7 @@ account and memberships — is `GET /auth/me`, under **Auth**.)
   {
     "userId": "u3...",
     "name": "Sara",
-    "email": "sara@acme.com",
+    "email": "sara@gekkosuite.com",
     "phone": "+1 512 555 0300",
     "isActive": true,
     "createdAt": "2026-07-13T12:00:00Z"
@@ -699,7 +699,7 @@ account and memberships — is `GET /auth/me`, under **Auth**.)
     {
       "userId": "u1...",
       "name": "Maria",
-      "email": "maria@acme.com",
+      "email": "maria@gekkosuite.com",
       "phone": "+1 512 555 0100",
       "isActive": true,
       "createdAt": "2026-01-05T12:00:00Z"
@@ -707,7 +707,7 @@ account and memberships — is `GET /auth/me`, under **Auth**.)
     {
       "userId": "u3...",
       "name": "Sara",
-      "email": "sara@acme.com",
+      "email": "sara@gekkosuite.com",
       "phone": "+1 512 555 0300",
       "isActive": true,
       "createdAt": "2026-07-13T12:00:00Z"
@@ -739,7 +739,7 @@ account and memberships — is `GET /auth/me`, under **Auth**.)
   {
     "userId": "u4...",
     "name": "Maria",
-    "email": "maria@acme.com",
+    "email": "maria@gekkosuite.com",
     "phone": "+1 512 555 0400",
     "isActive": true,
     "createdAt": "2026-02-01T12:00:00Z",
@@ -1061,7 +1061,7 @@ account and memberships — is `GET /auth/me`, under **Auth**.)
   ```json
   [
     { "permissionId": "p1...", "resource": "product", "action": "read", "isElevated": false },
-    { "permissionId": "p2...", "resource": "user", "action": "create", "isElevated": true },
+    { "permissionId": "p2...", "resource": user_account, "action": "create", "isElevated": true },
     { "permissionId": "p3...", "resource": "membership", "action": "deactivate", "isElevated": false }
   ]
   ```
@@ -1131,7 +1131,7 @@ The org owns and manages the store set — creating, editing, and removing store
     "country": "US",
     "currency": "USD",
     "phone": "+1 512 555 0200",
-    "email": "westside@acme.com"
+    "email": "westside@gekkosuite.com"
   }
   ```
 
@@ -1288,7 +1288,7 @@ The store record and the store-scoped features its org's offerings enable.
     "country": "US",
     "currency": "USD",
     "phone": "+1 512 555 0100",
-    "email": "downtown@acme.com",
+    "email": "downtown@gekkosuite.com",
     "isDefault": true,
     "createdAt": "2026-01-05T12:00:00Z",
     "billing": {
@@ -1429,14 +1429,14 @@ The staff roster of a single store.
     {
       "userId": "u3...",
       "name": "Sara",
-      "email": "sara@acme.com",
+      "email": "sara@gekkosuite.com",
       "isActive": true,
       "roles": ["Cashier"]
     },
     {
       "userId": "u4...",
       "name": "Marcus",
-      "email": "marcus@acme.com",
+      "email": "marcus@gekkosuite.com",
       "isActive": true,
       "roles": ["Manager", "Inventory Manager"]
     }
