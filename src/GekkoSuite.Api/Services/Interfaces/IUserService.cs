@@ -11,9 +11,9 @@ public interface IUserService
     Task<UserDto?> GetUserByIdAsync(Guid organizationId, Guid userId);
 
     /// <summary>
-    /// Returns the user's single live ORGANIZATION membership (with its role), or null if they have none.
+    /// Returns the user's live ORGANIZATION memberships (one per role held), or null if they have none.
     /// </summary>
-    Task<MembershipDto?> GetUserOrganizationMembershipAsync(Guid organizationId, Guid userId);
+    Task<List<MembershipDto>?> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
     /// Returns the user's live STORE memberships (each with its store name and role), oldest-first.

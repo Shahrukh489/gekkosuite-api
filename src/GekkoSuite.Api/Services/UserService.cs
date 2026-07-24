@@ -29,16 +29,15 @@ public class UserService : IUserService
     }
 
     /// <inheritdoc />
-    public async Task<MembershipDto?> GetUserOrganizationMembershipAsync(Guid organizationId, Guid userId)
+    public async Task<List<MembershipDto>?> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId)
     {
-        MembershipEntity? membershipEntity = await _userRepository.GetUserOrganizationMembershipAsync(organizationId, userId);
-        if (membershipEntity == null)
+        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserOrganizationMembershipsAsync(organizationId, userId);
+        if (membershipEntities.Count() == 0)
         {
             return null;
         }
 
-
-        return new MembershipDto().FromEntity(membershipEntity);
+        return new MembershipDto().FromEntityList(membershipEntities.ToList());
     }
 
     /// <inheritdoc />
@@ -68,18 +67,18 @@ public class UserService : IUserService
 
         // A user is EITHER an org member OR a store member, never both (the one-kind rule).
         // If we detect both then we throw an Exception, something went wrong in our database that allowed this to happen
-        var orgMembership = await GetUserOrganizationMembershipAsync(organizationId, userId);
+        var orgMemberships = await GetUserOrganizationMembershipsAsync(organizationId, userId);
         var storeMemberships = await GetUserStoreMembershipsAsync(organizationId, userId);
-        if (orgMembership is not null && storeMemberships is not null)
+        if (orgMemberships is not null && storeMemberships is not null)
         {
             throw new ValidationException($"User {userId} can not hold both an organization and store membership.");
         }
 
         // add the memberships a user
-        if (orgMembership is not null)
+        if (orgMemberships is not null)
         {
             userDto.UserType = MembershipScope.ORGANIZATION.ToString();
-            userDto.Memberships = new List<MembershipDto>() { orgMembership };
+            userDto.Memberships = orgMemberships;
         }
         else if (storeMemberships is not null)
         {

@@ -53,7 +53,7 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
-    public Task<MembershipEntity?> GetUserOrganizationMembershipAsync(Guid organizationId, Guid userId)
+    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId)
     {
         const string sql = """
             SELECT
@@ -80,7 +80,7 @@ public class UserRepository : BaseRepository, IUserRepository
             GROUP BY o.organization_id, o.name, r.role_id, r.name, ma.assigned_at, ma.expires_at
             """;
 
-        return QuerySingleOrDefaultAsync<MembershipEntity>(organizationId, sql, new { userId, organizationId });
+        return QueryAsync<MembershipEntity>(organizationId, sql, new { userId, organizationId });
     }
 
     /// <inheritdoc />

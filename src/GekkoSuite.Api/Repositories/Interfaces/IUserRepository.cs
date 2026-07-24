@@ -16,9 +16,9 @@ public interface IUserRepository
     public Task<UserEntity?> GetUserByIdAsync(Guid organizationId, Guid userId);
 
     /// <summary>
-    /// Returns the user's single live ORGANIZATION membership (with its role), or null if they have none.
+    /// Returns the user's live ORGANIZATION membership rows (one per role held), empty if they have none.
     /// </summary>
-    public Task<MembershipEntity?> GetUserOrganizationMembershipAsync(Guid organizationId, Guid userId);
+    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
     /// Returns the user's live STORE memberships (each with its store name and role), oldest-first.
