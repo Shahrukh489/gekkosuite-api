@@ -1,13 +1,14 @@
 using System.Text.Json.Serialization;
 
 using GekkoSuite.Api.Entities;
+using GekkoSuite.Api.Enums;
 
 namespace GekkoSuite.Api.Dtos;
 
 public class MembershipDto
 {
     /// <summary>"ORGANIZATION" or "STORE".</summary>
-    public string Type { get; set; } = string.Empty;
+    public string Scope { get; set; } = string.Empty;
 
     /// <summary>The organization id (set for an ORGANIZATION membership); omitted for a STORE membership.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -40,7 +41,7 @@ public class MembershipDto
     {
         return new MembershipDto()
         {
-            Type = membershipEntity.OrganizationId != null ? Constants.ORGANIZATION : Constants.STORE,
+            Scope = membershipEntity.OrganizationId != null ? MembershipScope.ORGANIZATION.ToString() : MembershipScope.STORE.ToString(),
             OrganizationId = membershipEntity.OrganizationId,
             StoreId = membershipEntity.StoreId,
             Name = membershipEntity.Name,

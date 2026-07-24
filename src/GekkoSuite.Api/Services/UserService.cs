@@ -2,6 +2,7 @@ using GekkoSuite.Api.Dtos;
 using GekkoSuite.Api.Exceptions;
 using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Repositories;
+using GekkoSuite.Api.Enums;
 
 namespace GekkoSuite.Api.Services;
 
@@ -77,18 +78,18 @@ public class UserService : IUserService
         // add the memberships a user
         if (orgMembership is not null)
         {
-            userDto.UserType = Constants.ORGANIZATION;
+            userDto.UserType = MembershipScope.ORGANIZATION.ToString();
             userDto.Memberships = new List<MembershipDto>() { orgMembership };
         }
         else if (storeMemberships is not null)
         {
-            userDto.UserType = Constants.STORE;
+            userDto.UserType = MembershipScope.STORE.ToString();
             userDto.Memberships = storeMemberships;
         }
         else
         {
             // if no org or store memberships user type is none, he can not access anything
-            userDto.UserType = Constants.NONE;
+            userDto.UserType = null;
             userDto.Memberships = null;
         }
         return userDto;

@@ -23,7 +23,7 @@ public class UserDto
     public bool IsActive { get; set; }
 
     /// <summary>"ORGANIZATION", "STORE", or null when the user has no memberships yet.</summary>
-    public string UserType { get; set; } = string.Empty;
+    public string? UserType { get; set; } = null;
 
     /// <summary>The user's memberships (org entry, or store entries oldest-first); empty when UserType is null.</summary>
     public List<MembershipDto>? Memberships { get; set; } = [];
