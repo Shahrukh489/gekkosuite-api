@@ -16,13 +16,11 @@ namespace GekkoSuite.Api.Controllers;
 public class AuthController : BaseController
 {
     private readonly IAuthService _authService;
-    private readonly IOrganizationService _organizationService;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, IOrganizationService organizationService, ILogger<AuthController> logger) : base(logger)
+    public AuthController(IAuthService authService, ILogger<AuthController> logger) : base(logger)
     {
         _authService = authService;
-        _organizationService = organizationService;
         _logger = logger;
     }
 
@@ -81,7 +79,7 @@ public class AuthController : BaseController
             var userId = User.GetUserId();
             var organizationId = User.GetOrganizationId();
 
-            UserDto? user = await _authService.GetMeAsync(organizationId, userId);
+            UserDto? user = await _authService.GetCurrentUserAsync(organizationId, userId);
             if (user is null)
             {
                 return NotFound(new { message = "User not found."});
@@ -112,7 +110,7 @@ public class AuthController : BaseController
             var userId = User.GetUserId();
             var organizationId = User.GetOrganizationId();
 
-            List<string> permissions = await _organizationService.GetUserOrganizationPermissionsAsync(organizationId, userId);
+            List<string> permissions = await _authService.GetCurrentUserOrganizationPermissionsAsync(organizationId, userId);
             return Ok(permissions);
         }
         catch (Exception ex)

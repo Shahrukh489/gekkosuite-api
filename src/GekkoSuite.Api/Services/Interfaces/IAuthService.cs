@@ -12,5 +12,10 @@ public interface IAuthService
     /// <summary>
     /// Gets current user's profile and memberships
     /// </summary>
-    Task<UserDto?> GetMeAsync(Guid organizationId, Guid userId);
+    Task<UserDto?> GetCurrentUserAsync(Guid organizationId, Guid userId);
+
+    /// <summary>
+    /// Gets the current user's flat, deduped permissions in their organization.
+    /// </summary>
+    Task<List<string>> GetCurrentUserOrganizationPermissionsAsync(Guid organizationId, Guid userId);
 }

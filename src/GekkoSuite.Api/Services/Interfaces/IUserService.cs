@@ -21,6 +21,11 @@ public interface IUserService
     Task<List<MembershipDto>?> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
+    /// Returns the flat, deduped set of permission codes the user holds across their organization roles.
+    /// </summary>
+    Task<List<string>> GetUserOrganizationPermissionsAsync(Guid organizationId, Guid userId);
+
+    /// <summary>
     /// Builds the self-read view for the current user — their profile plus userType, defaultStoreId, and
     /// memberships (org entry, or store entries oldest-first). Null if the user isn't found.
     /// </summary>

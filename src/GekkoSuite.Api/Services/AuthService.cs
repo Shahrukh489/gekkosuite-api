@@ -106,7 +106,7 @@ public class AuthService : IAuthService
     }
 
     /// <inheritdoc />
-    public async Task<UserDto?> GetMeAsync(Guid organizationId, Guid currentUserId)
+    public async Task<UserDto?> GetCurrentUserAsync(Guid organizationId, Guid currentUserId)
     {
         UserDto? userDto = await _userService.GetUserAsync(organizationId, currentUserId);
         if (userDto == null)
@@ -115,5 +115,11 @@ public class AuthService : IAuthService
         }
 
         return userDto;
+    }
+
+    /// <inheritdoc />
+    public async Task<List<string>> GetCurrentUserOrganizationPermissionsAsync(Guid organizationId, Guid currentUserId)
+    {
+        return await _userService.GetUserOrganizationPermissionsAsync(organizationId, currentUserId);
     }
 }
