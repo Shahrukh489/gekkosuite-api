@@ -11,6 +11,46 @@ public class StoreRepository : BaseRepository, IStoreRepository
     }
 
     /// <inheritdoc />
+    public Task<IEnumerable<UserEntity>> GetStoreUsersAsync(Guid organizationId, Guid storeId)
+    {
+        const string sql = """
+            SELECT
+                u.user_id AS UserId,
+                u.first_name AS FirstName,
+                u.last_name AS LastName,
+                u.email AS Email,
+                u.is_active AS IsActive,
+                json_agg(
+                    json_build_object(
+                        'membershipId', m.membership_id,
+                        'assignmentId', ma.assignment_id,
+                        'scope', m.scope,
+                        'storeId', m.store_id,
+                        'name', s.name,
+                        'roleId', r.role_id,
+                        'roleName', r.name,
+                        'assignedAt', ma.assigned_at,
+                        'expiresAt', ma.expires_at
+                    ) ORDER BY r.name
+                ) AS Memberships
+            FROM membership m
+            JOIN membership_assignment ma ON ma.membership_id = m.membership_id
+                AND (ma.expires_at IS NULL OR ma.expires_at > now())
+            JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
+            JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
+            JOIN user_account u ON u.user_id = m.user_id AND NOT u.is_deleted
+            WHERE m.store_id = @storeId
+              AND m.organization_id = @organizationId
+              AND m.scope = 'STORE'
+              AND m.is_active AND NOT m.is_deleted
+            GROUP BY u.user_id, u.first_name, u.last_name, u.email, u.is_active
+            ORDER BY u.first_name
+            """;
+
+        return QueryAsync<UserEntity>(organizationId, storeId, sql, new { organizationId, storeId });
+    }
+
+    /// <inheritdoc />
     public Task<IEnumerable<StoreEntity>> GetStoresAsync(Guid organizationId)
     {
         const string sql = """
@@ -35,34 +75,27 @@ public class StoreRepository : BaseRepository, IStoreRepository
     {
         const string sql = """
             SELECT
-                store_id AS StoreId,
-                organization_id AS OrganizationId,
-                name AS Name,
-                type::text AS Type,
-                is_default AS IsDefault,
-                created_at AS CreatedAt
-            FROM store
-            WHERE store_id = @storeId
-              AND organization_id = @organizationId
-              AND NOT is_deleted
+                s.store_id AS StoreId,
+                s.organization_id AS OrganizationId,
+                s.name AS Name,
+                s.type::text AS Type,
+                s.is_default AS IsDefault,
+                s.created_at AS CreatedAt,
+                COALESCE(
+                    (SELECT array_agg(DISTINCT f.code ORDER BY f.code)
+                     FROM subscription sub
+                     JOIN offering_feature ofe ON ofe.offering_id = sub.offering_id
+                     JOIN feature f ON f.feature_id = ofe.feature_id AND f.scope = 'STORE'
+                     WHERE sub.organization_id = s.organization_id
+                       AND sub.status IN ('ACTIVE', 'TRIALING')),
+                    '{}'
+                ) AS Features
+            FROM store s
+            WHERE s.store_id = @storeId
+              AND s.organization_id = @organizationId
+              AND NOT s.is_deleted
             """;
 
         return QuerySingleOrDefaultAsync<StoreEntity>(organizationId, storeId, sql, new { storeId, organizationId });
-    }
-
-    /// <inheritdoc />
-    public Task<IEnumerable<string>> GetStoreFeaturesAsync(Guid organizationId)
-    {
-        const string sql = """
-            SELECT DISTINCT f.code
-            FROM subscription s
-            JOIN offering_feature ofe ON ofe.offering_id = s.offering_id
-            JOIN feature f ON f.feature_id = ofe.feature_id AND f.scope = 'STORE'
-            WHERE s.organization_id = @organizationId
-              AND s.status IN ('ACTIVE', 'TRIALING')
-            ORDER BY f.code
-            """;
-
-        return QueryAsync<string>(organizationId, sql, new { organizationId });
     }
 }

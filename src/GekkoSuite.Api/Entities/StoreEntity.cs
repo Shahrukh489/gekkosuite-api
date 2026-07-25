@@ -21,4 +21,7 @@ public class StoreEntity
 
     /// <summary>When the store was created (stored UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>The store-scoped feature codes the org's live offerings enable; empty if none.</summary>
+    public string[] Features { get; set; } = [];
 }

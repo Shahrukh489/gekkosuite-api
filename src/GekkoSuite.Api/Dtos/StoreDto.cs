@@ -40,6 +40,9 @@ public class StoreDto
             Type = storeEntity.Type,
             IsDefault = storeEntity.IsDefault,
             CreatedAt = storeEntity.CreatedAt,
+            Features = storeEntity.Features.Length > 0
+                ? storeEntity.Features.ToList()
+                : null,
         };
     }
 }

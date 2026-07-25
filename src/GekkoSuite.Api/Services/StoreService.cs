@@ -14,6 +14,13 @@ public class StoreService : IStoreService
     }
 
     /// <inheritdoc />
+    public async Task<List<UserDto>> GetStoreUsersAsync(Guid organizationId, Guid storeId)
+    {
+        IEnumerable<UserEntity> userEntities = await _storeRepository.GetStoreUsersAsync(organizationId, storeId);
+        return userEntities.Select(UserDto.FromEntity).ToList();
+    }
+
+    /// <inheritdoc />
     public async Task<List<StoreDto>> GetStoresAsync(Guid organizationId)
     {
         IEnumerable<StoreEntity> storeEntities = await _storeRepository.GetStoresAsync(organizationId);
@@ -30,26 +37,5 @@ public class StoreService : IStoreService
         }
 
         return StoreDto.FromEntity(storeEntity);
-    }
-
-    /// <inheritdoc />
-    public async Task<List<string>> GetStoreFeaturesAsync(Guid organizationId)
-    {
-        IEnumerable<string> features = await _storeRepository.GetStoreFeaturesAsync(organizationId);
-        return features.ToList();
-    }
-
-    /// <inheritdoc />
-    public async Task<StoreDto?> GetStoreAsync(Guid organizationId, Guid storeId)
-    {
-        StoreDto? storeDto = await GetStoreByIdAsync(organizationId, storeId);
-        if (storeDto is null)
-        {
-            return null;
-        }
-
-        storeDto.Features = await GetStoreFeaturesAsync(organizationId);
-
-        return storeDto;
     }
 }

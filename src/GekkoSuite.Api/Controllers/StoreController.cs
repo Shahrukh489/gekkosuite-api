@@ -58,19 +58,46 @@ public class StoreController : BaseController
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<StoreDto>> GetStoreAsync(Guid storeId)
+    public async Task<ActionResult<StoreDto>> GetStoreByIdAsync(Guid storeId)
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            StoreDto? store = await _storeService.GetStoreAsync(organizationId, storeId);
+            StoreDto? store = await _storeService.GetStoreByIdAsync(organizationId, storeId);
             if (store is null)
             {
                 return NotFound(new { message = "Store not found." });
             }
 
             return Ok(store);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
+    /// Lists the staff roster at a store — the users with a membership there, each with their store role(s).
+    /// The store must belong to the caller's org.
+    /// </summary>
+    [HttpGet("{" + Constants.STORE_ID + "}/users")]
+    [HasPermission(MembershipScope.STORE, "user:list")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<List<UserDto>>> GetStoreUsersAsync(Guid storeId)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            List<UserDto> users = await _storeService.GetStoreUsersAsync(organizationId, storeId);
+
+            return Ok(users);
         }
         catch (Exception ex)
         {
