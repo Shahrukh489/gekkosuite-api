@@ -1,10 +1,12 @@
 using System.Text;
 
+using Dapper;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 
 using GekkoSuite.Api.Configurations;
+using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Middlewares;
 using GekkoSuite.Api.Policies;
 using GekkoSuite.Api.Repositories;
@@ -18,6 +20,9 @@ builder.Logging.AddSimpleConsole(options =>
     options.SingleLine = true;
     options.TimestampFormat = "HH:mm:ss ";
 });
+
+// map json_agg columns onto entity collections (e.g. a role's permissions)
+SqlMapper.AddTypeHandler(new JsonTypeHandler<List<PermissionEntity>>());
 
 builder.Services.AddOpenApi();
 

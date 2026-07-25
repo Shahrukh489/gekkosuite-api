@@ -30,11 +30,6 @@ public class RoleService : IRoleService
             return null;
         }
 
-        RoleDto roleDto = RoleDto.FromEntity(roleEntity);
-
-        IEnumerable<PermissionEntity> permissionEntities = await _roleRepository.GetRolePermissionsAsync(organizationId, roleId);
-        roleDto.Permissions = PermissionDto.FromEntityList(permissionEntities.ToList());
-
-        return roleDto;
+        return RoleDto.FromEntity(roleEntity);
     }
 }

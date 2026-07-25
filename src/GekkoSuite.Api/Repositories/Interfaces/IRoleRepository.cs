@@ -15,9 +15,4 @@ public interface IRoleRepository
     /// Finds one role by id, visible only if it is managed or owned by the given org; null otherwise.
     /// </summary>
     public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId);
-
-    /// <summary>
-    /// Returns the permissions a role grants.
-    /// </summary>
-    public Task<IEnumerable<PermissionEntity>> GetRolePermissionsAsync(Guid organizationId, Guid roleId);
 }

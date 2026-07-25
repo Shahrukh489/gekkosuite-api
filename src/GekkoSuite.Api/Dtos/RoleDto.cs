@@ -26,7 +26,7 @@ public class RoleDto
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<PermissionDto>? Permissions { get; set; }
 
-    /// <summary>Map from RoleEntity to RoleDto (summary only, no permissions).</summary>
+    /// <summary>Map from RoleEntity to RoleDto; includes permissions when the entity carries them.</summary>
     public static RoleDto FromEntity(RoleEntity roleEntity)
     {
         return new RoleDto()
@@ -36,6 +36,9 @@ public class RoleDto
             Description = roleEntity.Description,
             Scope = roleEntity.Scope,
             IsManaged = roleEntity.IsManaged,
+            Permissions = roleEntity.Permissions.Count > 0
+                ? PermissionDto.FromEntityList(roleEntity.Permissions)
+                : null,
         };
     }
 
