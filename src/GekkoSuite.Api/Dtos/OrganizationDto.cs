@@ -27,7 +27,7 @@ public class OrganizationDto
     public List<string> Features { get; set; } = [];
 
     /// <summary>Map from OrganizationEntity to OrganizationDto.</summary>
-    public OrganizationDto FromEntity(OrganizationEntity organizationEntity)
+    public static OrganizationDto FromEntity(OrganizationEntity organizationEntity)
     {
         return new OrganizationDto()
         {

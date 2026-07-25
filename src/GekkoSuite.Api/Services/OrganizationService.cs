@@ -22,7 +22,7 @@ public class OrganizationService : IOrganizationService
             return null;
         }
 
-        return new OrganizationDto().FromEntity(organizationEntity);
+        return OrganizationDto.FromEntity(organizationEntity);
     }
 
     /// <inheritdoc />
@@ -34,7 +34,7 @@ public class OrganizationService : IOrganizationService
             return null;
         }
 
-        return new SubscriptionDto().FromEntityList(subscriptionEntities.ToList());
+        return SubscriptionDto.FromEntityList(subscriptionEntities.ToList());
     }
 
     /// <inheritdoc />

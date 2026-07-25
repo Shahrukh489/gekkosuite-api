@@ -25,7 +25,7 @@ public class UserService : IUserService
             return null;
         }
 
-        return new UserDto().FromEntity(userEntity);
+        return UserDto.FromEntity(userEntity);
     }
 
     /// <inheritdoc />
@@ -37,7 +37,7 @@ public class UserService : IUserService
             return null;
         }
 
-        return new MembershipDto().FromEntityList(membershipEntities.ToList());
+        return MembershipDto.FromEntityList(membershipEntities.ToList());
     }
 
     /// <inheritdoc />
@@ -51,8 +51,7 @@ public class UserService : IUserService
 
         // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user
 
-        //@TODO: this weird creating new signle dto and then frmo entitylsit
-        return new MembershipDto().FromEntityList(membershipEntities.ToList());
+        return MembershipDto.FromEntityList(membershipEntities.ToList());
     }
 
     /// <inheritdoc />
@@ -64,7 +63,7 @@ public class UserService : IUserService
             return null;
         }
 
-        return new MembershipDto().FromEntityList(membershipEntities.ToList());
+        return MembershipDto.FromEntityList(membershipEntities.ToList());
     }
 
     /// <inheritdoc />

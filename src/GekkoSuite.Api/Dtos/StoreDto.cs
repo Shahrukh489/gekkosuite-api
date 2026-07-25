@@ -27,7 +27,7 @@ public class StoreDto
     public List<string> Features { get; set; } = [];
 
     /// <summary>Map from StoreEntity to StoreDto.</summary>
-    public StoreDto FromEntity(StoreEntity storeEntity)
+    public static StoreDto FromEntity(StoreEntity storeEntity)
     {
         return new StoreDto()
         {

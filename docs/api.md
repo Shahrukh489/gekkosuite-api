@@ -42,7 +42,6 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 | `POST /users/{userId}/memberships/{membershipId}/activate` | Restore a membership (org route). | ORGANIZATION |
 | `GET /roles` | List assignable roles for the picker (`?scope=` filter). | ORGANIZATION |
 | `GET /roles/{roleId}` | One role + the permissions it grants. | ORGANIZATION |
-| `GET /permissions` | List the permission catalog (resource, action, elevated). | ORGANIZATION |
 | `GET /stores` | List the org's stores (roster). | ORGANIZATION |
 | `POST /stores` | Create a store (raises the per-store bill). | ORGANIZATION |
 | `PATCH /stores/{storeId}` | Update a store's details. | ORGANIZATION |

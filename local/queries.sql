@@ -54,4 +54,18 @@ JOIN user_account u ON u.user_id = m.user_id
     AND u.is_active AND NOT u.is_deleted
     AND m.is_active AND NOT m.is_deleted
     AND (ma.expires_at IS NULL OR ma.expires_at > now())
-ORDER BY m.created_at
+ORDER BY m.created_at;
+
+
+-- every role with the permissions it grants folded into one array (debugging)
+SELECT
+    r.role_id AS RoleId,
+    r.name AS RoleName,
+    r.scope::text AS Scope,
+    r.is_managed AS IsManaged,
+    array_agg(p.resource || ':' || p.action ORDER BY p.resource, p.action) AS Permissions
+FROM role r
+LEFT JOIN role_permission rp ON rp.role_id = r.role_id
+LEFT JOIN permission p ON p.permission_id = rp.permission_id
+GROUP BY r.role_id, r.name, r.scope, r.is_managed
+ORDER BY r.name;
