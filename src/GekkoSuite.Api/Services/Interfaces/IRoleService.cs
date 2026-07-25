@@ -14,4 +14,9 @@ public interface IRoleService
     /// Builds the full role view — the role plus the permissions it grants. Null if not visible to the org.
     /// </summary>
     Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId);
+
+    /// <summary>
+    /// Builds the full role view at the given scope — the role plus its permissions. Null if not visible or scope mismatch.
+    /// </summary>
+    Task<RoleDto?> GetRoleByIdAndScopeAsync(Guid organizationId, Guid roleId, MembershipScope scope);
 }

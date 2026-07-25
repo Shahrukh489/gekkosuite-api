@@ -16,11 +16,13 @@ public class StoreController : BaseController
 {
     private readonly ILogger<StoreController> _logger;
     private readonly IStoreService _storeService;
+    private readonly IRoleService _roleService;
 
-    public StoreController(ILogger<StoreController> logger, IStoreService storeService) : base(logger)
+    public StoreController(ILogger<StoreController> logger, IStoreService storeService, IRoleService roleService) : base(logger)
     {
         _logger = logger;
         _storeService = storeService;
+        _roleService = roleService;
     }
 
     /// <summary>
@@ -98,6 +100,37 @@ public class StoreController : BaseController
             List<UserDto> users = await _storeService.GetStoreUsersByStoreIdAsync(organizationId, storeId);
 
             return Ok(users);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
+    /// Returns one role and the permissions it grants, in the context of a store the caller belongs to.
+    /// The store must belong to the caller's org.
+    /// </summary>
+    [HttpGet("{" + Constants.STORE_ID + "}/roles/{roleId}")]
+    [HasPermission(MembershipScope.STORE, "role:read")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<RoleDto>> GetStoreRoleByIdAsync(Guid storeId, Guid roleId)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            RoleDto? role = await _roleService.GetRoleByIdAndScopeAsync(organizationId, roleId, MembershipScope.STORE);
+            if (role is null)
+            {
+                return NotFound(new { message = "Role not found." });
+            }
+
+            return Ok(role);
         }
         catch (Exception ex)
         {

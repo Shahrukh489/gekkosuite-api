@@ -32,4 +32,16 @@ public class RoleService : IRoleService
 
         return RoleDto.FromEntity(roleEntity);
     }
+
+    /// <inheritdoc />
+    public async Task<RoleDto?> GetRoleByIdAndScopeAsync(Guid organizationId, Guid roleId, MembershipScope scope)
+    {
+        RoleEntity? roleEntity = await _roleRepository.GetRoleByIdAndScopeAsync(organizationId, roleId, scope);
+        if (roleEntity is null)
+        {
+            return null;
+        }
+
+        return RoleDto.FromEntity(roleEntity);
+    }
 }
