@@ -193,7 +193,8 @@ app.UseExceptionHandler(handler =>
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    // exempt from the deny-by-default FallbackPolicy so the spec is reachable without a token
+    app.MapOpenApi().AllowAnonymous();
 }
 
 app.UseHttpsRedirection();
