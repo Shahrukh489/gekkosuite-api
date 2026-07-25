@@ -18,12 +18,12 @@ public interface IUserRepository
     /// <summary>
     /// Returns the user's live ORGANIZATION membership rows (one per role held), empty if they have none.
     /// </summary>
-    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId);
+    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsByOrganizationIdAsync(Guid organizationId, Guid userId);
 
     /// <summary>
     /// Returns the user's live STORE memberships (each with its store name and role), oldest-first.
     /// </summary>
-    public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId);
+    public Task<IEnumerable<MembershipEntity>> GetUserStoresMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
     /// Returns the user's live STORE membership rows (one per role) at the given store, empty if none.

@@ -29,28 +29,28 @@ public class UserService : IUserService
     }
 
     /// <inheritdoc />
-    public async Task<List<MembershipDto>?> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId)
+    public async Task<List<MembershipDto>?> GetUserOrganizationMembershipsByOrganizationIdAsync(Guid organizationId, Guid userId)
     {
-        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserOrganizationMembershipsAsync(organizationId, userId);
-        if (membershipEntities.Count() == 0)
-        {
-            return null;
-        }
-
-        return MembershipDto.FromEntityList(membershipEntities.ToList());
-    }
-
-    /// <inheritdoc />
-    public async Task<List<MembershipDto>?> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId)
-    {
-        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserStoreMembershipsAsync(organizationId, userId);
+        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserOrganizationMembershipsByOrganizationIdAsync(organizationId, userId);
         if (membershipEntities.Count() == 0)
         {
             return null;
         }
 
         // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user
+        return MembershipDto.FromEntityList(membershipEntities.ToList());
+    }
 
+    /// <inheritdoc />
+    public async Task<List<MembershipDto>?> GetUserStoresMembershipsAsync(Guid organizationId, Guid userId)
+    {
+        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserStoresMembershipsAsync(organizationId, userId);
+        if (membershipEntities.Count() == 0)
+        {
+            return null;
+        }
+
+        // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user
         return MembershipDto.FromEntityList(membershipEntities.ToList());
     }
 
@@ -63,14 +63,14 @@ public class UserService : IUserService
             return null;
         }
 
+        // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user
         return MembershipDto.FromEntityList(membershipEntities.ToList());
     }
 
     /// <inheritdoc />
-    public async Task<UserDto?> GetUserAsync(Guid organizationId, Guid userId)
+    public async Task<UserDto?> GetUserByIdWithMembershipsAsync(Guid organizationId, Guid userId)
     {
         // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user
-
         UserDto? userDto = await GetUserByIdAsync(organizationId, userId);
         if (userDto is null)
         {
@@ -79,8 +79,8 @@ public class UserService : IUserService
 
         // A user is EITHER an org member OR a store member, never both (the one-kind rule).
         // If we detect both then we throw an Exception, something went wrong in our database that allowed this to happen
-        var orgMemberships = await GetUserOrganizationMembershipsAsync(organizationId, userId);
-        var storeMemberships = await GetUserStoreMembershipsAsync(organizationId, userId);
+        var orgMemberships = await GetUserOrganizationMembershipsByOrganizationIdAsync(organizationId, userId);
+        var storeMemberships = await GetUserStoresMembershipsAsync(organizationId, userId);
         if (orgMemberships is not null && storeMemberships is not null)
         {
             throw new ValidationException($"User {userId} can not hold both an organization and store membership.");

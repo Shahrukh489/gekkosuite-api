@@ -89,13 +89,13 @@ public class StoreController : BaseController
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<UserDto>>> GetStoreUsersAsync(Guid storeId)
+    public async Task<ActionResult<List<UserDto>>> GetStoreUsersByStoreIdAsync(Guid storeId)
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            List<UserDto> users = await _storeService.GetStoreUsersAsync(organizationId, storeId);
+            List<UserDto> users = await _storeService.GetStoreUsersByStoreIdAsync(organizationId, storeId);
 
             return Ok(users);
         }

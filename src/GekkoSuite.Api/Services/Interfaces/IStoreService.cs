@@ -7,7 +7,7 @@ public interface IStoreService
     /// <summary>
     /// Lists the users with a store membership at the given store (the staff roster), each with their membership(s).
     /// </summary>
-    Task<List<UserDto>> GetStoreUsersAsync(Guid organizationId, Guid storeId);
+    Task<List<UserDto>> GetStoreUsersByStoreIdAsync(Guid organizationId, Guid storeId);
 
     /// <summary>
     /// Lists the stores in the given organization (the org's roster), default store first.

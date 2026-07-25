@@ -28,7 +28,7 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     private async Task<bool> CheckOrganizationAccess(Guid organizationId, Guid userId, string permission)
     {
         _logger.LogDebug("Checking to authorize user {UserId} for a ORGANIZATION Action on organization {OrganizationId}, required permission {Permission}.", userId, organizationId, permission);
-        List<MembershipDto>? memberships = await _userService.GetUserOrganizationMembershipsAsync(organizationId, userId);
+        List<MembershipDto>? memberships = await _userService.GetUserOrganizationMembershipsByOrganizationIdAsync(organizationId, userId);
         return Grants(memberships, permission);
     }
 
@@ -79,7 +79,7 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
 
         foreach (MembershipDto membership in memberships)
         {
-            if (membership.Permissions.Contains(permission))
+            if (membership.Permissions != null && membership.Permissions.Contains(permission))
             {
                 _logger.LogDebug("Allowed: membership {MembershipId} role {RoleName} ({RoleId}) grants permission {Permission}.", membership.MembershipId, membership.RoleName, membership.RoleId, permission);
                 return true;

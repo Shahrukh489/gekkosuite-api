@@ -53,7 +53,7 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId)
+    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsByOrganizationIdAsync(Guid organizationId, Guid userId)
     {
         const string sql = """
             SELECT
@@ -87,7 +87,7 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId)
+    public Task<IEnumerable<MembershipEntity>> GetUserStoresMembershipsAsync(Guid organizationId, Guid userId)
     {
         const string sql = """
             SELECT

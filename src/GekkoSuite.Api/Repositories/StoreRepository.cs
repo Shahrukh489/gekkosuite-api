@@ -11,7 +11,7 @@ public class StoreRepository : BaseRepository, IStoreRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<UserEntity>> GetStoreUsersAsync(Guid organizationId, Guid storeId)
+    public Task<IEnumerable<UserEntity>> GetStoreUsersByStoreIdAsync(Guid organizationId, Guid storeId)
     {
         const string sql = """
             SELECT
