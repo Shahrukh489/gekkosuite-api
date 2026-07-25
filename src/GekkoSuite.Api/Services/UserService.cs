@@ -36,6 +36,13 @@ public class UserService : IUserService
     }
 
     /// <inheritdoc />
+    public async Task<List<UserDto>> GetUsersByStoreIdWithMembershipsAsync(Guid organizationId, Guid storeId)
+    {
+        IEnumerable<UserEntity> userEntities = await _userRepository.GetUsersByStoreIdWithMembershipsAsync(organizationId, storeId);
+        return userEntities.Select(UserDto.FromEntity).ToList();
+    }
+
+    /// <inheritdoc />
     public async Task<List<MembershipDto>?> GetUserOrganizationMembershipsByOrganizationIdAsync(Guid organizationId, Guid userId)
     {
         IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserOrganizationMembershipsByOrganizationIdAsync(organizationId, userId);

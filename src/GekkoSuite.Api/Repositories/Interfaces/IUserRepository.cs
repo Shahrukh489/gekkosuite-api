@@ -25,7 +25,6 @@ public interface IUserRepository
     /// </summary>
     public Task<IEnumerable<UserEntity>> GetUsersByStoreIdWithMembershipsAsync(Guid organizationId, Guid storeId);
 
-
     /// <summary>
     /// Returns the user's live ORGANIZATION membership rows (one per role held), empty if they have none.
     /// </summary>
