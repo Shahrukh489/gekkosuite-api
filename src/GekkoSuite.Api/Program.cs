@@ -28,6 +28,24 @@ SqlMapper.AddTypeHandler(new JsonTypeHandler<List<SubscriptionEntity>>());
 
 builder.Services.AddOpenApi();
 
+// CORS is opt-in via config: Cors:AllowedOrigins (a JSON array). Absent/empty — e.g. production — means
+// no policy is registered and no cross-origin requests are allowed.
+const string CorsPolicyName = "ConfiguredOrigins";
+string[] allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+if (allowedOrigins.Length > 0)
+{
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy(CorsPolicyName, policy =>
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        });
+    });
+}
+
 // serialize enums as their names (e.g. "ORGANIZATION"), not their underlying integer
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
@@ -129,10 +147,10 @@ builder.Services
             OnTokenValidated = context =>
             {
                 // reject the token if either custom claim is missing or not a valid GUID
-                
+
                 var userId = context.Principal?.FindFirst("userId")?.Value;
                 var organizationId = context.Principal?.FindFirst("organizationId")?.Value;
-                
+
                 if (userId is null || organizationId is null)
                 {
                     context.Fail("Missing or invalid userId / organizationId claim.");
@@ -180,6 +198,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseRouting();
+
+// CORS runs before authentication so preflight OPTIONS requests are answered before auth can reject them.
+// Only mapped when origins were configured (registered above, before the app was built).
+if (allowedOrigins.Length > 0)
+{
+    app.UseCors(CorsPolicyName);
+}
+
 app.UseAuthentication();
 app.UseMiddleware<AuthenticationMiddleware>();
 app.UseAuthorization();
