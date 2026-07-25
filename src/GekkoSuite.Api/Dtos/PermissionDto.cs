@@ -17,7 +17,7 @@ public class PermissionDto
     public bool IsElevated { get; set; }
 
     /// <summary>Map from PermissionEntity to PermissionDto.</summary>
-    public PermissionDto FromEntity(PermissionEntity permissionEntity)
+    public static PermissionDto FromEntity(PermissionEntity permissionEntity)
     {
         return new PermissionDto()
         {
@@ -29,13 +29,13 @@ public class PermissionDto
     }
 
     /// <summary>Map from a PermissionEntity list to a PermissionDto list.</summary>
-    public List<PermissionDto> FromEntityList(List<PermissionEntity> permissionEntities)
+    public static List<PermissionDto> FromEntityList(List<PermissionEntity> permissionEntities)
     {
         List<PermissionDto> permissionDtos = new List<PermissionDto>();
 
         for (int i = 0; i < permissionEntities.Count; i++)
         {
-            permissionDtos.Add(new PermissionDto().FromEntity(permissionEntities[i]));
+            permissionDtos.Add(FromEntity(permissionEntities[i]));
         }
 
         return permissionDtos;

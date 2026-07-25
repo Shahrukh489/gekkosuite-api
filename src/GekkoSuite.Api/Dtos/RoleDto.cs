@@ -27,7 +27,7 @@ public class RoleDto
     public List<PermissionDto>? Permissions { get; set; }
 
     /// <summary>Map from RoleEntity to RoleDto (summary only, no permissions).</summary>
-    public RoleDto FromEntity(RoleEntity roleEntity)
+    public static RoleDto FromEntity(RoleEntity roleEntity)
     {
         return new RoleDto()
         {
@@ -40,13 +40,13 @@ public class RoleDto
     }
 
     /// <summary>Map from a RoleEntity list to a RoleDto list (summaries only).</summary>
-    public List<RoleDto> FromEntityList(List<RoleEntity> roleEntities)
+    public static List<RoleDto> FromEntityList(List<RoleEntity> roleEntities)
     {
         List<RoleDto> roleDtos = new List<RoleDto>();
 
         for (int i = 0; i < roleEntities.Count; i++)
         {
-            roleDtos.Add(new RoleDto().FromEntity(roleEntities[i]));
+            roleDtos.Add(FromEntity(roleEntities[i]));
         }
 
         return roleDtos;

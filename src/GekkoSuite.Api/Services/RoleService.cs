@@ -18,7 +18,7 @@ public class RoleService : IRoleService
     public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId, MembershipScope? scope)
     {
         IEnumerable<RoleEntity> roleEntities = await _roleRepository.GetRolesAsync(organizationId, scope);
-        return new RoleDto().FromEntityList(roleEntities.ToList());
+        return RoleDto.FromEntityList(roleEntities.ToList());
     }
 
     /// <inheritdoc />
@@ -30,10 +30,10 @@ public class RoleService : IRoleService
             return null;
         }
 
-        RoleDto roleDto = new RoleDto().FromEntity(roleEntity);
+        RoleDto roleDto = RoleDto.FromEntity(roleEntity);
 
         IEnumerable<PermissionEntity> permissionEntities = await _roleRepository.GetRolePermissionsAsync(organizationId, roleId);
-        roleDto.Permissions = new PermissionDto().FromEntityList(permissionEntities.ToList());
+        roleDto.Permissions = PermissionDto.FromEntityList(permissionEntities.ToList());
 
         return roleDto;
     }

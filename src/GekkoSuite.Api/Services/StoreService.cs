@@ -22,7 +22,7 @@ public class StoreService : IStoreService
             return null;
         }
 
-        return new StoreDto().FromEntity(storeEntity);
+        return StoreDto.FromEntity(storeEntity);
     }
 
     /// <inheritdoc />

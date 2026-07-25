@@ -30,7 +30,7 @@ public class SubscriptionDto
     public DateTimeOffset? CurrentPeriodEnd { get; set; }
 
     /// <summary>Map from SubscriptionEntity to SubscriptionDto.</summary>
-    public SubscriptionDto FromEntity(SubscriptionEntity subscriptionEntity)
+    public static SubscriptionDto FromEntity(SubscriptionEntity subscriptionEntity)
     {
         return new SubscriptionDto()
         {
@@ -46,13 +46,13 @@ public class SubscriptionDto
     }
 
     /// <summary>Map from a list of SubscriptionEntity to a list of SubscriptionDto.</summary>
-    public List<SubscriptionDto> FromEntityList(List<SubscriptionEntity> subscriptionEntities)
+    public static List<SubscriptionDto> FromEntityList(List<SubscriptionEntity> subscriptionEntities)
     {
         List<SubscriptionDto> subscriptionDtos = new List<SubscriptionDto>();
 
         for (int i = 0; i < subscriptionEntities.Count; i++)
         {
-            subscriptionDtos.Add(new SubscriptionDto().FromEntity(subscriptionEntities[i]));
+            subscriptionDtos.Add(FromEntity(subscriptionEntities[i]));
         }
 
         return subscriptionDtos;

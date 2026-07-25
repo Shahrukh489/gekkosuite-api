@@ -40,7 +40,7 @@ public class MembershipDto
     public List<string> Permissions { get; set; } = [];
 
     ///<summary>Map from MembershipEntity to MembershipDto </summary>
-    public MembershipDto FromEntity(MembershipEntity membershipEntity)
+    public static MembershipDto FromEntity(MembershipEntity membershipEntity)
     {
         return new MembershipDto()
         {
@@ -57,13 +57,13 @@ public class MembershipDto
         };
     }
     ///<summary>Map from MembershipEntityList to MembershipDtoList </summary>
-    public List<MembershipDto> FromEntityList(List<MembershipEntity> membershipEntities)
+    public static List<MembershipDto> FromEntityList(List<MembershipEntity> membershipEntities)
     {
         List<MembershipDto> membershipDtos = new List<MembershipDto>();
 
         for (int i = 0; i < membershipEntities.Count; i++)
         {
-            membershipDtos.Add(new MembershipDto().FromEntity(membershipEntities[i]));
+            membershipDtos.Add(FromEntity(membershipEntities[i]));
         }
 
         return membershipDtos;
