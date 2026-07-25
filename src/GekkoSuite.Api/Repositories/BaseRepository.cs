@@ -94,6 +94,15 @@ public abstract class BaseRepository
     }
 
     /// <summary>
+    /// Runs a SELECT and returns every matching row, not using RLS (for global, tenant-less catalog tables).
+    /// </summary>
+    protected async Task<IEnumerable<T>> QueryUnscopedAsync<T>(string sql, object? parameters = null)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        return await connection.QueryAsync<T>(sql, parameters);
+    }
+
+    /// <summary>
     /// The single place that opens a connection + transaction, stamps the tenant onto the DB session for RLS
     /// </summary>
     private async Task<TResult> RunAsync<TResult>(Guid organizationId, Guid? storeId, Func<NpgsqlConnection, Task<TResult>> query)

@@ -22,8 +22,7 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 
 | Endpoint | Description | Scope |
 |---|---|---|
-| `GET /plans` | List the available base plans for the signup page. | public |
-| `GET /addons` | List the available add-ons (stackable extras). | public |
+NEXT | `GET /offerings/?type=PLAN/ADDON` | List the available offerings | public
 | `POST /onboarding` | Create a tenant — org, owner (pending), subscription, first store. | public |
 | `POST /onboarding/verify` | Verify the owner's email and activate the account. | public |
 DONE | `POST /auth/login` | Exchange email + password for an access token. | public | 
@@ -31,8 +30,8 @@ DONE | `GET /auth/me` | The current user and their memberships (self read). | an
 | `POST /auth/logout` | End the session and invalidate the token. | any authenticated |
 DONE | `GET /organization` | The org record, its billing state, and its org-scoped features. | ORGANIZATION |
 | `POST /users` | Create a user (login only, no membership). | ORGANIZATION |
-DONE | `GET /users` | List the org's users (identity only). | ORGANIZATION |
-DONE | `GET /users/{userId}` | One user's record + full memberships (admin detail). | ORGANIZATION |
+NEXT | `GET /users` | List the org's users (identity only). | ORGANIZATION |
+NEXT | `GET /users/{userId}` | One user's record + full memberships (admin detail). | ORGANIZATION |
 | `PATCH /users/{userId}` | Update a user's profile (name, phone). | ORGANIZATION |
 | `POST /users/{userId}/deactivate` | Turn a user account off (kill switch). | ORGANIZATION |
 | `POST /users/{userId}/activate` | Turn a user account back on. | ORGANIZATION |
@@ -49,6 +48,7 @@ DONE| `GET /stores` | List the org's stores (roster). | ORGANIZATION |
 DONE | `GET /stores/{storeId}` | One store's full record, read-only flag, and store-scoped features. | STORE |
 DONE | `GET /stores/{storeId}/users` | The store's staff roster. | STORE |
 DONE | `GET /stores/{storeId}/roles/{roleId}` | Get details of a store scope role  
+DONE | `GET /stores/{storeId}/roles/` | Get all store scoped roles  
 | `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/deactivate` | Suspend a membership at this store (store route). | STORE |
 | `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/activate` | Restore a membership at this store (store route). | STORE |
 
