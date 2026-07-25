@@ -155,6 +155,20 @@ builder.Services.AddAuthorization(options =>
 
 var app = builder.Build();
 
+// Top of the pipeline: catch every unhandled exception 
+app.UseExceptionHandler(handler =>
+{
+    handler.Run(async context =>
+    {
+        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogError(feature?.Error, "Handling Global Unhandled exception.");
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await Task.CompletedTask;
+    });
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

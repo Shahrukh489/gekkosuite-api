@@ -350,18 +350,20 @@ CREATE INDEX ON membership (user_id);
 
 -- membership_assignment: a role granted to a membership (many-to-many).
 CREATE TABLE membership_assignment (
+    -- assignment id
+    assignment_id UUID PRIMARY KEY,
     -- the membership the role is granted to
     membership_id UUID NOT NULL REFERENCES membership (membership_id),
     -- the role granted
     role_id       UUID NOT NULL REFERENCES role (role_id),
     -- when the role was granted (stored UTC)
     assigned_at   TIMESTAMPTZ NOT NULL,
-    -- who granted it 
+    -- who granted it
     assigned_by_user_id UUID NOT NULL REFERENCES user_account (user_id),
     -- optional expiry; NULL = never expires
     expires_at    TIMESTAMPTZ,
     -- same role can't be granted to the same membership twice
-    PRIMARY KEY (membership_id, role_id)
+    UNIQUE (membership_id, role_id)
 );
 
 -- A role's scope must match the membership's scope: a STORE role only on a STORE membership, an

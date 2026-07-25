@@ -7,6 +7,9 @@ public class MembershipEntity
     /// <summary>The membership's id.</summary>
     public Guid MembershipId { get; set; }
 
+    /// <summary>The membership-assignment's id (this specific role grant).</summary>
+    public Guid AssignmentId { get; set; }
+
     /// <summary>The membership's scope (ORGANIZATION or STORE).</summary>
     public MembershipScope Scope { get; set; }
 
