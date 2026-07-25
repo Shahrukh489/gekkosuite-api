@@ -11,6 +11,11 @@ public interface IUserService
     Task<UserDto?> GetUserByIdAsync(Guid organizationId, Guid userId);
 
     /// <summary>
+    /// Lists the org's users, each with their memberships (role names + membership details); membership-less users included.
+    /// </summary>
+    Task<List<UserDto>> GetUsersWithMembershipsAsync(Guid organizationId);
+
+    /// <summary>
     /// Returns the user's live ORGANIZATION memberships (one per role held), or null if they have none.
     /// </summary>
     Task<List<MembershipDto>?> GetUserOrganizationMembershipsByOrganizationIdAsync(Guid organizationId, Guid userId);

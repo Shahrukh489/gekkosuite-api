@@ -4,10 +4,6 @@ namespace GekkoSuite.Api.Repositories;
 
 public interface IStoreRepository
 {
-    /// <summary>
-    /// Lists the users with a live store membership at the given store, each with their store membership(s).
-    /// </summary>
-    public Task<IEnumerable<UserEntity>> GetStoreUsersByStoreIdAsync(Guid organizationId, Guid storeId);
 
     /// <summary>
     /// Lists the live stores in the given organization (the org's roster), default store first.

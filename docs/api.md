@@ -22,7 +22,7 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 
 | Endpoint | Description | Scope |
 |---|---|---|
-NEXT | `GET /offerings/?type=PLAN/ADDON` | List the available offerings | public
+DONE | `GET /offerings/?type=PLAN/ADDON` | List the available offerings | public
 | `POST /onboarding` | Create a tenant — org, owner (pending), subscription, first store. | public |
 | `POST /onboarding/verify` | Verify the owner's email and activate the account. | public |
 DONE | `POST /auth/login` | Exchange email + password for an access token. | public | 

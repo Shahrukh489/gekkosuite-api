@@ -11,46 +11,6 @@ public class StoreRepository : BaseRepository, IStoreRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<UserEntity>> GetStoreUsersByStoreIdAsync(Guid organizationId, Guid storeId)
-    {
-        const string sql = """
-            SELECT
-                u.user_id AS UserId,
-                u.first_name AS FirstName,
-                u.last_name AS LastName,
-                u.email AS Email,
-                u.is_active AS IsActive,
-                json_agg(
-                    json_build_object(
-                        'membershipId', m.membership_id,
-                        'assignmentId', ma.assignment_id,
-                        'scope', m.scope,
-                        'storeId', m.store_id,
-                        'name', s.name,
-                        'roleId', r.role_id,
-                        'roleName', r.name,
-                        'assignedAt', ma.assigned_at,
-                        'expiresAt', ma.expires_at
-                    ) ORDER BY r.name
-                ) AS Memberships
-            FROM membership m
-            JOIN membership_assignment ma ON ma.membership_id = m.membership_id
-                AND (ma.expires_at IS NULL OR ma.expires_at > now())
-            JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
-            JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
-            JOIN user_account u ON u.user_id = m.user_id AND NOT u.is_deleted
-            WHERE m.store_id = @storeId
-              AND m.organization_id = @organizationId
-              AND m.scope = 'STORE'
-              AND m.is_active AND NOT m.is_deleted
-            GROUP BY u.user_id, u.first_name, u.last_name, u.email, u.is_active
-            ORDER BY u.first_name
-            """;
-
-        return QueryAsync<UserEntity>(organizationId, storeId, sql, new { organizationId, storeId });
-    }
-
-    /// <inheritdoc />
     public Task<IEnumerable<StoreEntity>> GetStoresAsync(Guid organizationId)
     {
         const string sql = """

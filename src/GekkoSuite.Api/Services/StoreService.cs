@@ -7,16 +7,18 @@ namespace GekkoSuite.Api.Services;
 public class StoreService : IStoreService
 {
     private readonly IStoreRepository _storeRepository;
+    private readonly IUserRepository _userRepository;
 
-    public StoreService(IStoreRepository storeRepository)
+    public StoreService(IStoreRepository storeRepository, IUserRepository userRepository)
     {
         _storeRepository = storeRepository;
+        _userRepository = userRepository;
     }
 
     /// <inheritdoc />
     public async Task<List<UserDto>> GetStoreUsersByStoreIdAsync(Guid organizationId, Guid storeId)
     {
-        IEnumerable<UserEntity> userEntities = await _storeRepository.GetStoreUsersByStoreIdAsync(organizationId, storeId);
+        IEnumerable<UserEntity> userEntities = await _userRepository.GetUsersByStoreIdWithMembershipsAsync(organizationId, storeId);
         return userEntities.Select(UserDto.FromEntity).ToList();
     }
 
