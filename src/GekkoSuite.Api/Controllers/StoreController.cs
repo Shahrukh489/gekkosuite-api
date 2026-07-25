@@ -108,6 +108,32 @@ public class StoreController : BaseController
     }
 
     /// <summary>
+    /// Lists the STORE-scoped roles assignable in the caller's org, for a store the caller belongs to.
+    /// </summary>
+    [HttpGet("{" + Constants.STORE_ID + "}/roles")]
+    [HasPermission(MembershipScope.STORE, "role:list")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<List<RoleDto>>> GetStoreRolesAsync(Guid storeId)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            List<RoleDto> roles = await _roleService.GetRolesAsync(organizationId, MembershipScope.STORE);
+
+            return Ok(roles);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
     /// Returns one role and the permissions it grants, in the context of a store the caller belongs to.
     /// The store must belong to the caller's org.
     /// </summary>
@@ -124,7 +150,7 @@ public class StoreController : BaseController
         {
             var organizationId = User.GetOrganizationId();
 
-            RoleDto? role = await _roleService.GetRoleByIdAndScopeAsync(organizationId, roleId, MembershipScope.STORE);
+            RoleDto? role = await _roleService.GetRoleByIdAsync(organizationId, roleId, MembershipScope.STORE);
             if (role is null)
             {
                 return NotFound(new { message = "Role not found." });

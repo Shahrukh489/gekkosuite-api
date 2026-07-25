@@ -12,13 +12,8 @@ public interface IRoleRepository
     public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId, MembershipScope? scope);
 
     /// <summary>
-    /// Finds one role by id, visible only if it is managed or owned by the given org; null otherwise.
+    /// Finds one role by id, optionally filtered to a scope (ORGANIZATION or STORE); visible only if it is
+    /// managed or owned by the given org; null if not found or the scope doesn't match.
     /// </summary>
-    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId);
-
-    /// <summary>
-    /// Finds one role by id at the given scope (ORGANIZATION or STORE), visible only if it is managed
-    /// or owned by the given org; null if not found or the scope doesn't match.
-    /// </summary>
-    public Task<RoleEntity?> GetRoleByIdAndScopeAsync(Guid organizationId, Guid roleId, MembershipScope scope);
+    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId, MembershipScope? scope = null);
 }

@@ -47,7 +47,8 @@ DONE| `GET /stores` | List the org's stores (roster). | ORGANIZATION |
 | `PATCH /stores/{storeId}` | Update a store's details. | ORGANIZATION |
 | `DELETE /stores/{storeId}` | Soft-delete a store (not the default). | ORGANIZATION |
 DONE | `GET /stores/{storeId}` | One store's full record, read-only flag, and store-scoped features. | STORE |
-| `GET /stores/{storeId}/users` | The store's staff roster. | STORE |
+DONE | `GET /stores/{storeId}/users` | The store's staff roster. | STORE |
+DONE | `GET /stores/{storeId}/roles/{roleId}` | Get details of a store scope role  
 | `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/deactivate` | Suspend a membership at this store (store route). | STORE |
 | `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/activate` | Restore a membership at this store (store route). | STORE |
 

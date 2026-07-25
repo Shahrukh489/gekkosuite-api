@@ -7,6 +7,7 @@ INSERT INTO user_account (user_id, organization_id, email, password, first_name,
 
 INSERT INTO store (store_id, organization_id, name, type, description, address, city, state, postal_code, country, currency, phone, email, is_default, created_at, updated_at, is_deleted, deleted_at) VALUES ('20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Downtown', 'PHYSICAL', 'Flagship', '1 Main St', 'Austin', 'TX', '78701', 'US', 'USD', '+1 555 0200', 'downtown@gekkosuite.com', TRUE, '2026-01-05T12:00:00Z', '2026-01-05T12:00:00Z', FALSE, NULL);
 INSERT INTO store (store_id, organization_id, name, type, description, address, city, state, postal_code, country, currency, phone, email, is_default, created_at, updated_at, is_deleted, deleted_at) VALUES ('20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Online', 'ONLINE', 'Web storefront', NULL, NULL, NULL, NULL, 'US', 'USD', NULL, 'shop@gekkosuite.com', FALSE, '2026-01-07T10:00:00Z', '2026-01-07T10:00:00Z', FALSE, NULL);
+INSERT INTO store (store_id, organization_id, name, type, description, address, city, state, postal_code, country, currency, phone, email, is_default, created_at, updated_at, is_deleted, deleted_at) VALUES ('20000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'Westside', 'PHYSICAL', 'New location, no staff yet', '456 West Ave', 'Austin', 'TX', '78703', 'US', 'USD', NULL, 'westside@gekkosuite.com', FALSE, '2026-01-10T09:00:00Z', '2026-01-10T09:00:00Z', FALSE, NULL);
 
 
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000001', 'organization', 'read', 'Read the organization record and billing state', FALSE);
@@ -18,7 +19,7 @@ INSERT INTO permission (permission_id, resource, action, description, is_elevate
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000007', 'store', 'read', 'View a store record and its features', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000008', 'role', 'read', 'List roles and view the permissions a role grants', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000009', 'store', 'list', 'List the organization''s stores (roster)', TRUE);
-INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000010', 'role', 'list', 'List the organization''s assignable roles', TRUE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000010', 'role', 'list', 'List the organization''s assignable roles', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000011', 'user', 'list', 'List the users on a store''s staff roster', FALSE);
 
 
@@ -41,6 +42,7 @@ INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000006');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000007');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000008');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000010');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000011');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000011');
 
