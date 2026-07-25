@@ -48,10 +48,12 @@ builder.Services.AddNpgsqlDataSource(connectionString);
 builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>();
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<IStoreRepository, StoreRepository>();
+builder.Services.AddSingleton<IRoleRepository, RoleRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
 builder.Services.AddSingleton<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<IStoreService, StoreService>();
+builder.Services.AddSingleton<IRoleService, RoleService>();
 
 // Authorization: the provider turns a HasPermission policy name into a requirement, the handler evaluates it.
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
