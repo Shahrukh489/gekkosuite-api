@@ -46,4 +46,34 @@ public class UserController : BaseController
             return ErrorResponse(ex);
         }
     }
+
+    /// <summary>
+    /// Returns one user in the caller's organization — their record plus their memberships (org or store).
+    /// </summary>
+    [HttpGet("{userId}")]
+    [HasPermission(MembershipScope.ORGANIZATION, "user:read")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<UserDto>> GetUserByIdAsync(Guid userId)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            UserDto? user = await _userService.GetUserByIdWithMembershipsAsync(organizationId, userId);
+            if (user is null)
+            {
+                return NotFound(new { message = "User not found." });
+            }
+
+            return Ok(user);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
 }

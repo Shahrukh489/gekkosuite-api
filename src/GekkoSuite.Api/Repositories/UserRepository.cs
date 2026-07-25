@@ -76,8 +76,7 @@ public class UserRepository : BaseRepository, IUserRepository
 
         return QueryAsync<UserEntity>(organizationId, sql, new { organizationId });
     }
-
-    
+  
     /// <inheritdoc />
     public Task<IEnumerable<UserEntity>> GetUsersByStoreIdWithMembershipsAsync(Guid organizationId, Guid storeId)
     {

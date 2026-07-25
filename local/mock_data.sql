@@ -21,6 +21,7 @@ INSERT INTO permission (permission_id, resource, action, description, is_elevate
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000009', 'store', 'list', 'List the organization''s stores (roster)', TRUE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000010', 'role', 'list', 'List the organization''s assignable roles', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000011', 'user', 'list', 'List the users on a store''s staff roster', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000012', 'user', 'read', 'View one user''s record and memberships', FALSE);
 
 
 INSERT INTO role (role_id, name, description, is_managed, organization_id, scope, created_at, updated_at) VALUES ('40000000-0000-0000-0000-000000000003', 'Org Admin', 'Full administrative access', TRUE, NULL, 'ORGANIZATION', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
@@ -34,6 +35,7 @@ INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000008');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000009');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000010');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000012');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000004');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000007');
