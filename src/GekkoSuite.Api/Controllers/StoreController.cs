@@ -24,6 +24,31 @@ public class StoreController : BaseController
     }
 
     /// <summary>
+    /// Lists the stores in the caller's organization (the org's roster).
+    /// </summary>
+    [HttpGet]
+    [HasPermission(MembershipScope.ORGANIZATION, "store:list")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<List<StoreDto>>> GetStoresAsync()
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            List<StoreDto> stores = await _storeService.GetStoresAsync(organizationId);
+
+            return Ok(stores);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
     /// Returns a store's record and its store-scoped features. The store must belong to the caller's org.
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}")]
