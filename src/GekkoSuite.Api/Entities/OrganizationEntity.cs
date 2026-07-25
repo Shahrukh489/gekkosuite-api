@@ -18,4 +18,7 @@ public class OrganizationEntity
 
     /// <summary>When the org was created (stored UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>The org's live subscriptions (folded from json_agg); empty if none.</summary>
+    public List<SubscriptionEntity> Subscriptions { get; set; } = [];
 }

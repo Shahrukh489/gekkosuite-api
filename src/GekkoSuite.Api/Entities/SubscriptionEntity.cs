@@ -27,4 +27,7 @@ public class SubscriptionEntity
 
     /// <summary>End of the current paid period (renewal boundary); null if not set.</summary>
     public DateTimeOffset? CurrentPeriodEnd { get; set; }
+
+    /// <summary>The offering's feature codes</summary>
+    public string[] Features { get; set; } = [];
 }

@@ -29,9 +29,15 @@ public class StoreDto
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Features { get; set; }
 
-    /// <summary>Map from StoreEntity to StoreDto.</summary>
+    /// <summary>Map from StoreEntity to StoreDto (features flattened from the org's live subscriptions).</summary>
     public static StoreDto FromEntity(StoreEntity storeEntity)
     {
+        List<string> features = storeEntity.Subscriptions
+            .SelectMany(subscription => subscription.Features)
+            .Distinct()
+            .OrderBy(code => code)
+            .ToList();
+
         return new StoreDto()
         {
             StoreId = storeEntity.StoreId,
@@ -40,9 +46,7 @@ public class StoreDto
             Type = storeEntity.Type,
             IsDefault = storeEntity.IsDefault,
             CreatedAt = storeEntity.CreatedAt,
-            Features = storeEntity.Features.Length > 0
-                ? storeEntity.Features.ToList()
-                : null,
+            Features = features.Count > 0 ? features : null,
         };
     }
 }
