@@ -4,18 +4,18 @@ using GekkoSuite.Api.Entities;
 
 namespace GekkoSuite.Api.Repositories;
 
-public class StoreProductRepository : BaseRepository, IStoreProductRepository
+public class ProductRepository : BaseRepository, IProductRepository
 {
-    public StoreProductRepository(NpgsqlDataSource db) : base(db)
+    public ProductRepository(NpgsqlDataSource db) : base(db)
     {
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<StoreProductEntity>> GetStoreProductsAsync(Guid organizationId, Guid storeId)
+    public Task<IEnumerable<ProductEntity>> GetStoreProductsAsync(Guid organizationId, Guid storeId)
     {
         const string sql = """
             SELECT
-                store_product_id AS StoreProductId,
+                store_product_id AS ProductId,
                 store_id AS StoreId,
                 organization_id AS OrganizationId,
                 name AS Name,
@@ -33,6 +33,6 @@ public class StoreProductRepository : BaseRepository, IStoreProductRepository
             ORDER BY name
             """;
 
-        return QueryAsync<StoreProductEntity>(organizationId, storeId, sql, new { storeId, organizationId });
+        return QueryAsync<ProductEntity>(organizationId, storeId, sql, new { storeId, organizationId });
     }
 }

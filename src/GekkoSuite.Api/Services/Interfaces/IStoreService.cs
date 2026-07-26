@@ -32,5 +32,5 @@ public interface IStoreService
     /// <summary>
     /// Lists the products at the given store — the store's own catalog with its per-store stock and price.
     /// </summary>
-    Task<List<StoreProductDto>> GetStoreProductsAsync(Guid organizationId, Guid storeId);
+    Task<List<ProductDto>> GetStoreProductsAsync(Guid organizationId, Guid storeId);
 }

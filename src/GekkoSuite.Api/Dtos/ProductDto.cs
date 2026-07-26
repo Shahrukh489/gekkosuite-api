@@ -1,15 +1,14 @@
-namespace GekkoSuite.Api.Entities;
+using GekkoSuite.Api.Entities;
 
-public class StoreProductEntity
+namespace GekkoSuite.Api.Dtos;
+
+public class ProductDto
 {
     /// <summary>The store_product's id.</summary>
-    public Guid StoreProductId { get; set; }
+    public Guid ProductId { get; set; }
 
     /// <summary>The store this product belongs to.</summary>
     public Guid StoreId { get; set; }
-
-    /// <summary>The organization that owns the store (the tenant).</summary>
-    public Guid OrganizationId { get; set; }
 
     /// <summary>The product's display name.</summary>
     public string Name { get; set; } = string.Empty;
@@ -34,4 +33,24 @@ public class StoreProductEntity
 
     /// <summary>When the product was last modified (stored UTC).</summary>
     public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>Map from ProductEntity to ProductDto.</summary>
+    /// <param name="productEntity">The store_product row to map.</param>
+    /// <returns>The client-safe product DTO.</returns>
+    public static ProductDto FromEntity(ProductEntity productEntity)
+    {
+        return new ProductDto()
+        {
+            ProductId = productEntity.ProductId,
+            StoreId = productEntity.StoreId,
+            Name = productEntity.Name,
+            Description = productEntity.Description,
+            Sku = productEntity.Sku,
+            Price = productEntity.Price,
+            Stock = productEntity.Stock,
+            IsActive = productEntity.IsActive,
+            CreatedAt = productEntity.CreatedAt,
+            UpdatedAt = productEntity.UpdatedAt,
+        };
+    }
 }
