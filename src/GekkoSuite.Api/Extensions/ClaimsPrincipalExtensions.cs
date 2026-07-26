@@ -13,7 +13,8 @@ public static class ClaimsPrincipalExtensions
     }
 
     /// <summary>
-    /// Reads the organizationId claim from the validated token. Throws if it is missing or not a valid GUID.
+    /// Reads the organizationId claim (added at request time by OrganizationClaimsTransformation, not carried
+    /// in the token). Throws if it is missing or not a valid GUID.
     /// </summary>
     public static Guid GetOrganizationId(this ClaimsPrincipal user)
     {

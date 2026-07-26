@@ -1,0 +1,10 @@
+- check user making changes in another org
+- check user making changes in store not a member of
+- check user not having org membership
+- check user having org membershp but not permission 
+- check user not having store membership
+- check user having store membershp but not permission 
+
+
+- TODO: add postman test collection with different tokens and see if 403 and 401s for suite of endpoints with different
+profiles

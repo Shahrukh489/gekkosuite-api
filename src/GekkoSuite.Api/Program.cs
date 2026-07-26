@@ -1,10 +1,12 @@
 using System.Text;
 
 using Dapper;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 
+using GekkoSuite.Api.Auth;
 using GekkoSuite.Api.Configurations;
 using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Middlewares;
@@ -86,6 +88,9 @@ builder.Services.AddSingleton<ICustomerService, CustomerService>();
 builder.Services.AddSingleton<IRoleService, RoleService>();
 builder.Services.AddSingleton<IOfferingService, OfferingService>();
 
+// Enriches the authenticated principal with the caller's organizationId (resolved from the token's userId).
+builder.Services.AddSingleton<IClaimsTransformation, OrganizationClaimsTransformation>();
+
 // Authorization: the provider turns a HasPermission policy name into a requirement, the handler evaluates it.
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
@@ -123,6 +128,8 @@ builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        options.IncludeErrorDetails = false;
+
         options.TokenValidationParameters = new TokenValidationParameters
         {
             // check the token's signature (reject tampered/forged tokens)
@@ -150,19 +157,13 @@ builder.Services
         {
             OnTokenValidated = context =>
             {
-                // reject the token if either custom claim is missing or not a valid GUID
-
+                // the token carries only userId (the org is resolved later by the claims transformation);
+                // reject if it is missing or not a valid GUID
                 var userId = context.Principal?.FindFirst("userId")?.Value;
-                var organizationId = context.Principal?.FindFirst("organizationId")?.Value;
 
-                if (userId is null || organizationId is null)
+                if (!Guid.TryParse(userId, out _))
                 {
-                    context.Fail("Missing or invalid userId / organizationId claim.");
-                }
-
-                if (!Guid.TryParse(userId, out _) || !Guid.TryParse(organizationId, out _))
-                {
-                    context.Fail("Missing or invalid userId / organizationId claim.");
+                    context.Fail("Missing or invalid userId claim.");
                 }
 
                 return Task.CompletedTask;
@@ -212,7 +213,7 @@ if (allowedOrigins.Length > 0)
 }
 
 app.UseAuthentication();
-app.UseMiddleware<AuthenticationMiddleware>();
+app.UseMiddleware<GekkoSuite.Api.Middlewares.AuthenticationMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 
