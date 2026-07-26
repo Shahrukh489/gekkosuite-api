@@ -16,44 +16,18 @@ public class StoreController : BaseController
 {
     private readonly ILogger<StoreController> _logger;
     private readonly IStoreService _storeService;
-    private readonly IRoleService _roleService;
 
-    public StoreController(ILogger<StoreController> logger, IStoreService storeService, IRoleService roleService) : base(logger)
+    public StoreController(ILogger<StoreController> logger, IStoreService storeService) : base(logger)
     {
         _logger = logger;
         _storeService = storeService;
-        _roleService = roleService;
-    }
-
-    /// <summary>
-    /// Lists the stores in the caller's organization (the org's roster).
-    /// </summary>
-    [HttpGet]
-    [HasPermission(MembershipScope.ORGANIZATION, "store:list")]
-    [Produces(MediaTypeNames.Application.Json)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<StoreDto>>> GetStoresAsync()
-    {
-        try
-        {
-            var organizationId = User.GetOrganizationId();
-
-            List<StoreDto> stores = await _storeService.GetStoresAsync(organizationId);
-
-            return Ok(stores);
-        }
-        catch (Exception ex)
-        {
-            return ErrorResponse(ex);
-        }
     }
 
     /// <summary>
     /// Returns a store's record and its store-scoped features. The store must belong to the caller's org.
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}")]
+    [EndpointName("GetStoreById")]
     [HasPermission(MembershipScope.STORE, "store:read")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -85,6 +59,7 @@ public class StoreController : BaseController
     /// The store must belong to the caller's org.
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}/users")]
+    [EndpointName("GetStoreUsers")]
     [HasPermission(MembershipScope.STORE, "user:list")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -111,6 +86,7 @@ public class StoreController : BaseController
     /// Lists the STORE-scoped roles assignable in the caller's org, for a store the caller belongs to.
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}/roles")]
+    [EndpointName("GetStoreRoles")]
     [HasPermission(MembershipScope.STORE, "role:list")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -123,7 +99,7 @@ public class StoreController : BaseController
         {
             var organizationId = User.GetOrganizationId();
 
-            List<RoleDto> roles = await _roleService.GetRolesAsync(organizationId, MembershipScope.STORE);
+            List<RoleDto> roles = await _storeService.GetStoreRolesAsync(organizationId);
 
             return Ok(roles);
         }
@@ -138,6 +114,7 @@ public class StoreController : BaseController
     /// The store must belong to the caller's org.
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}/roles/{roleId}")]
+    [EndpointName("GetStoreRoleById")]
     [HasPermission(MembershipScope.STORE, "role:read")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -150,7 +127,7 @@ public class StoreController : BaseController
         {
             var organizationId = User.GetOrganizationId();
 
-            RoleDto? role = await _roleService.GetRoleByIdAsync(organizationId, roleId, MembershipScope.STORE);
+            RoleDto? role = await _storeService.GetStoreRoleByIdAsync(organizationId, roleId);
             if (role is null)
             {
                 return NotFound(new { message = "Role not found." });

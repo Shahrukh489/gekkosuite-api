@@ -1,5 +1,6 @@
 using GekkoSuite.Api.Dtos;
 using GekkoSuite.Api.Entities;
+using GekkoSuite.Api.Enums;
 using GekkoSuite.Api.Repositories;
 
 namespace GekkoSuite.Api.Services;
@@ -8,11 +9,13 @@ public class StoreService : IStoreService
 {
     private readonly IStoreRepository _storeRepository;
     private readonly IUserService _userService;
+    private readonly IRoleService _roleService;
 
-    public StoreService(IStoreRepository storeRepository, IUserService userService)
+    public StoreService(IStoreRepository storeRepository, IUserService userService, IRoleService roleService)
     {
         _storeRepository = storeRepository;
         _userService = userService;
+        _roleService = roleService;
     }
 
     /// <inheritdoc />
@@ -38,5 +41,17 @@ public class StoreService : IStoreService
         }
 
         return StoreDto.FromEntity(storeEntity);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<RoleDto>> GetStoreRolesAsync(Guid organizationId)
+    {
+        return await _roleService.GetRolesAsync(organizationId, MembershipScope.STORE);
+    }
+
+    /// <inheritdoc />
+    public async Task<RoleDto?> GetStoreRoleByIdAsync(Guid organizationId, Guid roleId)
+    {
+        return await _roleService.GetRoleByIdAsync(organizationId, roleId, MembershipScope.STORE);
     }
 }
