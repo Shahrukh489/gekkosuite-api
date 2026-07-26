@@ -69,3 +69,17 @@ LEFT JOIN role_permission rp ON rp.role_id = r.role_id
 LEFT JOIN permission p ON p.permission_id = rp.permission_id
 GROUP BY r.role_id, r.name, r.scope, r.is_managed
 ORDER BY r.name;
+
+
+  SELECT
+      r.role_id,
+      r.name        AS role_name,
+      r.scope       AS role_scope,
+      p.permission_id,
+      p.resource || ':' || p.action AS permission_name,
+      p.description AS permission_description,
+      p.is_elevated
+  FROM role r
+  JOIN role_permission rp ON rp.role_id = r.role_id
+  JOIN permission p       ON p.permission_id = rp.permission_id
+  ORDER BY r.name, p.resource, p.action;

@@ -91,7 +91,6 @@ INSERT INTO membership (membership_id, user_id, scope, organization_id, store_id
 
 
 INSERT INTO membership_assignment (assignment_id, membership_id, role_id, assigned_at, assigned_by_user_id, expires_at) VALUES ('90000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', '2026-01-01T00:00:00Z', '22222222-2222-2222-2222-222222222222', NULL);
-INSERT INTO membership_assignment (assignment_id, membership_id, role_id, assigned_at, assigned_by_user_id, expires_at) VALUES ('90000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000004', '2026-01-06T09:05:00Z', '22222222-2222-2222-2222-222222222222', NULL);
 INSERT INTO membership_assignment (assignment_id, membership_id, role_id, assigned_at, assigned_by_user_id, expires_at) VALUES ('90000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000005', '2026-01-06T09:05:00Z', '22222222-2222-2222-2222-222222222222', NULL);
 INSERT INTO membership_assignment (assignment_id, membership_id, role_id, assigned_at, assigned_by_user_id, expires_at) VALUES ('90000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000004', '2026-01-08T09:05:00Z', '22222222-2222-2222-2222-222222222222', NULL);
 
