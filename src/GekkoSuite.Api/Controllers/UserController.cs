@@ -26,6 +26,7 @@ public class UserController : BaseController
     /// Lists the users in the caller's organization, each with their memberships (role names and details).
     /// </summary>
     [HttpGet]
+    [EndpointName("GetUsers")]
     [HasPermission(MembershipScope.ORGANIZATION, "user:list")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -51,6 +52,7 @@ public class UserController : BaseController
     /// Returns one user in the caller's organization — their record plus their memberships (org or store).
     /// </summary>
     [HttpGet("{userId}")]
+    [EndpointName("GetUserById")]
     [HasPermission(MembershipScope.ORGANIZATION, "user:read")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
