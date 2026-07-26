@@ -18,4 +18,7 @@ public class RoleEntity
 
     /// <summary>True for a system role we ship; false for an org's own custom role.</summary>
     public bool IsManaged { get; set; }
+
+    /// <summary>The permissions this role grants (folded from json_agg); empty if none.</summary>
+    public List<PermissionEntity> Permissions { get; set; } = [];
 }

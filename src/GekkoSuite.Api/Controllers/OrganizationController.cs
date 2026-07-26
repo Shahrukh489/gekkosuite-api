@@ -32,13 +32,13 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<OrganizationDto>> GetOrganizationAsync()
+    public async Task<ActionResult<OrganizationDto>> GetOrganizationByIdAsync()
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            OrganizationDto? organization = await _organizationService.GetOrganizationAsync(organizationId);
+            OrganizationDto? organization = await _organizationService.GetOrganizationByIdAsync(organizationId);
             if (organization is null)
             {
                 return NotFound(new { message = "Organization not found." });

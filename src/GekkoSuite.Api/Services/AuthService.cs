@@ -108,7 +108,7 @@ public class AuthService : IAuthService
     /// <inheritdoc />
     public async Task<UserDto?> GetCurrentUserAsync(Guid organizationId, Guid currentUserId)
     {
-        UserDto? userDto = await _userService.GetUserAsync(organizationId, currentUserId);
+        UserDto? userDto = await _userService.GetUserByIdWithMembershipsAsync(organizationId, currentUserId);
         if (userDto == null)
         {
             return null;

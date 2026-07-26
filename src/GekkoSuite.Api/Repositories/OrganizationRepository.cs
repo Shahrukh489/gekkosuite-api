@@ -15,55 +15,42 @@ public class OrganizationRepository : BaseRepository, IOrganizationRepository
     {
         const string sql = """
             SELECT
-                organization_id AS OrganizationId,
-                name AS Name,
-                description AS Description,
-                billing_status::text AS BillingStatus,
-                created_at AS CreatedAt
-            FROM organization
-            WHERE organization_id = @organizationId
-              AND NOT is_deleted
+                o.organization_id AS OrganizationId,
+                o.name AS Name,
+                o.description AS Description,
+                o.billing_status::text AS BillingStatus,
+                o.created_at AS CreatedAt,
+                COALESCE(
+                    (SELECT json_agg(
+                                json_build_object(
+                                    'subscriptionId', s.subscription_id,
+                                    'offeringId', off.offering_id,
+                                    'offeringName', off.name,
+                                    'offeringType', off.type,
+                                    'status', s.status,
+                                    'pricePerStore', off.price_per_store,
+                                    'trialEndsAt', s.trial_ends_at,
+                                    'currentPeriodEnd', s.current_period_end,
+                                    'features', COALESCE(
+                                        (SELECT array_agg(f.code ORDER BY f.code)
+                                         FROM offering_feature ofe
+                                         JOIN feature f ON f.feature_id = ofe.feature_id AND f.scope = 'ORGANIZATION'
+                                         WHERE ofe.offering_id = off.offering_id),
+                                        '{}'
+                                    )
+                                ) ORDER BY off.name
+                            )
+                     FROM subscription s
+                     JOIN offering off ON off.offering_id = s.offering_id
+                     WHERE s.organization_id = o.organization_id
+                       AND s.status IN ('ACTIVE', 'TRIALING')),
+                    '[]'
+                ) AS Subscriptions
+            FROM organization o
+            WHERE o.organization_id = @organizationId
+              AND NOT o.is_deleted
             """;
 
         return QuerySingleOrDefaultAsync<OrganizationEntity>(organizationId, sql, new { organizationId });
-    }
-
-    /// <inheritdoc />
-    public Task<IEnumerable<SubscriptionEntity>> GetOrganizationSubscriptionsAsync(Guid organizationId)
-    {
-        const string sql = """
-            SELECT
-                s.subscription_id AS SubscriptionId,
-                off.offering_id AS OfferingId,
-                off.name AS OfferingName,
-                off.type::text AS OfferingType,
-                s.status::text AS Status,
-                off.price_per_store AS PricePerStore,
-                s.trial_ends_at AS TrialEndsAt,
-                s.current_period_end AS CurrentPeriodEnd
-            FROM subscription s
-            JOIN offering off ON off.offering_id = s.offering_id
-            WHERE s.organization_id = @organizationId
-              AND s.status IN ('ACTIVE', 'TRIALING')
-            ORDER BY off.name
-            """;
-
-        return QueryAsync<SubscriptionEntity>(organizationId, sql, new { organizationId });
-    }
-
-    /// <inheritdoc />
-    public Task<IEnumerable<string>> GetOrganizationFeaturesAsync(Guid organizationId)
-    {
-        const string sql = """
-            SELECT DISTINCT f.code
-            FROM subscription s
-            JOIN offering_feature ofe ON ofe.offering_id = s.offering_id
-            JOIN feature f ON f.feature_id = ofe.feature_id AND f.scope = 'ORGANIZATION'
-            WHERE s.organization_id = @organizationId
-              AND s.status IN ('ACTIVE', 'TRIALING')
-            ORDER BY f.code
-            """;
-
-        return QueryAsync<string>(organizationId, sql, new { organizationId });
     }
 }

@@ -27,7 +27,7 @@ public class RoleController : BaseController
     /// Pass ?scope=ORGANIZATION or ?scope=STORE to return only roles valid for that membership kind.
     /// </summary>
     [HttpGet]
-    [HasPermission(MembershipScope.ORGANIZATION, "role:read")]
+    [HasPermission(MembershipScope.ORGANIZATION, "role:list")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

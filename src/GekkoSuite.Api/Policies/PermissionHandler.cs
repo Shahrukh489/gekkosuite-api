@@ -27,8 +27,8 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     /// </summary>
     private async Task<bool> CheckOrganizationAccess(Guid organizationId, Guid userId, string permission)
     {
-        _logger.LogDebug("Checking to authorize user {UserId} for a ORGANIZATION Action on organization {OrganizationId}, required permission {Permission}.", userId, organizationId, permission);
-        List<MembershipDto>? memberships = await _userService.GetUserOrganizationMembershipsAsync(organizationId, userId);
+        _logger.LogDebug("Authorizing {UserId}: checking ORGANIZATION membership in org {OrganizationId} for permission {Permission}.", userId, organizationId, permission);
+        List<MembershipDto>? memberships = await _userService.GetUserOrganizationMembershipsByOrganizationIdAsync(organizationId, userId);
         return Grants(memberships, permission);
     }
 
@@ -38,7 +38,7 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     /// </summary>
     private async Task<bool> CheckStoreAccess(Guid organizationId, Guid userId, Guid storeId, string permission)
     {
-        _logger.LogDebug("Checking to authorize user {UserId} for a STORE action on store {StoreId} in org {OrganizationId}, required permission {Permission}.", userId, storeId, organizationId, permission);
+        _logger.LogDebug("Authorizing {UserId}: checking STORE membership at store {StoreId} in org {OrganizationId} for permission {Permission}.", userId, storeId, organizationId, permission);
         List<MembershipDto>? storeMemberships = await _userService.GetUserStoreMembershipsByStoreIdAsync(organizationId, userId, storeId);
         return Grants(storeMemberships, permission);
     }
@@ -79,7 +79,7 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
 
         foreach (MembershipDto membership in memberships)
         {
-            if (membership.Permissions.Contains(permission))
+            if (membership.Permissions != null && membership.Permissions.Contains(permission))
             {
                 _logger.LogDebug("Allowed: membership {MembershipId} role {RoleName} ({RoleId}) grants permission {Permission}.", membership.MembershipId, membership.RoleName, membership.RoleId, permission);
                 return true;
@@ -99,6 +99,10 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     {
         var userId = context.User.GetUserId();
         var organizationId = context.User.GetOrganizationId();
+
+        var route = context.Resource is HttpContext httpContext ? $"{httpContext.Request.Method} {httpContext.Request.Path}" : "unknown";
+        _logger.LogDebug("\n\n"); 
+        _logger.LogDebug("Authorizing {UserId} in org {OrganizationId}: {Scope} action requiring {Permission} on {Route}.", userId, organizationId, requirement.Scope, requirement.Permission, route);
 
         if (requirement.Scope == MembershipScope.ORGANIZATION)
         {

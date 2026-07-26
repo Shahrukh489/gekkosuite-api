@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Enums;
 
@@ -20,15 +22,23 @@ public class OrganizationDto
     /// <summary>When the org was created (stored UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
-    /// <summary>The org's live subscriptions (billing detail); empty if it has none.</summary>
-    public List<SubscriptionDto> Subscriptions { get; set; } = [];
+    /// <summary>The org's live subscriptions (billing detail); omitted when it has none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<SubscriptionDto>? Subscriptions { get; set; }
 
-    /// <summary>The org-scoped feature codes the org's live offerings enable (for gating org screens).</summary>
-    public List<string> Features { get; set; } = [];
+    /// <summary>The org-scoped feature codes the org's live offerings enable (for gating org screens); omitted when empty.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Features { get; set; }
 
-    /// <summary>Map from OrganizationEntity to OrganizationDto.</summary>
+    /// <summary>Map from OrganizationEntity to OrganizationDto (subscriptions folded in, features flattened from them).</summary>
     public static OrganizationDto FromEntity(OrganizationEntity organizationEntity)
     {
+        List<string> features = organizationEntity.Subscriptions
+            .SelectMany(subscription => subscription.Features)
+            .Distinct()
+            .OrderBy(code => code)
+            .ToList();
+
         return new OrganizationDto()
         {
             OrganizationId = organizationEntity.OrganizationId,
@@ -36,6 +46,10 @@ public class OrganizationDto
             Description = organizationEntity.Description,
             BillingStatus = organizationEntity.BillingStatus,
             CreatedAt = organizationEntity.CreatedAt,
+            Subscriptions = organizationEntity.Subscriptions.Count > 0
+                ? SubscriptionDto.FromEntityList(organizationEntity.Subscriptions)
+                : null,
+            Features = features.Count > 0 ? features : null,
         };
     }
 }

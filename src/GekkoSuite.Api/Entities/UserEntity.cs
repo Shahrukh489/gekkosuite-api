@@ -41,6 +41,9 @@ public class UserEntity
 
     /// <summary>When the account was soft-deleted (stored UTC); null while active.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
+
+    /// <summary>The user's memberships (folded from json_agg); empty if none.</summary>
+    public List<MembershipEntity> Memberships { get; set; } = [];
 }
 
 

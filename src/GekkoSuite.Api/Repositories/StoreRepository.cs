@@ -11,7 +11,7 @@ public class StoreRepository : BaseRepository, IStoreRepository
     }
 
     /// <inheritdoc />
-    public Task<StoreEntity?> GetStoreByIdAsync(Guid organizationId, Guid storeId)
+    public Task<IEnumerable<StoreEntity>> GetStoresAsync(Guid organizationId)
     {
         const string sql = """
             SELECT
@@ -22,27 +22,57 @@ public class StoreRepository : BaseRepository, IStoreRepository
                 is_default AS IsDefault,
                 created_at AS CreatedAt
             FROM store
-            WHERE store_id = @storeId
-              AND organization_id = @organizationId
+            WHERE organization_id = @organizationId
               AND NOT is_deleted
+            ORDER BY is_default DESC, name
             """;
 
-        return QuerySingleOrDefaultAsync<StoreEntity>(organizationId, storeId, sql, new { storeId, organizationId });
+        return QueryAsync<StoreEntity>(organizationId, sql, new { organizationId });
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<string>> GetStoreFeaturesAsync(Guid organizationId)
+    public Task<StoreEntity?> GetStoreByIdAsync(Guid organizationId, Guid storeId)
     {
         const string sql = """
-            SELECT DISTINCT f.code
-            FROM subscription s
-            JOIN offering_feature ofe ON ofe.offering_id = s.offering_id
-            JOIN feature f ON f.feature_id = ofe.feature_id AND f.scope = 'STORE'
-            WHERE s.organization_id = @organizationId
-              AND s.status IN ('ACTIVE', 'TRIALING')
-            ORDER BY f.code
+            SELECT
+                s.store_id AS StoreId,
+                s.organization_id AS OrganizationId,
+                s.name AS Name,
+                s.type::text AS Type,
+                s.is_default AS IsDefault,
+                s.created_at AS CreatedAt,
+                COALESCE(
+                    (SELECT json_agg(
+                                json_build_object(
+                                    'subscriptionId', sub.subscription_id,
+                                    'offeringId', off.offering_id,
+                                    'offeringName', off.name,
+                                    'offeringType', off.type,
+                                    'status', sub.status,
+                                    'pricePerStore', off.price_per_store,
+                                    'trialEndsAt', sub.trial_ends_at,
+                                    'currentPeriodEnd', sub.current_period_end,
+                                    'features', COALESCE(
+                                        (SELECT array_agg(f.code ORDER BY f.code)
+                                         FROM offering_feature ofe
+                                         JOIN feature f ON f.feature_id = ofe.feature_id AND f.scope = 'STORE'
+                                         WHERE ofe.offering_id = off.offering_id),
+                                        '{}'
+                                    )
+                                ) ORDER BY off.name
+                            )
+                     FROM subscription sub
+                     JOIN offering off ON off.offering_id = sub.offering_id
+                     WHERE sub.organization_id = s.organization_id
+                       AND sub.status IN ('ACTIVE', 'TRIALING')),
+                    '[]'
+                ) AS Subscriptions
+            FROM store s
+            WHERE s.store_id = @storeId
+              AND s.organization_id = @organizationId
+              AND NOT s.is_deleted
             """;
 
-        return QueryAsync<string>(organizationId, sql, new { organizationId });
+        return QuerySingleOrDefaultAsync<StoreEntity>(organizationId, storeId, sql, new { storeId, organizationId });
     }
 }

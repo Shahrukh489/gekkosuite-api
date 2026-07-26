@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Enums;
 
@@ -23,12 +25,19 @@ public class StoreDto
     /// <summary>When the store was created (stored UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
-    /// <summary>The store-scoped feature codes the org's live offerings enable (for gating store screens).</summary>
-    public List<string> Features { get; set; } = [];
+    /// <summary>The store-scoped feature codes the org's live offerings enable; populated on the single-store view, omitted on the list.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Features { get; set; }
 
-    /// <summary>Map from StoreEntity to StoreDto.</summary>
+    /// <summary>Map from StoreEntity to StoreDto (features flattened from the org's live subscriptions).</summary>
     public static StoreDto FromEntity(StoreEntity storeEntity)
     {
+        List<string> features = storeEntity.Subscriptions
+            .SelectMany(subscription => subscription.Features)
+            .Distinct()
+            .OrderBy(code => code)
+            .ToList();
+
         return new StoreDto()
         {
             StoreId = storeEntity.StoreId,
@@ -37,6 +46,7 @@ public class StoreDto
             Type = storeEntity.Type,
             IsDefault = storeEntity.IsDefault,
             CreatedAt = storeEntity.CreatedAt,
+            Features = features.Count > 0 ? features : null,
         };
     }
 }

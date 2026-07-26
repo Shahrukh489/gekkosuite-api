@@ -22,19 +22,14 @@ public class RoleService : IRoleService
     }
 
     /// <inheritdoc />
-    public async Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId)
+    public async Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId, MembershipScope? scope = null)
     {
-        RoleEntity? roleEntity = await _roleRepository.GetRoleByIdAsync(organizationId, roleId);
+        RoleEntity? roleEntity = await _roleRepository.GetRoleByIdAsync(organizationId, roleId, scope);
         if (roleEntity is null)
         {
             return null;
         }
 
-        RoleDto roleDto = RoleDto.FromEntity(roleEntity);
-
-        IEnumerable<PermissionEntity> permissionEntities = await _roleRepository.GetRolePermissionsAsync(organizationId, roleId);
-        roleDto.Permissions = PermissionDto.FromEntityList(permissionEntities.ToList());
-
-        return roleDto;
+        return RoleDto.FromEntity(roleEntity);
     }
 }

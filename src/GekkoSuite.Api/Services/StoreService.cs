@@ -7,10 +7,25 @@ namespace GekkoSuite.Api.Services;
 public class StoreService : IStoreService
 {
     private readonly IStoreRepository _storeRepository;
+    private readonly IUserService _userService;
 
-    public StoreService(IStoreRepository storeRepository)
+    public StoreService(IStoreRepository storeRepository, IUserService userService)
     {
         _storeRepository = storeRepository;
+        _userService = userService;
+    }
+
+    /// <inheritdoc />
+    public async Task<List<UserDto>> GetStoreUsersByStoreIdAsync(Guid organizationId, Guid storeId)
+    {
+        return await _userService.GetUsersByStoreIdWithMembershipsAsync(organizationId, storeId);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<StoreDto>> GetStoresAsync(Guid organizationId)
+    {
+        IEnumerable<StoreEntity> storeEntities = await _storeRepository.GetStoresAsync(organizationId);
+        return storeEntities.Select(StoreDto.FromEntity).ToList();
     }
 
     /// <inheritdoc />
@@ -23,26 +38,5 @@ public class StoreService : IStoreService
         }
 
         return StoreDto.FromEntity(storeEntity);
-    }
-
-    /// <inheritdoc />
-    public async Task<List<string>> GetStoreFeaturesAsync(Guid organizationId)
-    {
-        IEnumerable<string> features = await _storeRepository.GetStoreFeaturesAsync(organizationId);
-        return features.ToList();
-    }
-
-    /// <inheritdoc />
-    public async Task<StoreDto?> GetStoreAsync(Guid organizationId, Guid storeId)
-    {
-        StoreDto? storeDto = await GetStoreByIdAsync(organizationId, storeId);
-        if (storeDto is null)
-        {
-            return null;
-        }
-
-        storeDto.Features = await GetStoreFeaturesAsync(organizationId);
-
-        return storeDto;
     }
 }

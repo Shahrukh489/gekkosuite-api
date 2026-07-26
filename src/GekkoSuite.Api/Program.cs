@@ -1,10 +1,12 @@
 using System.Text;
 
+using Dapper;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 
 using GekkoSuite.Api.Configurations;
+using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Middlewares;
 using GekkoSuite.Api.Policies;
 using GekkoSuite.Api.Repositories;
@@ -19,7 +21,30 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "HH:mm:ss ";
 });
 
+// map json_agg columns onto entity collections (e.g. a role's permissions)
+SqlMapper.AddTypeHandler(new JsonTypeHandler<List<PermissionEntity>>());
+SqlMapper.AddTypeHandler(new JsonTypeHandler<List<MembershipEntity>>());
+SqlMapper.AddTypeHandler(new JsonTypeHandler<List<SubscriptionEntity>>());
+
 builder.Services.AddOpenApi();
+
+// CORS is opt-in via config: Cors:AllowedOrigins (a JSON array). Absent/empty — e.g. production — means
+// no policy is registered and no cross-origin requests are allowed.
+const string CorsPolicyName = "ConfiguredOrigins";
+string[] allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+if (allowedOrigins.Length > 0)
+{
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy(CorsPolicyName, policy =>
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        });
+    });
+}
 
 // serialize enums as their names (e.g. "ORGANIZATION"), not their underlying integer
 builder.Services.AddControllers().AddJsonOptions(options =>
@@ -49,11 +74,13 @@ builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>()
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<IStoreRepository, StoreRepository>();
 builder.Services.AddSingleton<IRoleRepository, RoleRepository>();
+builder.Services.AddSingleton<IOfferingRepository, OfferingRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
 builder.Services.AddSingleton<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<IStoreService, StoreService>();
 builder.Services.AddSingleton<IRoleService, RoleService>();
+builder.Services.AddSingleton<IOfferingService, OfferingService>();
 
 // Authorization: the provider turns a HasPermission policy name into a requirement, the handler evaluates it.
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
@@ -120,10 +147,10 @@ builder.Services
             OnTokenValidated = context =>
             {
                 // reject the token if either custom claim is missing or not a valid GUID
-                
+
                 var userId = context.Principal?.FindFirst("userId")?.Value;
                 var organizationId = context.Principal?.FindFirst("organizationId")?.Value;
-                
+
                 if (userId is null || organizationId is null)
                 {
                     context.Fail("Missing or invalid userId / organizationId claim.");
@@ -150,13 +177,36 @@ builder.Services.AddAuthorization(options =>
 
 var app = builder.Build();
 
+// Top of the pipeline: catch every unhandled exception 
+app.UseExceptionHandler(handler =>
+{
+    handler.Run(async context =>
+    {
+        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogError(feature?.Error, "Handling Global Unhandled exception.");
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await Task.CompletedTask;
+    });
+});
+
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    // exempt from the deny-by-default FallbackPolicy so the spec is reachable without a token
+    app.MapOpenApi().AllowAnonymous();
 }
 
 app.UseHttpsRedirection();
 app.UseRouting();
+
+// CORS runs before authentication so preflight OPTIONS requests are answered before auth can reject them.
+// Only mapped when origins were configured (registered above, before the app was built).
+if (allowedOrigins.Length > 0)
+{
+    app.UseCors(CorsPolicyName);
+}
+
 app.UseAuthentication();
 app.UseMiddleware<AuthenticationMiddleware>();
 app.UseAuthorization();

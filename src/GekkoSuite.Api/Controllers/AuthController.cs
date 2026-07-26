@@ -28,6 +28,7 @@ public class AuthController : BaseController
     /// Exchanges an email + password for an access token
     /// </summary>
     [HttpPost("login")]
+    [EndpointName("Login")]
     [AllowAnonymous]
     [Consumes(MediaTypeNames.Application.Json)]
     [Produces(MediaTypeNames.Application.Json)]
@@ -67,6 +68,7 @@ public class AuthController : BaseController
     /// validated token, never from the request. Any authenticated user may call this; no permission needed.
     /// </summary>
     [HttpGet("me")]
+    [EndpointName("GetCurrentUser")]
     [Authorize]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
