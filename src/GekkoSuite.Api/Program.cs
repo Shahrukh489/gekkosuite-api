@@ -74,6 +74,7 @@ builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>()
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<IStoreRepository, StoreRepository>();
 builder.Services.AddSingleton<IProductRepository, ProductRepository>();
+builder.Services.AddSingleton<ICustomerRepository, CustomerRepository>();
 builder.Services.AddSingleton<IRoleRepository, RoleRepository>();
 builder.Services.AddSingleton<IOfferingRepository, OfferingRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
@@ -81,6 +82,7 @@ builder.Services.AddSingleton<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<IStoreService, StoreService>();
 builder.Services.AddSingleton<IProductService, ProductService>();
+builder.Services.AddSingleton<ICustomerService, CustomerService>();
 builder.Services.AddSingleton<IRoleService, RoleService>();
 builder.Services.AddSingleton<IOfferingService, OfferingService>();
 

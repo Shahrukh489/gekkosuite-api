@@ -220,6 +220,37 @@ CREATE INDEX ON store_product (store_id);
 -- a SKU is unique within a store (only live products count); NULL SKUs are exempt
 CREATE UNIQUE INDEX store_product_sku_per_store ON store_product (store_id, sku) WHERE sku IS NOT NULL AND NOT is_deleted;
 
+-- A store_customer: a customer as known AT ONE STORE. Always written when a customer is created (the
+-- shared org-level `customer` — recognized org-wide — is written in the same transaction; see
+-- tenancy.md / CLAUDE.md). Each store owns its own row.
+CREATE TABLE store_customer (
+    -- store_customer id
+    store_customer_id UUID PRIMARY KEY,
+    -- the store this customer belongs to (its business unit)
+    store_id          UUID NOT NULL REFERENCES store (store_id),
+    -- the owning org (the tenant boundary — stamped for RLS and cross-store isolation)
+    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
+    -- customer's full name, e.g. 'Jane Doe'
+    name              VARCHAR(256) NOT NULL,
+    -- contact email; optional (unique per store — index below)
+    email             VARCHAR(254),
+    -- contact phone ('+', spaces, extensions); optional
+    phone             VARCHAR(32),
+    -- opt-in flag for a store loyalty/marketing list
+    is_active         BOOLEAN NOT NULL,
+    -- when the customer was first added at this store (stored UTC)
+    created_at        TIMESTAMPTZ NOT NULL,
+    -- when it was last modified (stored UTC)
+    updated_at        TIMESTAMPTZ NOT NULL,
+    -- soft-delete flag; TRUE = removed from this store but kept for history
+    is_deleted        BOOLEAN NOT NULL,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at        TIMESTAMPTZ
+);
+CREATE INDEX ON store_customer (store_id);
+-- an email is unique within a store (only live customers count); NULL emails are exempt
+CREATE UNIQUE INDEX store_customer_email_per_store ON store_customer (store_id, email) WHERE email IS NOT NULL AND NOT is_deleted;
+
 
 -- A role: a named bundle of permissions. Either a managed role we ship, or an org's own custom role.
 CREATE TABLE role (

@@ -168,4 +168,32 @@ public class StoreController : BaseController
             return ErrorResponse(ex);
         }
     }
+
+    /// <summary>
+    /// Lists the customers at a store — the store's own roster with contact details.
+    /// The store must belong to the caller's org.
+    /// </summary>
+    [HttpGet("{" + Constants.STORE_ID + "}/customers")]
+    [EndpointName("GetStoreCustomers")]
+    [HasPermission(MembershipScope.STORE, "customer:list")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<List<CustomerDto>>> GetStoreCustomersAsync(Guid storeId)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            List<CustomerDto> customers = await _storeService.GetStoreCustomersAsync(organizationId, storeId);
+
+            return Ok(customers);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
 }
