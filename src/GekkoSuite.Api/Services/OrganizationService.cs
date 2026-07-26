@@ -45,9 +45,9 @@ public class OrganizationService : IOrganizationService
     }
 
     /// <inheritdoc />
-    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId, MembershipScope? scope)
+    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId)
     {
-        return await _roleService.GetRolesAsync(organizationId, scope);
+        return await _roleService.GetRolesAsync(organizationId, null);
     }
 
     /// <inheritdoc />

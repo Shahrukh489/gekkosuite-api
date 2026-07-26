@@ -185,6 +185,72 @@ CREATE INDEX ON store (organization_id);
 -- at most one default store per org (only live stores count)
 CREATE UNIQUE INDEX store_one_default_per_org ON store (organization_id) WHERE is_default AND NOT is_deleted;
 
+-- A store_product: a product as it exists AT ONE STORE — its own stock and price. Always written when a
+-- product is created (the shared org-level `product` is written only when share_products is on). Stock and
+-- price are ALWAYS per-store, never shared (see tenancy.md / CLAUDE.md).
+CREATE TABLE store_product (
+    -- store_product id
+    store_product_id UUID PRIMARY KEY,
+    -- the store this product belongs to (its business unit)
+    store_id         UUID NOT NULL REFERENCES store (store_id),
+    -- the owning org (the tenant boundary — stamped for RLS and cross-store isolation)
+    organization_id  UUID NOT NULL REFERENCES organization (organization_id),
+    -- product display name, e.g. 'Espresso Beans 1kg'
+    name             VARCHAR(256) NOT NULL,
+    -- optional human description
+    description      VARCHAR(1024),
+    -- stock-keeping unit; the store's own product code (optional, unique per store — index below)
+    sku              VARCHAR(64),
+    -- this store's selling price (never shared across stores)
+    price            NUMERIC NOT NULL,
+    -- units on hand at this store (never shared across stores)
+    stock            INTEGER NOT NULL,
+    -- listing toggle; FALSE = hidden from selling but kept
+    is_active        BOOLEAN NOT NULL,
+    -- when the product was created at this store (stored UTC)
+    created_at       TIMESTAMPTZ NOT NULL,
+    -- when it was last modified (stored UTC)
+    updated_at       TIMESTAMPTZ NOT NULL,
+    -- soft-delete flag; TRUE = removed from this store but kept for history
+    is_deleted       BOOLEAN NOT NULL,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at       TIMESTAMPTZ
+);
+CREATE INDEX ON store_product (store_id);
+-- a SKU is unique within a store (only live products count); NULL SKUs are exempt
+CREATE UNIQUE INDEX store_product_sku_per_store ON store_product (store_id, sku) WHERE sku IS NOT NULL AND NOT is_deleted;
+
+-- A store_customer: a customer as known AT ONE STORE. Always written when a customer is created (the
+-- shared org-level `customer` — recognized org-wide — is written in the same transaction; see
+-- tenancy.md / CLAUDE.md). Each store owns its own row.
+CREATE TABLE store_customer (
+    -- store_customer id
+    store_customer_id UUID PRIMARY KEY,
+    -- the store this customer belongs to (its business unit)
+    store_id          UUID NOT NULL REFERENCES store (store_id),
+    -- the owning org (the tenant boundary — stamped for RLS and cross-store isolation)
+    organization_id   UUID NOT NULL REFERENCES organization (organization_id),
+    -- customer's full name, e.g. 'Jane Doe'
+    name              VARCHAR(256) NOT NULL,
+    -- contact email; optional (unique per store — index below)
+    email             VARCHAR(254),
+    -- contact phone ('+', spaces, extensions); optional
+    phone             VARCHAR(32),
+    -- opt-in flag for a store loyalty/marketing list
+    is_active         BOOLEAN NOT NULL,
+    -- when the customer was first added at this store (stored UTC)
+    created_at        TIMESTAMPTZ NOT NULL,
+    -- when it was last modified (stored UTC)
+    updated_at        TIMESTAMPTZ NOT NULL,
+    -- soft-delete flag; TRUE = removed from this store but kept for history
+    is_deleted        BOOLEAN NOT NULL,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at        TIMESTAMPTZ
+);
+CREATE INDEX ON store_customer (store_id);
+-- an email is unique within a store (only live customers count); NULL emails are exempt
+CREATE UNIQUE INDEX store_customer_email_per_store ON store_customer (store_id, email) WHERE email IS NOT NULL AND NOT is_deleted;
+
 
 -- A role: a named bundle of permissions. Either a managed role we ship, or an org's own custom role.
 CREATE TABLE role (

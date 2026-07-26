@@ -28,4 +28,14 @@ public interface IStoreService
     /// Returns one STORE-scoped role and the permissions it grants, or null if not visible to the org or not a store role.
     /// </summary>
     Task<RoleDto?> GetStoreRoleByIdAsync(Guid organizationId, Guid roleId);
+
+    /// <summary>
+    /// Lists the products at the given store — the store's own catalog with its per-store stock and price.
+    /// </summary>
+    Task<List<ProductDto>> GetStoreProductsAsync(Guid organizationId, Guid storeId);
+
+    /// <summary>
+    /// Lists the customers at the given store — the store's own roster with contact details.
+    /// </summary>
+    Task<List<CustomerDto>> GetStoreCustomersAsync(Guid organizationId, Guid storeId);
 }

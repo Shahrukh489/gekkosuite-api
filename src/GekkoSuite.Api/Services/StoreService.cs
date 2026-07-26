@@ -8,12 +8,16 @@ namespace GekkoSuite.Api.Services;
 public class StoreService : IStoreService
 {
     private readonly IStoreRepository _storeRepository;
+    private readonly IProductService _productService;
+    private readonly ICustomerService _customerService;
     private readonly IUserService _userService;
     private readonly IRoleService _roleService;
 
-    public StoreService(IStoreRepository storeRepository, IUserService userService, IRoleService roleService)
+    public StoreService(IStoreRepository storeRepository, IProductService productService, ICustomerService customerService, IUserService userService, IRoleService roleService)
     {
         _storeRepository = storeRepository;
+        _productService = productService;
+        _customerService = customerService;
         _userService = userService;
         _roleService = roleService;
     }
@@ -53,5 +57,17 @@ public class StoreService : IStoreService
     public async Task<RoleDto?> GetStoreRoleByIdAsync(Guid organizationId, Guid roleId)
     {
         return await _roleService.GetRoleByIdAsync(organizationId, roleId, MembershipScope.STORE);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<ProductDto>> GetStoreProductsAsync(Guid organizationId, Guid storeId)
+    {
+        return await _productService.GetStoreProductsAsync(organizationId, storeId);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<CustomerDto>> GetStoreCustomersAsync(Guid organizationId, Guid storeId)
+    {
+        return await _customerService.GetStoreCustomersAsync(organizationId, storeId);
     }
 }

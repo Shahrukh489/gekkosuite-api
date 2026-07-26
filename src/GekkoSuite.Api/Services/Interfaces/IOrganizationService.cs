@@ -23,7 +23,7 @@ public interface IOrganizationService
     /// <summary>
     /// Lists the roles assignable in the org (managed + the org's own), optionally filtered to one scope.
     /// </summary>
-    Task<List<RoleDto>> GetRolesAsync(Guid organizationId, MembershipScope? scope);
+    Task<List<RoleDto>> GetRolesAsync(Guid organizationId);
 
     /// <summary>
     /// Returns one role and the permissions it grants, or null if not visible to the org.

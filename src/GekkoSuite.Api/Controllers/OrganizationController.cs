@@ -122,24 +122,12 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<RoleDto>>> GetRolesAsync([FromQuery] string? scope)
+    public async Task<ActionResult<List<RoleDto>>> GetRolesAsync()
     {
         try
         {
             var organizationId = User.GetOrganizationId();
-
-            MembershipScope? parsedScope = null;
-            if (!string.IsNullOrEmpty(scope))
-            {
-                if (!Enum.TryParse<MembershipScope>(scope, out var value))
-                {
-                    return BadRequest(new { message = "Invalid scope. Use ORGANIZATION or STORE." });
-                }
-
-                parsedScope = value;
-            }
-
-            List<RoleDto> roles = await _organizationService.GetRolesAsync(organizationId, parsedScope);
+            List<RoleDto> roles = await _organizationService.GetRolesAsync(organizationId);
 
             return Ok(roles);
         }
