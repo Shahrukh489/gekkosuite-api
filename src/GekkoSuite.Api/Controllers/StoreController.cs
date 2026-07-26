@@ -147,7 +147,7 @@ public class StoreController : BaseController
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}/products")]
     [EndpointName("GetStoreProducts")]
-    [HasPermission(MembershipScope.STORE, "product:read")]
+    [HasPermission(MembershipScope.STORE, "product:list")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
