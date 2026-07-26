@@ -76,6 +76,9 @@ public class AuthController : BaseController
     {
         try
         {
+            // @TODO: this will be a gap, because we should not put organizationId in the token or
+            // return it for store Users, we need to improvise and add instead the storeIds in the token?
+            // need to investigate
             var userId = User.GetUserId();
             var organizationId = User.GetOrganizationId();
 
