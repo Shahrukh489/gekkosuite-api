@@ -27,6 +27,7 @@ public class RoleController : BaseController
     /// Pass ?scope=ORGANIZATION or ?scope=STORE to return only roles valid for that membership kind.
     /// </summary>
     [HttpGet]
+    [EndpointName("GetRoles")]
     [HasPermission(MembershipScope.ORGANIZATION, "role:list")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -64,6 +65,7 @@ public class RoleController : BaseController
     /// Returns one role and the permissions it grants. Visible only if it is managed or owned by the caller's org.
     /// </summary>
     [HttpGet("{roleId}")]
+    [EndpointName("GetRoleById")]
     [HasPermission(MembershipScope.ORGANIZATION, "role:read")]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
