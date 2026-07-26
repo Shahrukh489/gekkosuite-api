@@ -9,7 +9,6 @@ using Microsoft.IdentityModel.Tokens;
 using GekkoSuite.Api.Auth;
 using GekkoSuite.Api.Configurations;
 using GekkoSuite.Api.Entities;
-using GekkoSuite.Api.Middlewares;
 using GekkoSuite.Api.Policies;
 using GekkoSuite.Api.Repositories;
 using GekkoSuite.Api.Services;
