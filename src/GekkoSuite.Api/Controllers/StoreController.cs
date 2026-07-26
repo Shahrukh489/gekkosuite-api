@@ -140,4 +140,32 @@ public class StoreController : BaseController
             return ErrorResponse(ex);
         }
     }
+
+    /// <summary>
+    /// Lists the products at a store — the store's own catalog with its per-store stock and price.
+    /// The store must belong to the caller's org.
+    /// </summary>
+    [HttpGet("{" + Constants.STORE_ID + "}/products")]
+    [EndpointName("GetStoreProducts")]
+    [HasPermission(MembershipScope.STORE, "product:read")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<List<StoreProductDto>>> GetStoreProductsAsync(Guid storeId)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            List<StoreProductDto> products = await _storeService.GetStoreProductsAsync(organizationId, storeId);
+
+            return Ok(products);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
 }

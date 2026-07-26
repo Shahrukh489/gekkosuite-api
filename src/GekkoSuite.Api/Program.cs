@@ -73,6 +73,7 @@ builder.Services.AddNpgsqlDataSource(connectionString);
 builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>();
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<IStoreRepository, StoreRepository>();
+builder.Services.AddSingleton<IStoreProductRepository, StoreProductRepository>();
 builder.Services.AddSingleton<IRoleRepository, RoleRepository>();
 builder.Services.AddSingleton<IOfferingRepository, OfferingRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();

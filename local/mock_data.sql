@@ -10,6 +10,15 @@ INSERT INTO store (store_id, organization_id, name, type, description, address, 
 INSERT INTO store (store_id, organization_id, name, type, description, address, city, state, postal_code, country, currency, phone, email, is_default, created_at, updated_at, is_deleted, deleted_at) VALUES ('20000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'Westside', 'PHYSICAL', 'New location, no staff yet', '456 West Ave', 'Austin', 'TX', '78703', 'US', 'USD', NULL, 'westside@gekkosuite.com', FALSE, '2026-01-10T09:00:00Z', '2026-01-10T09:00:00Z', FALSE, NULL);
 
 
+-- store_product: each store keeps its OWN stock and price (never shared). Downtown and Online carry the
+-- same items at different prices/quantities to prove they are per-store.
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Espresso Beans 1kg', 'House blend, whole bean', 'BEAN-1KG', 24.00, 40, TRUE, '2026-01-05T12:30:00Z', '2026-01-05T12:30:00Z', FALSE, NULL);
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Ceramic Mug', '350ml branded mug', 'MUG-350', 12.50, 120, TRUE, '2026-01-05T12:31:00Z', '2026-01-05T12:31:00Z', FALSE, NULL);
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Reusable Filter', 'Discontinued line', 'FILT-RE', 8.00, 0, FALSE, '2026-01-05T12:32:00Z', '2026-01-06T09:00:00Z', FALSE, NULL);
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Espresso Beans 1kg', 'House blend, whole bean', 'BEAN-1KG', 26.50, 200, TRUE, '2026-01-07T10:15:00Z', '2026-01-07T10:15:00Z', FALSE, NULL);
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Cold Brew Concentrate', '1L bottle, online exclusive', 'CB-1L', 18.00, 75, TRUE, '2026-01-07T10:16:00Z', '2026-01-07T10:16:00Z', FALSE, NULL);
+
+
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000001', 'organization', 'read', 'Read the organization record and billing state', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000002', 'user', 'create', 'Create a user (login only, no membership)', TRUE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000003', 'sale', 'create', 'Ring up a sale', FALSE);
@@ -36,6 +45,7 @@ INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000009');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000010');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000012');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000004');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000004');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000007');

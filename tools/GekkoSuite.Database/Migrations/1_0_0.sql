@@ -185,6 +185,41 @@ CREATE INDEX ON store (organization_id);
 -- at most one default store per org (only live stores count)
 CREATE UNIQUE INDEX store_one_default_per_org ON store (organization_id) WHERE is_default AND NOT is_deleted;
 
+-- A store_product: a product as it exists AT ONE STORE — its own stock and price. Always written when a
+-- product is created (the shared org-level `product` is written only when share_products is on). Stock and
+-- price are ALWAYS per-store, never shared (see tenancy.md / CLAUDE.md).
+CREATE TABLE store_product (
+    -- store_product id
+    store_product_id UUID PRIMARY KEY,
+    -- the store this product belongs to (its business unit)
+    store_id         UUID NOT NULL REFERENCES store (store_id),
+    -- the owning org (the tenant boundary — stamped for RLS and cross-store isolation)
+    organization_id  UUID NOT NULL REFERENCES organization (organization_id),
+    -- product display name, e.g. 'Espresso Beans 1kg'
+    name             VARCHAR(256) NOT NULL,
+    -- optional human description
+    description      VARCHAR(1024),
+    -- stock-keeping unit; the store's own product code (optional, unique per store — index below)
+    sku              VARCHAR(64),
+    -- this store's selling price (never shared across stores)
+    price            NUMERIC NOT NULL,
+    -- units on hand at this store (never shared across stores)
+    stock            INTEGER NOT NULL,
+    -- listing toggle; FALSE = hidden from selling but kept
+    is_active        BOOLEAN NOT NULL,
+    -- when the product was created at this store (stored UTC)
+    created_at       TIMESTAMPTZ NOT NULL,
+    -- when it was last modified (stored UTC)
+    updated_at       TIMESTAMPTZ NOT NULL,
+    -- soft-delete flag; TRUE = removed from this store but kept for history
+    is_deleted       BOOLEAN NOT NULL,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at       TIMESTAMPTZ
+);
+CREATE INDEX ON store_product (store_id);
+-- a SKU is unique within a store (only live products count); NULL SKUs are exempt
+CREATE UNIQUE INDEX store_product_sku_per_store ON store_product (store_id, sku) WHERE sku IS NOT NULL AND NOT is_deleted;
+
 
 -- A role: a named bundle of permissions. Either a managed role we ship, or an org's own custom role.
 CREATE TABLE role (

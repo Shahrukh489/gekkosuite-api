@@ -5,8 +5,6 @@ using System.Net.Mime;
 using GekkoSuite.Api.Extensions;
 using GekkoSuite.Api.Services;
 using GekkoSuite.Api.Dtos;
-using GekkoSuite.Api.Enums;
-using GekkoSuite.Api.Policies;
 
 namespace GekkoSuite.Api.Controllers;
 
