@@ -1,92 +1,113 @@
--- ============================================================================
--- mock_data.sql — a few rows for local dev. Run AFTER the schema migration.
--- The DB has no defaults/generation, so every value (ids, timestamps, flags) is
--- supplied explicitly here, exactly as the app would on insert.
--- Fixed UUIDs are used so the data is stable/repeatable across loads.
--- ============================================================================
-
--- Two organizations: Acme Inc (the main mock tenant) and a small standalone Dev Org (a single-user
--- login fixture, plus handy for testing cross-org isolation since it's a separate tenant).
-INSERT INTO organization (organization_id, name, description, billing_status, created_at, is_deleted, deleted_at) VALUES
-    ('00000000-0000-0000-0000-000000000001', 'Acme Inc', 'Coffee chain',                 'ACTIVE', '2026-01-05T12:00:00Z', FALSE, NULL),
-    ('11111111-1111-1111-1111-111111111111', 'Dev Org',  'Seeded for local login testing', 'ACTIVE', '2026-01-01T00:00:00Z', FALSE, NULL);
-
--- Users: Acme's owner (Maria) plus two staff, and Dev Org's own single owner/user. created_by_user_id
--- points at the owner for Acme's staff; NULL where system-seeded (Maria, the Dev Org user).
--- Passwords are real, checkable Argon2id hashes (same params as AuthService.HashPassword: memory=19 MiB,
--- iterations=2, parallelism=1, 32-byte output), stored as "{base64Salt}:{base64Hash}" so POST /auth/login
--- actually works against these rows — the old '$argon2id$mock' placeholder never matched any password
--- (VerifyPassword expects exactly one ':' in the stored value, so it always failed closed).
--- Acme's three share one password for convenience: Password123! Dev Org's user: DevPassword123!
-INSERT INTO "user" (user_id, organization_id, email, password, name, phone, is_active, is_org_owner, created_by_user_id, created_at, is_deleted, deleted_at) VALUES
-    ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'maria@acme.com',      'Pvi7LJ2oxQRczv/hO3b29Q==:4c5IvuqMIVUxSw4ZP2obc77lOL0qoOCRBcCm81uRlrM=', 'Maria',    '+1 555 0100', TRUE, TRUE,  NULL,                                     '2026-01-05T12:00:00Z', FALSE, NULL),
-    ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'sara@acme.com',       'PQUJ8QnHyQZInhTvRIXO0w==:aCdPwONtNFWH1wiuq7cika4aYDmNewJMWFyVe+dGmc8=', 'Sara',     '+1 555 0101', TRUE, FALSE, '10000000-0000-0000-0000-000000000001', '2026-01-06T09:00:00Z', FALSE, NULL),
-    ('10000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'marcus@acme.com',     'bmQ2G6/ojp92m1cBFOEkcw==:MzCFYs9YtTb+iv4YoAR1uuaW17EXRrBPAHWC9gVTg3Y=', 'Marcus',   '+1 555 0102', TRUE, FALSE, '10000000-0000-0000-0000-000000000001', '2026-01-06T09:05:00Z', FALSE, NULL),
-    ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'dev@gekkosuite.local','fzR6hQsI5Vr6eeTO8qCZLw==:duYlawAZ54cuHXLRDMu4vAUlMu0WDO/+UfC7LobIwK0=', 'Dev User', NULL,          TRUE, TRUE,  NULL,                                     '2026-01-01T00:00:00Z', FALSE, NULL);
-
--- Two stores; Downtown is the org's default store.
-INSERT INTO store (store_id, organization_id, name, type, description, address, city, state, postal_code, country, currency, phone, email, is_default, created_at, is_deleted, deleted_at) VALUES
-    ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'Downtown', 'PHYSICAL', 'Flagship',    '1 Main St',  'Austin', 'TX', '78701', 'US', 'USD', '+1 555 0200', 'downtown@acme.com', TRUE,  '2026-01-05T12:00:00Z', FALSE, NULL),
-    ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'Online',   'ONLINE',   'Web storefront', NULL,        NULL,     NULL, NULL,    'US', 'USD', NULL,          'shop@acme.com',     FALSE, '2026-01-07T10:00:00Z', FALSE, NULL);
+INSERT INTO organization (organization_id, name, description, billing_status, created_at, updated_at, is_deleted, deleted_at) VALUES ('11111111-1111-1111-1111-111111111111', 'Dev Org', 'Seeded for local testing', 'ACTIVE', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', FALSE, NULL);
 
 
+INSERT INTO user_account (user_id, organization_id, email, password, first_name, last_name, phone, is_active, is_org_owner, created_by_user_id, created_at, updated_at, is_deleted, deleted_at) VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'admin@gekkosuite.com', 'fzR6hQsI5Vr6eeTO8qCZLw==:duYlawAZ54cuHXLRDMu4vAUlMu0WDO/+UfC7LobIwK0=', 'Dev', 'User', NULL, TRUE, TRUE, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', FALSE, NULL);
+INSERT INTO user_account (user_id, organization_id, email, password, first_name, last_name, phone, is_active, is_org_owner, created_by_user_id, created_at, updated_at, is_deleted, deleted_at) VALUES ('10000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'marcus@gekkosuite.com', 'bmQ2G6/ojp92m1cBFOEkcw==:MzCFYs9YtTb+iv4YoAR1uuaW17EXRrBPAHWC9gVTg3Y=', 'Marcus', 'Joe', '+1 555 0102', TRUE, FALSE, '22222222-2222-2222-2222-222222222222', '2026-01-06T09:05:00Z', '2026-01-06T09:05:00Z', FALSE, NULL);
 
--- -- Permission catalog. resource:action pairs are drawn directly from docs/api.md's endpoint specs and
--- -- the worked examples in auth.md/ui.md/plans.md — nothing invented beyond what the docs already name.
--- INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES
---     ('30000000-0000-0000-0000-000000000001', 'organization', 'read',       'Read the organization record and billing state', FALSE),
---     ('30000000-0000-0000-0000-000000000002', 'user',         'create',     'Create a user (login only, no membership)',       TRUE),
---     ('30000000-0000-0000-0000-000000000003', 'user',         'read',       'List/view users',                                 FALSE),
---     ('30000000-0000-0000-0000-000000000004', 'user',         'edit',       'Edit a user''s profile fields',                   TRUE),
---     ('30000000-0000-0000-0000-000000000005', 'user',         'deactivate', 'Turn a user account off',                         TRUE),
---     ('30000000-0000-0000-0000-000000000006', 'user',         'activate',   'Turn a user account back on',                     TRUE),
---     ('30000000-0000-0000-0000-000000000007', 'membership',   'assign',     'Grant a membership + role',                       TRUE),
---     ('30000000-0000-0000-0000-000000000008', 'membership',   'revoke',     'Remove a membership entirely',                    TRUE),
---     ('30000000-0000-0000-0000-000000000009', 'membership',   'deactivate', 'Suspend a membership',                            FALSE),
---     ('30000000-0000-0000-0000-00000000000a', 'membership',   'activate',   'Restore a suspended membership',                  FALSE),
---     ('30000000-0000-0000-0000-00000000000b', 'role',         'read',       'List roles / view a role''s permissions',         FALSE),
---     ('30000000-0000-0000-0000-00000000000c', 'store',        'read',       'View store record(s)',                            FALSE),
---     ('30000000-0000-0000-0000-00000000000d', 'store',        'create',     'Create a store',                                  TRUE),
---     ('30000000-0000-0000-0000-00000000000e', 'store',        'edit',       'Edit a store''s details',                         FALSE),
---     ('30000000-0000-0000-0000-00000000000f', 'store',        'delete',     'Soft-delete a store',                             TRUE),
---     ('30000000-0000-0000-0000-000000000010', 'product',      'read',       'View a store''s products',                        FALSE),
---     ('30000000-0000-0000-0000-000000000011', 'product',      'create',     'Add a product to a store',                        FALSE),
---     ('30000000-0000-0000-0000-000000000012', 'product',      'edit',       'Edit a store product (incl. price)',              FALSE),
---     ('30000000-0000-0000-0000-000000000013', 'customer',     'read',       'View a store''s customers',                       FALSE),
---     ('30000000-0000-0000-0000-000000000014', 'customer',     'create',     'Add a customer at a store',                       FALSE),
---     ('30000000-0000-0000-0000-000000000015', 'sale',         'create',     'Ring up a sale',                                  FALSE),
---     ('30000000-0000-0000-0000-000000000016', 'order',        'read',       'View a store''s sales orders',                    FALSE),
---     ('30000000-0000-0000-0000-000000000017', 'order',        'refund',     'Process a return/refund',                         FALSE);
 
--- -- Managed roles: Cashier and Manager (STORE scope), Org Admin (ORGANIZATION scope). All three are
--- -- managed (is_managed = TRUE), so organization_id is NULL per the CHECK.
--- INSERT INTO role (role_id, name, description, is_managed, organization_id, scope) VALUES
---     ('40000000-0000-0000-0000-000000000001', 'Cashier',   'Rings up sales at a store',  TRUE, NULL, 'STORE'),
---     ('40000000-0000-0000-0000-000000000002', 'Manager',   'Runs a store',               TRUE, NULL, 'STORE'),
---     ('40000000-0000-0000-0000-000000000003', 'Org Admin', 'Full administrative access', TRUE, NULL, 'ORGANIZATION');
+INSERT INTO store (store_id, organization_id, name, type, description, address, city, state, postal_code, country, currency, phone, email, is_default, created_at, updated_at, is_deleted, deleted_at) VALUES ('20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Downtown', 'PHYSICAL', 'Flagship', '1 Main St', 'Austin', 'TX', '78701', 'US', 'USD', '+1 555 0200', 'downtown@gekkosuite.com', TRUE, '2026-01-05T12:00:00Z', '2026-01-05T12:00:00Z', FALSE, NULL);
+INSERT INTO store (store_id, organization_id, name, type, description, address, city, state, postal_code, country, currency, phone, email, is_default, created_at, updated_at, is_deleted, deleted_at) VALUES ('20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Online', 'ONLINE', 'Web storefront', NULL, NULL, NULL, NULL, 'US', 'USD', NULL, 'shop@gekkosuite.com', FALSE, '2026-01-07T10:00:00Z', '2026-01-07T10:00:00Z', FALSE, NULL);
+INSERT INTO store (store_id, organization_id, name, type, description, address, city, state, postal_code, country, currency, phone, email, is_default, created_at, updated_at, is_deleted, deleted_at) VALUES ('20000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'Westside', 'PHYSICAL', 'New location, no staff yet', '456 West Ave', 'Austin', 'TX', '78703', 'US', 'USD', NULL, 'westside@gekkosuite.com', FALSE, '2026-01-10T09:00:00Z', '2026-01-10T09:00:00Z', FALSE, NULL);
 
--- -- Cashier: store:read, product:read, sale:create, order:read, customer:read — everything needed to
--- -- ring up a sale and look up a returning customer, nothing that edits or refunds (see ui.md's Sara).
--- INSERT INTO role_permission (role_id, permission_id) VALUES
---     ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-00000000000c'), -- store:read
---     ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000010'), -- product:read
---     ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000015'), -- sale:create
---     ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000016'), -- order:read
---     ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000013'); -- customer:read
 
--- -- Manager: everything Cashier has, plus product:edit and order:refund (see ui.md's Marcus).
--- INSERT INTO role_permission (role_id, permission_id) VALUES
---     ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-00000000000c'), -- store:read
---     ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000010'), -- product:read
---     ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000015'), -- sale:create
---     ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000016'), -- order:read
---     ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000013'), -- customer:read
---     ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000012'), -- product:edit
---     ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000017'); -- order:refund
+-- store_product: each store keeps its OWN stock and price (never shared). Downtown and Online carry the
+-- same items at different prices/quantities to prove they are per-store.
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Espresso Beans 1kg', 'House blend, whole bean', 'BEAN-1KG', 24.00, 40, TRUE, '2026-01-05T12:30:00Z', '2026-01-05T12:30:00Z', FALSE, NULL);
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Ceramic Mug', '350ml branded mug', 'MUG-350', 12.50, 120, TRUE, '2026-01-05T12:31:00Z', '2026-01-05T12:31:00Z', FALSE, NULL);
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Reusable Filter', 'Discontinued line', 'FILT-RE', 8.00, 0, FALSE, '2026-01-05T12:32:00Z', '2026-01-06T09:00:00Z', FALSE, NULL);
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Espresso Beans 1kg', 'House blend, whole bean', 'BEAN-1KG', 26.50, 200, TRUE, '2026-01-07T10:15:00Z', '2026-01-07T10:15:00Z', FALSE, NULL);
+INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Cold Brew Concentrate', '1L bottle, online exclusive', 'CB-1L', 18.00, 75, TRUE, '2026-01-07T10:16:00Z', '2026-01-07T10:16:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Croissant', 'Fresh-baked, sold by the dozen', 'CROIS-12', 3.25, 60, TRUE, '2026-01-05T12:33:00Z', '2026-01-05T12:33:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000007', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Oat Milk 1L', 'Barista edition', 'OAT-1L', 4.50, 90, TRUE, '2026-01-05T12:34:00Z', '2026-01-05T12:34:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000008', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Travel Tumbler', 'Insulated 500ml steel', 'TUMB-500', 22.00, 35, TRUE, '2026-01-05T12:35:00Z', '2026-01-05T12:35:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000009', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Blueberry Muffin', 'Baked daily', 'MUF-BB', 3.75, 48, TRUE, '2026-01-05T12:36:00Z', '2026-01-05T12:36:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000010', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Drip Coffee Maker', '12-cup programmable', 'DRIP-12', 59.99, 15, TRUE, '2026-01-05T12:37:00Z', '2026-01-05T12:37:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000011', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Pour-Over Kit', 'Glass dripper + carafe', 'POUR-KIT', 34.00, 50, TRUE, '2026-01-07T10:17:00Z', '2026-01-07T10:17:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000012', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Gift Card $25', 'Digital delivery', 'GC-25', 25.00, 999, TRUE, '2026-01-07T10:18:00Z', '2026-01-07T10:18:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000013', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Decaf Beans 1kg', 'Swiss water process', 'DECAF-1KG', 27.00, 110, TRUE, '2026-01-07T10:19:00Z', '2026-01-07T10:19:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000014', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Coffee Subscription', 'Monthly bag, online only', 'SUB-MO', 32.00, 500, TRUE, '2026-01-07T10:20:00Z', '2026-01-07T10:20:00Z', FALSE, NULL);
+    INSERT INTO store_product (store_product_id, store_id, organization_id, name, description, sku, price, stock, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('a0000000-0000-0000-0000-000000000015', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Ceramic Pour Mug', 'Online-exclusive design', 'MUG-PO', 16.00, 80, TRUE, '2026-01-07T10:21:00Z', '2026-01-07T10:21:00Z', FALSE, NULL);
 
--- -- Org Admin: every permission in the catalog. An ORGANIZATION membership reaches every store in the
--- -- org (auth.md), and the role assigned to that membership is what's actually checked on a store
--- -- action — so Org Admin's role must itself carry the full store-level set too, not just the org-only
--- -- ones, for "an org admin can sell/edit/refund in any store" (ui.md) to hold under auth.md's query.
--- INSERT INTO role_permission (role_id, permission_id)
--- SELECT '40000000-0000-0000-0000-000000000003', permission_id FROM permission;
+
+-- store_customer: each store keeps its OWN customer roster.
+INSERT INTO store_customer (store_customer_id, store_id, organization_id, name, email, phone, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('b0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Jane Doe', 'jane.doe@example.com', '+1 555 0301', TRUE, '2026-01-06T14:00:00Z', '2026-01-06T14:00:00Z', FALSE, NULL);
+INSERT INTO store_customer (store_customer_id, store_id, organization_id, name, email, phone, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('b0000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Carlos Rivera', 'carlos.rivera@example.com', '+1 555 0302', TRUE, '2026-01-06T15:30:00Z', '2026-01-06T15:30:00Z', FALSE, NULL);
+INSERT INTO store_customer (store_customer_id, store_id, organization_id, name, email, phone, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('b0000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Walk-in (no email)', NULL, NULL, TRUE, '2026-01-08T11:00:00Z', '2026-01-08T11:00:00Z', FALSE, NULL);
+INSERT INTO store_customer (store_customer_id, store_id, organization_id, name, email, phone, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('b0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Priya Patel', 'priya.patel@example.com', '+1 555 0303', TRUE, '2026-01-07T12:00:00Z', '2026-01-07T12:00:00Z', FALSE, NULL);
+INSERT INTO store_customer (store_customer_id, store_id, organization_id, name, email, phone, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('b0000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Sam Nguyen', 'sam.nguyen@example.com', NULL, TRUE, '2026-01-09T09:45:00Z', '2026-01-09T09:45:00Z', FALSE, NULL);
+INSERT INTO store_customer (store_customer_id, store_id, organization_id, name, email, phone, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('b0000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Former Subscriber', 'former@example.com', NULL, FALSE, '2026-01-07T12:05:00Z', '2026-01-10T08:00:00Z', FALSE, NULL);
+
+
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000001', 'organization', 'read', 'Read the organization record and billing state', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000002', 'user', 'create', 'Create a user (login only, no membership)', TRUE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000003', 'sale', 'create', 'Ring up a sale', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000004', 'product', 'read', 'View products', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000005', 'product', 'edit', 'Edit products and stock', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000006', 'order', 'refund', 'Refund an order', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000007', 'store', 'read', 'View a store record and its features', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000008', 'role', 'read', 'List roles and view the permissions a role grants', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000009', 'store', 'list', 'List the organization''s stores (roster)', TRUE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000010', 'role', 'list', 'List the organization''s assignable roles', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000011', 'user', 'list', 'List the users on a store''s staff roster', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000012', 'user', 'read', 'View one user''s record and memberships', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000013', 'product', 'list', 'List a store''s products (its catalog)', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000014', 'customer', 'list', 'List a store''s customers (its roster)', FALSE);
+
+
+INSERT INTO role (role_id, name, description, is_managed, organization_id, scope, created_at, updated_at) VALUES ('40000000-0000-0000-0000-000000000003', 'Org Admin', 'Full administrative access', TRUE, NULL, 'ORGANIZATION', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+INSERT INTO role (role_id, name, description, is_managed, organization_id, scope, created_at, updated_at) VALUES ('40000000-0000-0000-0000-000000000004', 'Cashier', 'Ring up sales', TRUE, NULL, 'STORE', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+INSERT INTO role (role_id, name, description, is_managed, organization_id, scope, created_at, updated_at) VALUES ('40000000-0000-0000-0000-000000000005', 'Manager', 'Run a store', TRUE, NULL, 'STORE', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+
+
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000002');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000007');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000008');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000009');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000010');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000012');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000013');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000014');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000004');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000007');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000013');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000014');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000004');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000005');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000006');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000007');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000008');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000010');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000011');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000013');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000014');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000011');
+
+
+INSERT INTO membership (membership_id, user_id, scope, organization_id, store_id, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('50000000-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'ORGANIZATION', '11111111-1111-1111-1111-111111111111', NULL, TRUE, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', FALSE, NULL);
+INSERT INTO membership (membership_id, user_id, scope, organization_id, store_id, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('50000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000003', 'STORE', '11111111-1111-1111-1111-111111111111', '20000000-0000-0000-0000-000000000001', TRUE, '2026-01-06T09:05:00Z', '2026-01-06T09:05:00Z', FALSE, NULL);
+INSERT INTO membership (membership_id, user_id, scope, organization_id, store_id, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('50000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000003', 'STORE', '11111111-1111-1111-1111-111111111111', '20000000-0000-0000-0000-000000000002', TRUE, '2026-01-08T09:05:00Z', '2026-01-08T09:05:00Z', FALSE, NULL);
+
+
+INSERT INTO membership_assignment (assignment_id, membership_id, role_id, assigned_at, assigned_by_user_id, expires_at) VALUES ('90000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', '2026-01-01T00:00:00Z', '22222222-2222-2222-2222-222222222222', NULL);
+INSERT INTO membership_assignment (assignment_id, membership_id, role_id, assigned_at, assigned_by_user_id, expires_at) VALUES ('90000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000005', '2026-01-06T09:05:00Z', '22222222-2222-2222-2222-222222222222', NULL);
+INSERT INTO membership_assignment (assignment_id, membership_id, role_id, assigned_at, assigned_by_user_id, expires_at) VALUES ('90000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000004', '2026-01-08T09:05:00Z', '22222222-2222-2222-2222-222222222222', NULL);
+
+
+INSERT INTO offering (offering_id, type, name, description, price_per_store, is_active) VALUES ('60000000-0000-0000-0000-000000000001', 'PLAN', 'Essentials', 'The base plan — everything a store needs to start selling', 50.00, TRUE);
+
+
+INSERT INTO feature (feature_id, code, label, scope, description) VALUES ('70000000-0000-0000-0000-000000000001', 'multi_store', 'Multi-store', 'ORGANIZATION', 'Run more than one store under the organization');
+INSERT INTO feature (feature_id, code, label, scope, description) VALUES ('70000000-0000-0000-0000-000000000002', 'cross_store_reports', 'Cross-store reports', 'ORGANIZATION', 'Reporting across every store in the organization');
+INSERT INTO feature (feature_id, code, label, scope, description) VALUES ('70000000-0000-0000-0000-000000000003', 'store_reports', 'Store reports', 'STORE', 'Sales and inventory reports for a single store');
+INSERT INTO feature (feature_id, code, label, scope, description) VALUES ('70000000-0000-0000-0000-000000000004', 'returns', 'Returns', 'STORE', 'Process customer returns and refunds');
+
+
+INSERT INTO offering_feature (offering_id, feature_id) VALUES ('60000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001');
+INSERT INTO offering_feature (offering_id, feature_id) VALUES ('60000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000002');
+INSERT INTO offering_feature (offering_id, feature_id) VALUES ('60000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000003');
+INSERT INTO offering_feature (offering_id, feature_id) VALUES ('60000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000004');
+
+
+INSERT INTO subscription (subscription_id, organization_id, offering_id, status, trial_ends_at, current_period_end, created_at, ended_at) VALUES ('80000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '60000000-0000-0000-0000-000000000001', 'ACTIVE', NULL, '2026-08-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL);

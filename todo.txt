@@ -15,8 +15,19 @@ what if org is not paying subscription
 - add email based login so we send pin to email every login instead of passwqord only
 
 
+# general
+- refactor a lot of user layers teh db queries are near identical
+- testing
+
+# security
+- xss middleware
+- cors
+
 # database
-add rls policies
+- add rls policies
+- add non admin role for server
+- define list of roles, perms and features for v1
+- 
 
 
 

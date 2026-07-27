@@ -66,7 +66,7 @@
 -- DECLARE
 --     v_user_org UUID;
 -- BEGIN
---     SELECT organization_id INTO v_user_org FROM "user" WHERE user_id = NEW.user_id;
+--     SELECT organization_id INTO v_user_org FROM user_account WHERE user_id = NEW.user_id;
 
 --     IF v_user_org <> NEW.organization_id THEN
 --         RAISE EXCEPTION 'User (%) belongs to organization (%), cannot be given a membership in (%)', NEW.user_id, v_user_org, NEW.organization_id;

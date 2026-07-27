@@ -160,7 +160,7 @@ CREATE UNIQUE INDEX store_one_default_per_org ON store (organization_id) WHERE i
 
 
 -- A user: one login per person. Where they can act comes from their memberships (see auth.md).
-CREATE TABLE "user" (
+CREATE TABLE user_account (
     -- user id
     user_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- home org (set once, immutable) — the tenant boundary
@@ -179,7 +179,7 @@ CREATE TABLE "user" (
     -- the partial unique index below. Replaces organization.owner_user_id (avoids a circular FK).
     is_org_owner       BOOLEAN NOT NULL DEFAULT FALSE,
     -- the org admin who created this account
-    created_by_user_id UUID REFERENCES "user" (user_id),
+    created_by_user_id UUID REFERENCES user_account (user_id),
     -- when the account was created (stored UTC)
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- soft-delete flag; TRUE = removed but kept for history
@@ -190,9 +190,9 @@ CREATE TABLE "user" (
     UNIQUE (email)
 );
 
-CREATE INDEX ON "user" (organization_id);   -- users in their home org
+CREATE INDEX ON user_account (organization_id);   -- users in their home org
 -- exactly one owner per org (only live users count)
-CREATE UNIQUE INDEX user_one_owner_per_org ON "user" (organization_id) WHERE is_org_owner AND NOT is_deleted;
+CREATE UNIQUE INDEX user_one_owner_per_org ON user_account (organization_id) WHERE is_org_owner AND NOT is_deleted;
 
 
 -- A role: a named bundle of permissions. Either a managed role we ship, or an org's own custom role.
@@ -258,7 +258,7 @@ CREATE TABLE membership (
     -- membership id
     membership_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- the user this membership belongs to
-    user_id         UUID NOT NULL REFERENCES "user" (user_id),
+    user_id         UUID NOT NULL REFERENCES user_account (user_id),
     -- ORGANIZATION | STORE: the kind of place (see CHECK for the store_id rule)
     scope           scope NOT NULL,
     -- the tenant this membership is in (the boundary every request is checked against)
@@ -301,7 +301,7 @@ CREATE TABLE membership_assignment (
     -- when the role was granted (stored UTC)
     assigned_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- who granted it (the admin) — for audit; NULL if system-seeded
-    assigned_by_user_id UUID REFERENCES "user" (user_id),
+    assigned_by_user_id UUID REFERENCES user_account (user_id),
     -- optional expiry; NULL = never expires
     expires_at    TIMESTAMPTZ,
     -- same role can't be granted to the same membership twice
@@ -340,7 +340,7 @@ CREATE TABLE sales_order (
     -- the customer, if attached; NULL for a walk-in / anonymous sale
     store_customer_id UUID REFERENCES store_customer (store_customer_id),
     -- the user (cashier) who rang the sale
-    sold_by_user_id   UUID REFERENCES "user" (user_id),
+    sold_by_user_id   UUID REFERENCES user_account (user_id),
     -- OPEN | COMPLETED | VOIDED
     status            order_status NOT NULL DEFAULT 'OPEN',
     -- money breakdown (all snapshotted; total = subtotal - discount_total + tax_total)
@@ -380,7 +380,7 @@ CREATE TABLE sales_order_return (
     -- the sale being returned against
     order_id            UUID NOT NULL REFERENCES sales_order (order_id),
     -- the user who processed the return
-    processed_by_user_id UUID REFERENCES "user" (user_id),
+    processed_by_user_id UUID REFERENCES user_account (user_id),
     -- PENDING | COMPLETED | VOIDED
     status              return_status NOT NULL DEFAULT 'PENDING',
     -- free-text reason for the return
@@ -449,7 +449,7 @@ CREATE TABLE purchase_order (
     -- the supplier bought from
     supplier_id       UUID NOT NULL REFERENCES supplier (supplier_id),
     -- the org user who created it
-    created_by_user_id UUID REFERENCES "user" (user_id),
+    created_by_user_id UUID REFERENCES user_account (user_id),
     -- why/what (shown to store admins when attributed)
     description       TEXT,
     -- DRAFT | ORDERED | RECEIVED | CANCELLED
@@ -487,7 +487,7 @@ CREATE TABLE expense (
     -- supplier/vendor, if the spend was to one (optional)
     supplier_id     UUID REFERENCES supplier (supplier_id),
     -- the org user who recorded it
-    created_by_user_id UUID REFERENCES "user" (user_id),
+    created_by_user_id UUID REFERENCES user_account (user_id),
     -- free-text category (e.g. 'utilities', 'equipment')
     category        TEXT NOT NULL,
     -- why/what
@@ -706,7 +706,7 @@ automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns 
 | `role_managed_name_uq` — `role(name) WHERE is_managed` | find a system role by name / managed names unique |
 | `membership_store_uq` — `membership(user_id, store_id) WHERE store_id IS NOT NULL AND NOT is_deleted` | is this user a live member of this store? / one live membership per store |
 | `membership_org_uq` — `membership(user_id) WHERE scope='ORGANIZATION' AND NOT is_deleted` | does this user have a live org membership? / at most one |
-| `user_one_owner_per_org` — `"user"(organization_id) WHERE is_org_owner AND NOT is_deleted` | find an org's owner / exactly one owner per org |
+| `user_one_owner_per_org` — `user_account(organization_id) WHERE is_org_owner AND NOT is_deleted` | find an org's owner / exactly one owner per org |
 | `store_one_default_per_org` — `store(organization_id) WHERE is_default AND NOT is_deleted` | find an org's default store / exactly one default per org |
 
 ## Plain indexes
@@ -714,7 +714,7 @@ automatically by Postgres; the plain `CREATE INDEX`es are the FK/lookup columns 
 | Index | Query it serves |
 |---|---|
 | `store (organization_id)` | all stores in an org |
-| `"user" (organization_id)` | all users in an org (admin user list) |
+| `user_account (organization_id)` | all users in an org (admin user list) |
 | `membership (user_id)` | **all of a user's memberships (authz, every request)** |
 | `sales_order (store_id)` | a store's orders |
 | `sales_order_return (store_id)` | a store's returns |

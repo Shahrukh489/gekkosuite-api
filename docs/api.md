@@ -22,19 +22,23 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 
 | Endpoint | Description | Scope |
 |---|---|---|
-| `GET /plans` | List the available base plans for the signup page. | public |
-| `GET /addons` | List the available add-ons (stackable extras). | public |
+DONE | `GET /offerings/?type=PLAN/ADDON` | List the available offerings | public
+DONE | `POST /auth/login` | Exchange email + password for an access token. | public | 
+DONE | `GET /auth/me` | The current user and their memberships (self read). | any authenticated |
+DONE | `GET /organization` | The org record, its billing state, and its org-scoped features. | ORGANIZATION |
+DONE | `GET /users` | List the org's users (identity only). | ORGANIZATION |
+DONE | `GET /users/{userId}` | One user's record + full memberships (admin detail). | ORGANIZATION |
+DONE | `GET /roles` | List assignable roles for the picker (`?scope=` filter). | ORGANIZATION |
+DONE | `GET /roles/{roleId}` | One role + the permissions it grants. | ORGANIZATION |
+DONE| `GET /stores` | List the org's stores (roster). | ORGANIZATION |
+DONE | `GET /stores/{storeId}` | One store's full record, read-only flag, and store-scoped features. | STORE |
+DONE | `GET /stores/{storeId}/users` | The store's staff roster. | STORE |
+DONE | `GET /stores/{storeId}/roles/{roleId}` | Get details of a store scope role  
+DONE | `GET /stores/{storeId}/roles/` | Get all store scoped roles  
 | `POST /onboarding` | Create a tenant — org, owner (pending), subscription, first store. | public |
 | `POST /onboarding/verify` | Verify the owner's email and activate the account. | public |
-| `POST /auth/login` | Exchange email + password for an access token. | public |
-| `GET /user` | The current user and their memberships (self read). | any authenticated |
 | `POST /auth/logout` | End the session and invalidate the token. | any authenticated |
-| `GET /organization` | The org record + its billing state. | ORGANIZATION |
-| `GET /organization/permissions` | The caller's permissions in the org. | ORGANIZATION |
-| `GET /organization/features` | The org-scoped features the org's offerings enable. | ORGANIZATION |
 | `POST /users` | Create a user (login only, no membership). | ORGANIZATION |
-| `GET /users` | List the org's users (identity only). | ORGANIZATION |
-| `GET /users/{userId}` | One user's record + full memberships (admin detail). | ORGANIZATION |
 | `PATCH /users/{userId}` | Update a user's profile (name, phone). | ORGANIZATION |
 | `POST /users/{userId}/deactivate` | Turn a user account off (kill switch). | ORGANIZATION |
 | `POST /users/{userId}/activate` | Turn a user account back on. | ORGANIZATION |
@@ -42,17 +46,9 @@ Every endpoint at a glance. Detail (headers, bodies, errors) is in each section 
 | `DELETE /users/{userId}/memberships/{membershipId}` | Remove a membership entirely. | ORGANIZATION |
 | `POST /users/{userId}/memberships/{membershipId}/deactivate` | Suspend a membership (org route, any membership). | ORGANIZATION |
 | `POST /users/{userId}/memberships/{membershipId}/activate` | Restore a membership (org route). | ORGANIZATION |
-| `GET /roles` | List assignable roles for the picker (`?scope=` filter). | ORGANIZATION |
-| `GET /roles/{roleId}` | One role + the permissions it grants. | ORGANIZATION |
-| `GET /permissions` | List the permission catalog (resource, action, elevated). | ORGANIZATION |
-| `GET /stores` | List the org's stores (roster). | ORGANIZATION |
 | `POST /stores` | Create a store (raises the per-store bill). | ORGANIZATION |
 | `PATCH /stores/{storeId}` | Update a store's details. | ORGANIZATION |
 | `DELETE /stores/{storeId}` | Soft-delete a store (not the default). | ORGANIZATION |
-| `GET /stores/{storeId}` | One store's full record + read-only flag. | STORE |
-| `GET /stores/{storeId}/features` | The store-scoped features the org's offerings enable. | STORE |
-| `GET /stores/{storeId}/permissions` | The caller's permissions in this store. | STORE |
-| `GET /stores/{storeId}/users` | The store's staff roster. | STORE |
 | `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/deactivate` | Suspend a membership at this store (store route). | STORE |
 | `POST /stores/{storeId}/users/{userId}/memberships/{membershipId}/activate` | Restore a membership at this store (store route). | STORE |
 
@@ -97,36 +93,30 @@ core branch of the whole app.
 
 ```mermaid
 flowchart TD
-    L["POST /auth/login<br/>→ access token"] --> M["GET /user<br/>→ userType + defaultStoreId + memberships"]
+    L["POST /auth/login<br/>→ access token"] --> M["GET /auth/me<br/>→ userType + defaultStoreId<br/>+ memberships (with permissions)"]
     M --> Q{"userType?"}
 
     Q -->|null| N["No access yet —<br/>'contact your admin'<br/>(memberships: [])"]
 
-    Q -->|ORGANIZATION| O1["Org context (default landing)"]
-    O1 --> O2["GET /organization<br/>record + billing/read-only"]
-    O2 --> O3["GET /organization/permissions<br/>which org tabs to show"]
-    O3 --> O4["GET /organization/features<br/>which org features are on"]
-    O4 --> O5["Org tabs render.<br/>Enter a store via the Stores tab →"]
+    Q -->|ORGANIZATION| O1["Org context<br/>(default landing).<br/>Permissions from /auth/me."]
+    O1 --> O2["GET /organization<br/>record + billing<br/>+ org features"]
+    O2 --> O5["Org tabs render.<br/>Enter a store via<br/>the Stores tab →"]
 
-    Q -->|STORE| S1["Land in defaultStoreId<br/>(oldest membership; switcher shown if >1)"]
-    S1 --> S2["GET /stores/{defaultStoreId}<br/>record + read-only"]
-    S2 --> S3["GET /stores/{id}/permissions<br/>which store tabs to show"]
-    S3 --> S4["GET /stores/{id}/features<br/>which store features are on"]
-    S4 --> S5["Store tabs render"]
+    Q -->|STORE| S1["Land in defaultStoreId<br/>(oldest; switcher if >1).<br/>Permissions from /auth/me."]
+    S1 --> S2["GET /stores/{defaultStoreId}<br/>record + read-only<br/>+ store features"]
+    S2 --> S5["Store tabs render"]
 ```
 
 ## Org admin enters a store
 
 An org user has org reach but no store membership; they enter a store from the **Stores** tab, then load
-that store's context (same three store reads a store user makes).
+that store's context. Their permissions come from `/auth/me` (their org role reaches every store).
 
 ```mermaid
 flowchart LR
     A["GET /stores<br/>the Stores tab list"] --> B["pick a store"]
-    B --> C["GET /stores/{id}<br/>record + read-only"]
-    C --> D["GET /stores/{id}/permissions<br/>(org role, filtered to store-relevant)"]
-    D --> E["GET /stores/{id}/features"]
-    E --> F["Store tabs render"]
+    B --> C["GET /stores/{id}<br/>record + read-only<br/>+ store features"]
+    C --> F["Store tabs render<br/>(gated by permissions<br/>from /auth/me)"]
 ```
 
 ## Add an employee
@@ -258,7 +248,7 @@ verification. The owner account is created **pending** and cannot log in until v
   {
     "organizationName": "Acme Inc",
     "owner": {
-      "email": "maria@acme.com",
+      "email": "maria@gekkosuite.com",
       "password": "••••••••",
       "name": "Maria"
     },
@@ -330,7 +320,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 
   ```json
   {
-    "email": "maria@acme.com",
+    "email": "maria@gekkosuite.com",
     "password": "••••••••"
   }
   ```
@@ -350,7 +340,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   - `403` — the account is disabled (`user.is_active = false`)
   - `429` — too many attempts (rate-limited / locked out)
 
-### `GET /user` — Get current user
+### `GET /auth/me` — Get current user
 
 - **Description:** Returns the logged-in user and the memberships that decide where they land, as
   lightweight entries (type, id, name, role), without permissions. This is the **self** read (the
@@ -361,7 +351,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   (the one-kind rule). What comes back, matching the UI (`ui.md`):
     - **Org user** (has the ORGANIZATION membership) — just that one entry. Their per-store access isn't
       listed here: an org user lands in the org context and enters a store from the **Stores** tab
-      (`GET /stores`), so `/user` doesn't need to enumerate every store.
+      (`GET /stores`), so `/auth/me` doesn't need to enumerate every store.
     - **Store user** (has STORE membership(s)) — their store membership(s). They land in the **oldest**
       one (earliest `created_at`); a multi-store user also gets a switcher.
     - **No memberships** — a user created but not yet placed returns an **empty** `memberships` array.
@@ -371,7 +361,7 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   (Seeing *another* user's memberships is the admin endpoint `GET /users/{userId}`, under
   *Organization → Users & Access*.)
 - **Method:** `GET`
-- **URL:** `/user`
+- **URL:** `/auth/me`
 - **Scope:** _(any authenticated user)_
 - **Permission:** _(none)_
 - **Request Headers:**
@@ -384,12 +374,12 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   {
     "userId": "u1...",
     "name": "Maria",
-    "email": "maria@acme.com",
+    "email": "maria@gekkosuite.com",
     "organizationId": "acme...",
     "userType": "ORGANIZATION",
     "defaultStoreId": null,
     "memberships": [
-      { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "role": "Org Admin" }
+      { "type": "ORGANIZATION", "organizationId": "acme...", "name": "Acme Inc", "roles": ["Org Admin"] }
     ]
   }
   ```
@@ -400,13 +390,13 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
   {
     "userId": "u2...",
     "name": "Bob",
-    "email": "bob@acme.com",
+    "email": "bob@gekkosuite.com",
     "organizationId": "acme...",
     "userType": "STORE",
     "defaultStoreId": "s1...",
     "memberships": [
-      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "role": "Cashier" },
-      { "type": "STORE", "storeId": "s2...", "name": "Uptown", "role": "Manager" }
+      { "type": "STORE", "storeId": "s1...", "name": "Downtown", "roles": ["Cashier"] },
+      { "type": "STORE", "storeId": "s2...", "name": "Uptown", "roles": ["Manager"] }
     ]
   }
   ```
@@ -420,9 +410,10 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
     guess from array position. `null` for an org user (they land in the org context) and for a user with
     no memberships.
   - **`memberships`** — the list, for rendering names/roles and the store switcher (ordered oldest-first).
-    Each entry carries its `type` (`ORGANIZATION` / `STORE`), the place's id and `name`, and the `role` the
-    user holds there. An org user gets the single `ORGANIZATION` entry; a store user gets their store(s)
-    with the store role at each. Empty when `userType` is `null`. Permissions are not included.
+    Each entry carries its `type` (`ORGANIZATION` / `STORE`), the place's id and `name`, and the `roles` the
+    user holds there (a membership can carry more than one role, so it's a list). An org user gets the single
+    `ORGANIZATION` entry; a store user gets their store(s) with the store role(s) at each. Empty when
+    `userType` is `null`. Permissions are not included.
 
 - **Errors:**
   - `401` — not authenticated
@@ -448,11 +439,12 @@ Auth endpoints are the way in, so they don't follow the usual scope/permission m
 
 The organization is the tenant, and there's exactly one per caller — fixed in the token at login. It's a
 **singleton** resource: the endpoints are id-less (`/organization`), because the token already says which
-org. The resource, the caller's permissions, and the features its offerings enable are three separate endpoints.
+org. The org read returns the record plus the org-scoped features its offerings enable; the caller's own
+permissions come from `GET /auth/me` (cached from their memberships).
 
 ### The Organization
 
-The org resource itself, the caller's permissions in it, and the org-scoped features its offerings enable.
+The org resource itself and the org-scoped features its offerings enable.
 
 #### `GET /organization` — Get organization
 
@@ -506,10 +498,14 @@ The org resource itself, the caller's permissions in it, and the org-scoped feat
           "currentPeriodEnd": "2026-08-01T00:00:00Z"
         }
       ]
-    }
+    },
+    "features": ["billing", "multi_store", "cross_store_reports", "user_management"]
   }
   ```
 
+  - **`features`** — the **org-scoped** feature codes the org's live offerings enable (the union across its
+    base plan and any active add-ons). The UI uses these to show or hide org-level features. Store-scoped
+    features are not returned here — a store reads its own from `GET /stores/{storeId}`.
   - **`billing`** — the org's overall billing state, plus its subscription detail (this is the Billing
     screen's data; there's no separate subscription endpoint):
     - `status` — the org's overall **payment** status (`organization.billing_status`), one of `ACTIVE` /
@@ -527,64 +523,14 @@ The org resource itself, the caller's permissions in it, and the org-scoped feat
       on, on trial, or off; never a payment state), `pricePerStore`, `trialEndsAt`, and
       `currentPeriodEnd`. The org's effective features are the union across all of them (see `plans.md`).
       The bill is `sum over ACTIVE subscriptions of pricePerStore × storeCount` (trials are free).
-    - This is separate from features: `GET .../features` returns what the org's offerings *include* (a
-      missed payment doesn't strip features — an unpaid org still lists its features), while `readOnly`
-      says whether the org is *frozen from writing*. It's a UI hint; the server still enforces it — a
-      write while read-only returns `402` (see `auth.md`'s billing gate).
+    - This is separate from `features` (above): `features` is what the org's offerings *include* (a missed
+      payment doesn't strip features — an unpaid org still lists its features), while `readOnly` says whether
+      the org is *frozen from writing*. It's a UI hint; the server still enforces it — a write while
+      read-only returns `402` (see `auth.md`'s billing gate).
 
 - **Errors:**
   - `401` — not authenticated
   - `403` — lacks `organization:read`
-
-#### `GET /organization/permissions` — Get my organization permissions
-
-- **Description:** Returns the permissions the caller holds in the organization. Used by the UI to show
-  or hide org tabs and actions.
-- **Method:** `GET`
-- **URL:** `/organization/permissions`
-- **Scope:** `ORGANIZATION`
-- **Permission:** _(none beyond an org membership)_
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-- **Request Body:** _(none)_
-- **Response Status:** `200 OK`
-- **Response Body:**
-
-  ```json
-  {
-    "permissions": ["organization:read", "user:create", "store:create", "product:edit", "order:refund"]
-  }
-  ```
-
-- **Errors:**
-  - `401` — not authenticated
-  - `403` — the caller has no organization membership
-
-#### `GET /organization/features` — Get organization features
-
-- **Description:** Returns the **organization-scoped** feature codes the org's live offerings enable (e.g.
-  billing, multi-store) — the union across its base plan and any active add-ons. Used by the UI to show or
-  hide org-level features. Store-scoped features are not returned here — a store reads its own via `GET
-  /stores/{storeId}/features`.
-- **Method:** `GET`
-- **URL:** `/organization/features`
-- **Scope:** `ORGANIZATION`
-- **Permission:** _(none beyond an org membership)_
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-- **Request Body:** _(none)_
-- **Response Status:** `200 OK`
-- **Response Body:**
-
-  ```json
-  {
-    "features": ["billing", "multi_store", "cross_store_reports", "user_management"]
-  }
-  ```
-
-- **Errors:**
-  - `401` — not authenticated
-  - `403` — the caller has no organization membership
 
 ### Users & Access
 
@@ -596,7 +542,7 @@ The RBAC admin. Three separate concerns, kept as separate endpoints so each stay
 
 Everything here is org-administered — a store user manages neither users nor access. All ids in the path
 must belong to the caller's org; anything else returns `404`. (The self read — a user seeing their *own*
-account and memberships — is `GET /user`, under **Auth**.)
+account and memberships — is `GET /auth/me`, under **Auth**.)
 
 #### `POST /users` — Create user
 
@@ -616,7 +562,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   ```json
   {
     "name": "Sara",
-    "email": "sara@acme.com",
+    "email": "sara@gekkosuite.com",
     "password": "••••••••",
     "phone": "+1 512 555 0300"
   }
@@ -631,7 +577,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   {
     "userId": "u3...",
     "name": "Sara",
-    "email": "sara@acme.com",
+    "email": "sara@gekkosuite.com",
     "phone": "+1 512 555 0300",
     "isActive": true,
     "createdAt": "2026-07-13T12:00:00Z"
@@ -665,7 +611,7 @@ account and memberships — is `GET /user`, under **Auth**.)
     {
       "userId": "u1...",
       "name": "Maria",
-      "email": "maria@acme.com",
+      "email": "maria@gekkosuite.com",
       "phone": "+1 512 555 0100",
       "isActive": true,
       "createdAt": "2026-01-05T12:00:00Z"
@@ -673,7 +619,7 @@ account and memberships — is `GET /user`, under **Auth**.)
     {
       "userId": "u3...",
       "name": "Sara",
-      "email": "sara@acme.com",
+      "email": "sara@gekkosuite.com",
       "phone": "+1 512 555 0300",
       "isActive": true,
       "createdAt": "2026-07-13T12:00:00Z"
@@ -688,7 +634,7 @@ account and memberships — is `GET /user`, under **Auth**.)
 #### `GET /users/{userId}` — Get user
 
 - **Description:** Returns one user's full record **plus their memberships** — the admin detail view for a
-  single person. Org-only. Unlike the org user list (identity only) and unlike `/user` (self, trimmed),
+  single person. Org-only. Unlike the org user list (identity only)
   this returns the person's **complete** membership breakdown: their org membership, or every store they
   belong to, each with its role. Used for the user's detail/manage screen.
 - **Method:** `GET`
@@ -705,7 +651,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   {
     "userId": "u4...",
     "name": "Maria",
-    "email": "maria@acme.com",
+    "email": "maria@gekkosuite.com",
     "phone": "+1 512 555 0400",
     "isActive": true,
     "createdAt": "2026-02-01T12:00:00Z",
@@ -1027,7 +973,7 @@ account and memberships — is `GET /user`, under **Auth**.)
   ```json
   [
     { "permissionId": "p1...", "resource": "product", "action": "read", "isElevated": false },
-    { "permissionId": "p2...", "resource": "user", "action": "create", "isElevated": true },
+    { "permissionId": "p2...", "resource": user_account, "action": "create", "isElevated": true },
     { "permissionId": "p3...", "resource": "membership", "action": "deactivate", "isElevated": false }
   ]
   ```
@@ -1097,7 +1043,7 @@ The org owns and manages the store set — creating, editing, and removing store
     "country": "US",
     "currency": "USD",
     "phone": "+1 512 555 0200",
-    "email": "westside@acme.com"
+    "email": "westside@gekkosuite.com"
   }
   ```
 
@@ -1169,9 +1115,10 @@ The org owns and manages the store set — creating, editing, and removing store
 Billing lives on the org. The current offerings (base plan + active add-ons), status, trial, period,
 store count, and live subscriptions are already returned in **`GET /organization`** under `billing` —
 that's the Billing screen's read, so there's no separate "get subscription" endpoint. What those
-offerings *include* is on **`GET /organization/features`** (org-scoped) and **`GET
-/stores/{storeId}/features`** (store-scoped). To pick a base plan (e.g. when changing), plans are listed
-by **`GET /plans`**; the add-on catalog is **`GET /addons`** (both public; reused here).
+offerings *include* — the feature codes — rides along on the resource reads: org-scoped features on
+**`GET /organization`** and store-scoped features on **`GET /stores/{storeId}`** (each under `features`).
+To pick a base plan (e.g. when changing), plans are listed by **`GET /plans`**; the add-on catalog is
+**`GET /addons`** (both public; reused here).
 
 The **management** actions below all move money, so they're blocked on the payment/Stripe flow (the same
 `@TODO` as *Create store*) and are left as stubs:
@@ -1221,7 +1168,8 @@ Managing the store set itself (create, list, edit, delete) is an org action and 
 
 ### The Store
 
-The store record and the store-scoped features its org's offerings enable.
+The store record, including the store-scoped features its org's offerings enable. (The caller's own
+permissions come from `GET /auth/me`.)
 
 #### `GET /stores/{storeId}` — Get store
 
@@ -1254,79 +1202,26 @@ The store record and the store-scoped features its org's offerings enable.
     "country": "US",
     "currency": "USD",
     "phone": "+1 512 555 0100",
-    "email": "downtown@acme.com",
+    "email": "downtown@gekkosuite.com",
     "isDefault": true,
     "createdAt": "2026-01-05T12:00:00Z",
     "billing": {
       "readOnly": true,
       "message": "This store is read-only. Contact your Organization Admin."
-    }
+    },
+    "features": ["reports", "returns", "ai_recommendations"]
   }
   ```
+
+  - **`features`** — the **store-scoped** feature codes the org's live offerings enable (e.g. returns, AI
+    recommendations) — the union across its base plan and any active add-ons. Only store-applicable features
+    appear; a store never returns the org's features (like billing). The UI uses these to show or hide store
+    tabs. (The caller's own permissions come from `GET /auth/me`.)
 
 - **Errors:**
   - `401` — not authenticated
   - `403` — lacks `store:read`
   - `404` — the store is not in the caller's org, or a store user has no access to it (existence not leaked)
-
-#### `GET /stores/{storeId}/features` — Get store features
-
-- **Description:** Returns the **store-scoped** feature codes the org's live offerings enable (e.g.
-  returns, AI recommendations) — the union across its base plan and any active add-ons. The store inherits
-  its org's offerings, but only store-applicable features are returned —
-  a store user never sees the org's features (like billing). Used by the UI to show or hide store tabs.
-- **Method:** `GET`
-- **URL:** `/stores/{storeId}/features`
-- **Scope:** `STORE`
-- **Permission:** _(none beyond access to the store)_
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-- **Request Body:** _(none)_
-- **Response Status:** `200 OK`
-- **Response Body:**
-
-  ```json
-  {
-    "features": ["reports", "returns", "ai_recommendations"]
-  }
-  ```
-
-- **Errors:**
-  - `401` — not authenticated
-  - `403` — the caller has no access to this store
-  - `404` — the store is not in the caller's org
-
-#### `GET /stores/{storeId}/permissions` — Get my store permissions
-
-- **Description:** Returns the permissions the caller holds **in this store** — used by the UI to show or
-  hide store tabs and actions (the store counterpart of `GET /organization/permissions`). Reach is
-  resolved from whichever membership grants access: a **store user** gets the permissions from their store
-  role; an **org user** (who has no store membership) gets the permissions from their org membership,
-  which reaches every store. In the org-user case the result is **filtered to store-relevant permissions**
-  — the non-elevated, store-applicable ones (e.g. `product:edit`, `order:refund`), never org-only elevated
-  ones like `user:create` or `billing:*`, even though the org role holds them. This keeps the response
-  shape identical for both kinds of caller, so the store UI renders from one flat permission list. Either
-  way, it's the caller's effective set *for this store*.
-- **Method:** `GET`
-- **URL:** `/stores/{storeId}/permissions`
-- **Scope:** `STORE`
-- **Permission:** _(none beyond access to the store)_
-- **Request Headers:**
-  - `Authorization: Bearer <accessToken>`
-- **Request Body:** _(none)_
-- **Response Status:** `200 OK`
-- **Response Body:**
-
-  ```json
-  {
-    "permissions": ["store:read", "product:read", "sale:create", "order:read", "order:refund"]
-  }
-  ```
-
-- **Errors:**
-  - `401` — not authenticated
-  - `403` — the caller has no access to this store
-  - `404` — the store is not in the caller's org
 
 ### Store Users
 
@@ -1335,10 +1230,10 @@ The staff roster of a single store.
 #### `GET /stores/{storeId}/users` — List store users
 
 - **Description:** Lists the users who have a membership at this store — the store's staff roster, with
-  each person's role there. A store admin can list **their own** store's roster; an org user can list any
-  store's in the org. Identity fields plus the store role only — no other-store or org membership info is
-  exposed. (Uses the same `user:read` permission as the org user list; the store scope limits a store
-  admin to their own store.)
+  each person's role(s) there (a membership can carry more than one role, so `roles` is a list). A store
+  admin can list **their own** store's roster; an org user can list any store's in the org. Identity fields
+  plus the store role(s) only — no other-store or org membership info is exposed. (Uses the same `user:read`
+  permission as the org user list; the store scope limits a store admin to their own store.)
 - **Method:** `GET`
 - **URL:** `/stores/{storeId}/users`
 - **Scope:** `STORE`
@@ -1354,16 +1249,16 @@ The staff roster of a single store.
     {
       "userId": "u3...",
       "name": "Sara",
-      "email": "sara@acme.com",
+      "email": "sara@gekkosuite.com",
       "isActive": true,
-      "role": "Cashier"
+      "roles": ["Cashier"]
     },
     {
       "userId": "u4...",
       "name": "Marcus",
-      "email": "marcus@acme.com",
+      "email": "marcus@gekkosuite.com",
       "isActive": true,
-      "role": "Manager"
+      "roles": ["Manager", "Inventory Manager"]
     }
   ]
   ```

@@ -1,6 +1,7 @@
 using Npgsql;
 
-using GekkoSuite.Api.Models;
+using GekkoSuite.Api.Entities;
+using GekkoSuite.Api.Enums;
 
 namespace GekkoSuite.Api.Repositories;
 
@@ -10,28 +11,22 @@ public class OfferingRepository : BaseRepository, IOfferingRepository
     {
     }
 
-    /// <summary>
-    /// Lists the active offerings of a given type ("PLAN" or "ADDON") from the catalog, ordered by name.
-    /// </summary>
-    /// <param name="type">The offering_type to filter by ("PLAN" or "ADDON").</param>
-    /// <returns>The matching active offerings (empty if none).</returns>
-    public Task<IEnumerable<OfferingEntity>> ListActiveByTypeAsync(string type)
+    /// <inheritdoc />
+    public Task<IEnumerable<OfferingEntity>> GetOfferingsAsync(OfferingType? type)
     {
-        // offering is a global catalog table (no organization_id column), so this runs unscoped —
-        // there's no tenant for RLS to filter on here.
         const string sql = """
             SELECT
                 offering_id AS OfferingId,
-                type AS Type,
+                type::text AS Type,
                 name AS Name,
                 description AS Description,
-                price_per_store AS PricePerStore,
-                is_active AS IsActive
+                price_per_store AS PricePerStore
             FROM offering
-            WHERE type = @type::offering_type AND is_active
-            ORDER BY name
+            WHERE is_active
+              AND (@type IS NULL OR type::text = @type)
+            ORDER BY type, name
             """;
 
-        return QueryUnscopedAsync<OfferingEntity>(sql, new { type });
+        return QueryUnscopedAsync<OfferingEntity>(sql, new { type = type?.ToString() });
     }
 }
