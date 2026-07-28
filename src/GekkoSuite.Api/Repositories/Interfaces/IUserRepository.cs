@@ -11,6 +11,12 @@ public interface IUserRepository
     public Task<UserEntity?> GetUserByEmailAsync(string email);
 
     /// <summary>
+    /// Resolves a live user's home organization id from their id alone (no tenant known yet). Used to
+    /// establish the caller's org from the token's userId; null if not found.
+    /// </summary>
+    public Task<Guid?> GetUserOrganizationIdAsync(Guid userId);
+
+    /// <summary>
     /// Finds a live user by id within the given organization, or null if not found there.
     /// </summary>
     public Task<UserEntity?> GetUserByIdAsync(Guid organizationId, Guid userId);

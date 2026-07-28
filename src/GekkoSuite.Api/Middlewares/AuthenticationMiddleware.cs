@@ -1,7 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 
-using GekkoSuite.Api.Services;
-
 namespace GekkoSuite.Api.Middlewares;
 
 public class AuthenticationMiddleware
@@ -14,39 +12,39 @@ public class AuthenticationMiddleware
     }
 
     /// <summary>
-    /// Gates every non-anonymous endpoint: the request must carry a valid token (401 if not) AND the user
-    /// must still be active in the DB (401 if not — a token stays valid until it expires, so a disabled
-    /// account must be caught here). Anonymous endpoints are skipped even when a token is attached
+    /// Gates every non-anonymous endpoint: the request must carry a valid token AND resolve to a live, active
+    /// organization (401 otherwise — a token stays valid until it expires, so a disabled/deleted account must
+    /// be caught here). The organizationId claim is added by OrganizationClaimsTransformation during
+    /// authentication; its absence on an authenticated request means the user has no live org, so we reject.
+    /// Anonymous endpoints are skipped even when a token is attached.
     /// </summary>
-    public async Task InvokeAsync(HttpContext context, IUserService userService)
+    public async Task InvokeAsync(HttpContext context, ILogger<AuthenticationMiddleware> logger)
     {
         // check if its a public api with [AllowAnonymous]
         var isAnonymous = context.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is not null;
 
         if (!isAnonymous)
         {
+            var route = $"{context.Request.Method} {context.Request.Path}";
+
             // a protected endpoint requires a valid, authenticated token
             if (context.User.Identity?.IsAuthenticated != true)
             {
+                logger.LogDebug("Auth gate: 401 on {Route} — no authenticated token.", route);
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;
             }
 
-            // check if user is active in database exists
-            var userId = context.User.FindFirst("userId")?.Value;
-            var organizationId = context.User.FindFirst("organizationId")?.Value;
-            if (userId is null || organizationId is null)
+            // the claims transformation resolves the caller's org (filtering is_active/is_deleted) and adds
+            // it as a claim; no claim = the user didn't resolve to a live, active org, so reject
+            if (context.User.FindFirst("organizationId") is null)
             {
+                logger.LogDebug("Auth gate: 401 on {Route} — authenticated but no organizationId claim (user has no live, active org).", route);
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;
             }
 
-            var user = await userService.GetUserByIdAsync(Guid.Parse(organizationId!), Guid.Parse(userId!));
-            if (user is null || !user.IsActive)
-            {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                return;
-            }
+            logger.LogDebug("Auth gate: passed on {Route} for org {OrganizationId}.", route, context.User.FindFirst("organizationId")!.Value);
         }
 
         // continue to next middleware if user is authenticated succesfully

@@ -29,6 +29,12 @@ public class UserService : IUserService
     }
 
     /// <inheritdoc />
+    public async Task<Guid?> GetUserOrganizationIdAsync(Guid userId)
+    {
+        return await _userRepository.GetUserOrganizationIdAsync(userId);
+    }
+
+    /// <inheritdoc />
     public async Task<List<UserDto>> GetUsersWithMembershipsAsync(Guid organizationId)
     {
         IEnumerable<UserEntity> userEntities = await _userRepository.GetUsersWithMembershipsAsync(organizationId);
@@ -110,6 +116,8 @@ public class UserService : IUserService
         {
             userDto.UserType = MembershipScope.STORE;
             userDto.Memberships = storeMemberships;
+            // dont send back the orgId
+            userDto.OrganizationId = null;
         }
         else
         {

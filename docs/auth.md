@@ -102,14 +102,14 @@ This section goes in-depth on the entire AUTH process that happens when an API r
 
 Authentication is the process of verifying the user is who they say they are. This is the first thing to verify, we do this by validating if the JWT token is legit and not tampered with. If it is not valid, then return **401** immediately to prevent a user from acting like someone else.
 
-If the JWT token is valid then read from the database if  `user.is_active = true`. If the user was disabled then return **401** immediately.
+The token carries **only `userId`** — it does **not** carry the organization. This keeps the tenant off the client entirely (a store user is never handed the org id), and it means we can never trust a client-supplied org. Once the token is validated, we resolve the caller's `organizationId` **from the database** by their `userId`. That same lookup filters `is_active`/`is_deleted`, so a disabled or deleted account resolves to nothing and we return **401** immediately (a token stays valid until it expires, so a revoked account must be caught here).
 
-Finally, if the user is authorized then create a request context object with user_id and organization_id from the JWT token. We only take these user details from the JWT token and never from anywhere else.
+The resolved `organizationId` is then attached to the request as a claim (added at request time, never re-signed into the token) so authorization and the controllers can read the caller's tenant. Both `userId` and `organizationId` are taken only from this verified context and never from anywhere else.
 
 ```
   context = {
     userId,            // from the token
-    organizationId,    // from the token
+    organizationId,    // resolved from the DB by userId (NOT in the token)
   }
 ```
 
@@ -121,7 +121,7 @@ To verify if the user is authorized, we need following criticial pieces of infor
 
 1. The target `STORE` or `ORGANIZATION` the user is requesting to perform the action on, this will allow us to verify if they have a valid membership and role at this place.
   - If the user is requesting to perform an action on a store, then we need the `store_id`, each API endpoint that acts on a store must have `{storeId}` in the path variable. For example: `POST /stores/{storeId}/products`.
-  - If the user is requesting to perform an action on a organization, then we need to get the `organizationId` from the request context from Step 1, since this is coming from the JWT token, we can verify that the user actually belongs to this `organizationId`. For exmaple `POST /organization/purchases`,  get the `organizationId` from `request.context.organizationId` 
+  - If the user is requesting to perform an action on a organization, then we need to get the `organizationId` from the request context from Step 1. Since that org was resolved from the caller's own `userId` (not sent by the client), we can trust that the user actually belongs to this `organizationId`. For exmaple `POST /organization/purchases`,  get the `organizationId` from `request.context.organizationId` 
 
 2. The required permission the user must have to call this API endpoint, this will allow us to verify if we can execute  the logic in this endpoint. For example if the logic in the endpoint is to delete a product, then we must check if the user has a role with the permission `product:delete`. 
 
@@ -139,7 +139,7 @@ If the endpoint declares a `STORE` scope (a store action), then the following ru
 
 > A store endpoint only ever declares `STORE` scope, so its permission is never elevated (`is_elevated = false`) — elevated permissions live only on `ORGANIZATION`-scoped endpoints. If a store endpoint's permission is ever elevated, treat it as a misconfiguration and **deny**.
 
-**1. Does the store in the request path `/stores/{storeId}/` belong in the `organizationId` that is in the request context built from the JWT token?**
+**1. Does the store in the request path `/stores/{storeId}/` belong in the `organizationId` that is in the request context?**
 
 - If not, then return **404** to let the user know this store does not exist in his organization. He can not act on it.
 
@@ -170,7 +170,7 @@ If the endpoint declares a `STORE` scope (a store action), then the following ru
 
 If the endpoint declares an `ORGANIZATION` scope (an org action), then the following rules must ALL be satisfied in order:
 
-**1. Does the user have an `ORGANIZATION` scope membership in the `organizationId` that is in the request context built from the JWT token, with an unexpired role that grants the permission (and the role's `scope` is `ORGANIZATION`, matching the membership; if a mismatched role somehow exists, ignore it)?**
+**1. Does the user have an `ORGANIZATION` scope membership in the `organizationId` that is in the request context , with an unexpired role that grants the permission (and the role's `scope` is `ORGANIZATION`, matching the membership; if a mismatched role somehow exists, ignore it)?**
 
 - If yes, the user is allowed — proceed to check 2.
 - If no, return **403** — only users with an `ORGANIZATION` membership and a role granting the permission can perform organization actions.
@@ -246,7 +246,7 @@ A few things make this safe:
 
 **The permission is a normal store permission.** `customer:create` and `product:create` are not elevated, so they sit in a normal store role — a cashier can hold them. Authorizing the create is the ordinary check: does the user have a role at this store that grants the permission? There's no special "is this shared?" branch.
 
-**The org and store are set by us, not the caller.** The new record's `organization_id` comes from the token, and its `store_id` comes from the `{storeId}` in the path (already checked by authorization). The caller never sends these, so a user can only ever create within their own org and their own store.
+**The org and store are set by us, not the caller.** The new record's `organization_id` comes from the request context (resolved from the caller's `userId` during authentication), and its `store_id` comes from the `{storeId}` in the path (already checked by authorization). The caller never sends these, so a user can only ever create within their own org and their own store.
 
 **The database keeps the two tables scoped correctly.** The store-level row (`store_customer` / `store_product`) is store-scoped, so a store only sees its own. The shared row (`customer` / `product`) is org-scoped, so every store in the org can resolve it. Neither can leak across orgs (see `database.md`).
 
@@ -307,7 +307,7 @@ token expires.
 
   This matters most **between two stores in the same org**. Say Maria works at Store A and calls `GET /stores/{StoreA}/orders/{orderId}` but passes an `orderId` that belongs to Store B. She *is* allowed at Store A, so the check passes — but the order isn't hers. Both stores share the same `organizationId`, so an org-only filter can't tell them apart. Adding `AND store_id = StoreA` to the query is what stops her from seeing Store B's order.
 
-- When inserting a new row, the `organization_id` is always taken from the request context object built in the Authentication step when validating the JWT token. This will prevent us from ever allowing a user to save data in a different `organization_id`. 
+- When inserting a new row, the `organization_id` is always taken from the request context object built in the Authentication step (resolved from the caller's `userId`, not from the token or the request body). This will prevent us from ever allowing a user to save data in a different `organization_id`. 
 
 - When assigning permissions to a role with the scope `STORE`, denying any permissions with `is_elevated = true`. This will prevent a store membership from every having elevated access.
 
@@ -330,8 +330,10 @@ serious break below is in **authentication and the token** (the front door), not
 
 ## Critical
 
-**R1 — Forge a token, become any tenant.** The entire tenant wall is `context.organizationId`, taken from
-the JWT. If an attacker can mint a token, they set `organizationId` to any org and walk in. Ways in:
+**R1 — Forge a token, become any user.** The token carries only `userId`; the tenant wall
+(`context.organizationId`) is resolved from it in the DB. So an attacker can't set an arbitrary org
+directly — but if they can mint a token, they forge a **`userId`** and become that user, and the org
+(and every membership) follows from the DB. The token's integrity is still the whole front door. Ways in:
 `alg: none` accepted, RS256→HS256 algorithm confusion (sign with the public key), a weak or leaked
 signing secret, or missing `exp`/`iss`/`aud` checks (replay an old or foreign token).
 → **Blue team:** §1 says "validate the JWT" but not *how*. Require explicitly: a pinned algorithm (reject
@@ -383,8 +385,9 @@ repository that *always* injects the place filter, so a raw query can't skip it.
 
 **R8 — Mass-assignment / tenant-stamp bypass.** On create, the attacker POSTs
 `"organization_id": <another org>` hoping the server saves the body verbatim.
-→ **Blue team:** stamp the tenant from the token, never the body — and make it structural: the request DTO
-has no `organization_id`/`store_id` field to bind, plus an RLS `WITH CHECK` on insert. Never
+→ **Blue team:** stamp the tenant from the resolved request context (org from `userId`, store from the
+path), never the body — and make it structural: the request DTO has no `organization_id`/`store_id` field
+to bind, plus an RLS `WITH CHECK` on insert. Never
 `db.Save(request)` a raw body onto an entity.
 
 **R9 — RLS silently off.** Not an attacker action, but a misconfig that hands over everything: if the app
@@ -421,7 +424,7 @@ transfer, membership changes, PIN changes, login failures/lockouts. Detection is
 
 ## What's already strong (keep it)
 
-- Tenant boundary from the token, never client input.
+- Tenant boundary resolved from the token's `userId` (not carried in the token, never client input).
 - Declared-scope routing (not URL-inferred) — less spoofable; makes elevated-permission containment structural.
 - Per-membership "any badge passes" evaluation with read-time backstops (`role.scope == membership.scope`).
 - Deny-by-default `FallbackPolicy` — forgotten auth = locked door.
@@ -450,7 +453,7 @@ transfer, membership changes, PIN changes, login failures/lockouts. Detection is
 | Area | Grade | Note |
 |---|---|---|
 | Authorization model | A | declared scope, per-membership checks, elevated-permission containment |
-| Tenant isolation (cross-org + cross-store) | A− | token-sourced boundary + two-level RLS; rests on solid JWT validation |
+| Tenant isolation (cross-org + cross-store) | A− | boundary resolved from the token's userId + two-level RLS; rests on solid JWT validation |
 | Privilege-escalation ceiling | B+ | subset rule specified; verify it's enforced server-side in-transaction |
 | Authentication (login / token / PIN) | D | JWT validation, hashing, token lifecycle, PIN, brute-force all open |
 | Auditing / detection | D | none |
