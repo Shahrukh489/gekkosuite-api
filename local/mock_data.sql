@@ -40,7 +40,7 @@ INSERT INTO store_customer (store_customer_id, store_id, organization_id, name, 
 
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000001', 'organization', 'read', 'Read the organization record and billing state', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000002', 'user', 'create', 'Create a user (login only, no membership)', TRUE);
-INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000003', 'sale', 'create', 'Ring up a sale', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000003', 'sales_order', 'create', 'Ring up a sale', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000004', 'product', 'read', 'View products', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000005', 'product', 'edit', 'Edit products and stock', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000006', 'order', 'refund', 'Refund an order', FALSE);
@@ -83,6 +83,9 @@ INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000013');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000014');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000011');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000003');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000003');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000004');
 
 
 INSERT INTO membership (membership_id, user_id, scope, organization_id, store_id, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('50000000-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'ORGANIZATION', '11111111-1111-1111-1111-111111111111', NULL, TRUE, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', FALSE, NULL);
