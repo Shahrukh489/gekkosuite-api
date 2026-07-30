@@ -74,10 +74,10 @@ public class AuthService : IAuthService
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.Secret));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
+        // token carries only the userId; the caller's org is resolved from it server-side per request
         var claims = new[]
         {
             new Claim("userId", user.UserId.ToString()),
-            new Claim("organizationId", user.OrganizationId.ToString())
         };
 
         var expires = DateTime.UtcNow.AddMinutes(_jwtOptions.AccessTokenLifetimeMinutes);

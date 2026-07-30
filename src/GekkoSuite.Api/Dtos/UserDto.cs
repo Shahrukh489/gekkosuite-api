@@ -19,7 +19,7 @@ public class UserDto
     public string Email { get; set; } = string.Empty;
 
     /// <summary>The user's organization (tenant).</summary>
-    public Guid OrganizationId { get; set; }
+    public Guid? OrganizationId { get; set; }
 
     /// <summary>Account kill switch; false = every membership is suspended.</summary>
     public bool IsActive { get; set; }

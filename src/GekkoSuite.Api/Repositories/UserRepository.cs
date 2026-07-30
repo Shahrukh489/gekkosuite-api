@@ -29,6 +29,20 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
+    public Task<Guid?> GetUserOrganizationIdAsync(Guid userId)
+    {
+        const string sql = """
+            SELECT organization_id
+            FROM user_account
+            WHERE user_id = @userId
+                AND is_active
+                AND NOT is_deleted
+            """;
+
+        return QuerySingleOrDefaultUnscopedAsync<Guid?>(sql, new { userId });
+    }
+
+    /// <inheritdoc />
     public Task<IEnumerable<UserEntity>> GetUsersWithMembershipsAsync(Guid organizationId)
     {
         const string sql = """

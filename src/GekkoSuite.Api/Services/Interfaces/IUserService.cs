@@ -10,6 +10,12 @@ public interface IUserService
     Task<UserDto?> GetUserByIdAsync(Guid organizationId, Guid userId);
 
     /// <summary>
+    /// Resolves a user's home organization from their id alone (no tenant known yet). Returns null if the
+    /// user does not exist. Used to establish the caller's org from the token's userId.
+    /// </summary>
+    Task<Guid?> GetUserOrganizationIdAsync(Guid userId);
+
+    /// <summary>
     /// Lists the org's users, each with their memberships (role names + membership details); membership-less users included.
     /// </summary>
     Task<List<UserDto>> GetUsersWithMembershipsAsync(Guid organizationId);

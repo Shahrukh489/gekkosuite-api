@@ -1,0 +1,93 @@
+== RBAC / membership (expect 403 = yours but no permission, 404 = not yours) ==
+- check user making changes in another org
+- check user making changes in store not a member of
+- check user not having org membership
+- check user having org membershp but not permission
+- check user not having store membership
+- check user having store membershp but not permission
+
+
+== Token / authentication (the front door) ==
+- no Authorization header on a protected endpoint -> expect 401
+- malformed / garbage bearer token -> 401
+- expired token (mint one with a past exp) -> 401
+- token signed with the WRONG secret -> 401 (signature check works)
+- token with alg=none (strip the signature) -> 401 (must reject unsigned)
+- token missing the userId claim -> 401
+- token with a userId that does not exist in the DB -> 401
+- deactivate a user (is_active=false) but keep their still-valid token, call an endpoint -> 401
+  (proves the active-check happens live, not just at login)
+- soft-delete a user (is_deleted=true) with a live token -> 401
+
+
+== Org id is NOT trusted from the client (the recent change) ==
+- confirm a fresh login token contains ONLY userId (decode it — no organizationId claim)
+- forge a token and ADD an organizationId claim for ANOTHER org -> it must be IGNORED
+  (the server resolves org from userId in the DB, so the fake claim changes nothing)
+- as a STORE user, confirm /auth/me does NOT return an organizationId in the response body
+- POST a create body that includes "organization_id": <another org> -> must be ignored/stamped from context, never saved verbatim
+
+
+== IDOR / cross-tenant (existence must not leak: expect 404, NOT 403) ==
+- GET /stores/{storeId} for a store in ANOTHER org -> 404 (not 403, not 200)
+- GET /stores/{storeId}/products where storeId is in another org -> 404
+- GET /stores/{storeId}/customers where storeId is in another org -> 404
+- as a user at Store A, GET a Store B resource by id (same org, different store) -> 404
+  (same-org cross-store: the store_id filter, not just org, must block it)
+- GET /organization/users/{userId} for a user in another org -> 404
+
+
+== Elevated-permission containment ==
+- confirm an elevated permission (e.g. user:create, store:list) can NOT be exercised via a STORE membership
+- store user hits an ORGANIZATION-scoped endpoint (e.g. GET /organization/users) -> 403
+
+
+== Error hygiene (no info leak) ==
+- trigger a 500 and confirm the response body is EMPTY (no stack trace, no ex.Message)
+- trigger a 401 and confirm no token-validation detail leaks in the WWW-Authenticate header (prod)
+
+
+== Input / injection (think like an attacker on the inputs themselves) ==
+- SQL injection in the {storeId}/{userId} path: pass "' OR '1'='1", "1;DROP TABLE store_product--"
+  -> must 400/404, never a 500 with a DB error (params are bound, but confirm)
+- SQL injection in query params (e.g. ?scope=ORGANIZATION' OR 1=1) -> 400, no DB error leak
+- oversized path/query values (very long storeId, 10k-char query string) -> clean 400/404, no crash
+- unicode / homoglyph / null-byte in ids and bodies -> no crash, no filter bypass
+- send an integer/array where a Guid or string is expected (type confusion) -> 400, not 500
+- deeply nested / huge JSON body -> rejected, no memory blowup (DoS)
+- duplicate JSON keys in a body ({"organization_id":"mine","organization_id":"other"}) -> last-wins must not smuggle a tenant
+
+== HTTP-level tricks ==
+- method tampering: POST-only route called with GET/PUT/PATCH/DELETE -> 405, not silent allow
+- trailing slash / case / encoded path: /Stores/{id}/PRODUCTS, /stores/{id}%2Fproducts,
+  //stores/{id}/products -> same authz applies, no bypass to an anonymous match
+- path traversal in the store segment: /stores/../organization/users -> resolves safely, still authz'd
+- extra/unknown route segments or query params -> ignored, don't change scope
+- HTTP verb the framework auto-handles (HEAD, OPTIONS) on a protected route -> not an auth bypass
+- very large number of query params / headers -> no crash
+
+== Authorization edge cases (probe the RBAC seams) ==
+- role assignment with expires_at in the PAST -> access denied (expiry is enforced in the query — confirm)
+- membership is_active=false but role still assigned -> denied
+- membership soft-deleted (is_deleted=true) -> denied
+- user has BOTH an org and a store membership (violates one-kind rule) -> confirm it fails loudly, not silently grants org reach
+- STORE-scoped role somehow attached to an ORG membership (or vice-versa) -> ignored, not honored
+- store that is soft-deleted (is_deleted=true): call /stores/{deletedStoreId}/products -> 404
+- request a store that exists in the org but the user has NO membership at -> 403/404, not 200
+- concurrent: assign then immediately revoke a role, hammer the endpoint -> no stale-allow window (reads are live)
+
+== Rate / brute force (currently unspecified — expect these to FAIL, that's the finding) ==
+- hammer POST /auth/login with wrong passwords -> is there any lockout / rate limit? (likely no — note it)
+- enumerate emails via login timing or distinct error messages (user-exists vs wrong-password) -> must be indistinguishable
+- token replay after logout (no server-side revocation yet) -> works until exp? (note as risk)
+
+== Business-logic / tenancy specific ==
+- create a product/customer at a store, then read it as a user of a DIFFERENT store in the same org -> must NOT see it (per-store isolation, not just per-org)
+- store_product SKU / store_customer email uniqueness: try to create a duplicate within a store -> rejected
+- try to reference another store's product/customer id in your own store's request -> 404
+- verify RLS actually engages: if it were misconfigured it fails SILENTLY (open) — add a test that a raw
+  cross-tenant id returns nothing even if the app-layer WHERE were removed
+
+
+- TODO: add postman test collection with different tokens and see if 403 and 401s for suite of endpoints with different
+profiles
