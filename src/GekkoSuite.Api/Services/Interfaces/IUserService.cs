@@ -18,17 +18,17 @@ public interface IUserService
     /// <summary>
     /// Lists the org's users, each with their memberships (role names + membership details); membership-less users included.
     /// </summary>
-    Task<List<UserDto>> GetUsersWithMembershipsAsync(Guid organizationId);
+    Task<List<UserDto>> GetOrganizationUsersWithMembershipsAsync(Guid organizationId);
 
     /// <summary>
     /// Lists the users with a live store membership at the given store, each with their store membership(s).
     /// </summary>
-    Task<List<UserDto>> GetUsersByStoreIdWithMembershipsAsync(Guid organizationId, Guid storeId);
+    Task<List<UserDto>> GetStoreUsersWithMembershipsAsync(Guid organizationId, Guid storeId);
 
     /// <summary>
     /// Returns the user's live ORGANIZATION memberships (one per role held), or null if they have none.
     /// </summary>
-    Task<List<MembershipDto>?> GetUserOrganizationMembershipsByOrganizationIdAsync(Guid organizationId, Guid userId);
+    Task<List<MembershipDto>?> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
     /// Returns the user's live STORE memberships (each with its store name and role), oldest-first.
@@ -38,11 +38,11 @@ public interface IUserService
     /// <summary>
     /// Returns the user's live STORE memberships (one per role) at the given store, or null if none.
     /// </summary>
-    Task<List<MembershipDto>?> GetUserStoreMembershipsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId);
+    Task<List<MembershipDto>?> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId, Guid storeId);
 
     /// <summary>
     /// Builds the self-read view for the current user — their profile plus userType, defaultStoreId, and
     /// memberships (org entry, or store entries oldest-first). Null if the user isn't found.
     /// </summary>
-    Task<UserDto?> GetUserByIdWithMembershipsAsync(Guid organizationId, Guid userId);
+    Task<UserDto?> GetUserWithMembershipsAsync(Guid organizationId, Guid userId);
 }

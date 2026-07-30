@@ -43,7 +43,9 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<UserEntity>> GetUsersWithMembershipsAsync(Guid organizationId)
+    /// @TODO:L should we move to organizationRepostiry
+    ///
+    public Task<IEnumerable<UserEntity>> GetOrganizationUsersWithMembershipsAsync(Guid organizationId)
     {
         const string sql = """
             SELECT
@@ -92,7 +94,8 @@ public class UserRepository : BaseRepository, IUserRepository
     }
   
     /// <inheritdoc />
-    public Task<IEnumerable<UserEntity>> GetUsersByStoreIdWithMembershipsAsync(Guid organizationId, Guid storeId)
+    /// @TODO:L should we move to storeRepository??
+    public Task<IEnumerable<UserEntity>> GetStoreUsersWithMembershipsAsync(Guid organizationId, Guid storeId)
     {
         const string sql = """
             SELECT
@@ -128,6 +131,7 @@ public class UserRepository : BaseRepository, IUserRepository
             ORDER BY u.first_name
             """;
 
+        // @TODO: verify if this has no records it returns null or an empty
         return QueryAsync<UserEntity>(organizationId, storeId, sql, new { organizationId, storeId });
     }
 
@@ -157,7 +161,7 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsByOrganizationIdAsync(Guid organizationId, Guid userId)
+    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId)
     {
         const string sql = """
             SELECT
@@ -226,7 +230,7 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId)
+    public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId, Guid storeId)
     {
         const string sql = """
             SELECT

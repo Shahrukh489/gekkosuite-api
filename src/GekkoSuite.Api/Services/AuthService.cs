@@ -46,7 +46,7 @@ public class AuthService : IAuthService
     }
 
     /// <summary>
-    /// Hashes a password with Argon2id using a caller-supplied salt.
+    /// Hashes a password with Argon2id 
     /// </summary>
     private static byte[] HashPassword(string password, byte[] salt)
     {
@@ -74,7 +74,8 @@ public class AuthService : IAuthService
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.Secret));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        // token carries only the userId; the caller's org is resolved from it server-side per request
+        // token carries only the userId; the caller's organizationId
+        // is resolved from the server in ClaimsTransformation per request
         var claims = new[]
         {
             new Claim("userId", user.UserId.ToString()),
@@ -83,6 +84,7 @@ public class AuthService : IAuthService
         var expires = DateTime.UtcNow.AddMinutes(_jwtOptions.AccessTokenLifetimeMinutes);
 
         var token = new JwtSecurityToken(issuer: _jwtOptions.Issuer, audience: _jwtOptions.Audience, claims: claims, expires: expires, signingCredentials: credentials);
+        
         return new LoginResponse
         {
             AccessToken = new JwtSecurityTokenHandler().WriteToken(token),
@@ -95,7 +97,7 @@ public class AuthService : IAuthService
     {
         var user = await _userRepository.GetUserByEmailAsync(email);
 
-        // Checking the hash even when user is null would be nice for timing-attack hygiene, but is
+        // @TODO: Checking the hash even when user is null would be nice for timing-attack hygiene, but is
         // skipped here for simplicity; the meaningful secret (the password) is never exposed either way.
         if (user is null || !VerifyPassword(password, user.Password) || !user.IsActive)
         {
@@ -108,12 +110,7 @@ public class AuthService : IAuthService
     /// <inheritdoc />
     public async Task<UserDto?> GetCurrentUserAsync(Guid organizationId, Guid currentUserId)
     {
-        UserDto? userDto = await _userService.GetUserByIdWithMembershipsAsync(organizationId, currentUserId);
-        if (userDto == null)
-        {
-            return null;
-        }
-
+        UserDto? userDto = await _userService.GetUserWithMembershipsAsync(organizationId, currentUserId);
         return userDto;
     }
 

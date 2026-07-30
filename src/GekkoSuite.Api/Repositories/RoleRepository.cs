@@ -14,7 +14,6 @@ public class RoleRepository : BaseRepository, IRoleRepository
     /// <inheritdoc />
     public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId, MembershipScope? scope)
     {
-        // managed roles (org-null) are visible to everyone; custom roles only to their owning org.
         const string sql = """
             SELECT
                 role_id AS RoleId,

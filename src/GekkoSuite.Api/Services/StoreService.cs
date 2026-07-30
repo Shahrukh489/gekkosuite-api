@@ -25,12 +25,13 @@ public class StoreService : IStoreService
     /// <inheritdoc />
     public async Task<List<UserDto>> GetStoreUsersByStoreIdAsync(Guid organizationId, Guid storeId)
     {
-        return await _userService.GetUsersByStoreIdWithMembershipsAsync(organizationId, storeId);
+        return await _userService.GetStoreUsersWithMembershipsAsync(organizationId, storeId);
     }
 
     /// <inheritdoc />
     public async Task<List<StoreDto>> GetStoresAsync(Guid organizationId)
     {
+        // @TODO: verify if this will return null or empty list
         IEnumerable<StoreEntity> storeEntities = await _storeRepository.GetStoresAsync(organizationId);
         return storeEntities.Select(StoreDto.FromEntity).ToList();
     }

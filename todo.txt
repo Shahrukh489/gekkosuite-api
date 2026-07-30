@@ -1,11 +1,7 @@
-the api design 
-final doc review
-ux mockup high level
 simplify post-mvp file
 security review of auth.md
 see how to do supabase db backups and replication
 cost analysis of infra and db breakdown and estimates
-finalize on products shared or not design 
 ask fable to attack and think of blue and red team for auth.md
 what if org is deleted
 what if org is not paying subscription  
@@ -15,9 +11,14 @@ what if org is not paying subscription
 - add email based login so we send pin to email every login instead of passwqord only
 
 
+@TODO: add userType record to user entity so we dont have to merge with memberships eacth time to decide
+@TODO: review all db queries
+
 # general
 - refactor a lot of user layers teh db queries are near identical
 - testing
+
+
 
 # security
 - xss middleware

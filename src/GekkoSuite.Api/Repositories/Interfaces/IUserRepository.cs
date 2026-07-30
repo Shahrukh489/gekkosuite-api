@@ -3,6 +3,7 @@ using GekkoSuite.Api.Entities;
 namespace GekkoSuite.Api.Repositories;
 
 
+// @TODO: verify all of these queries
 public interface IUserRepository
 {
     /// <summary>
@@ -24,17 +25,17 @@ public interface IUserRepository
     /// <summary>
     /// Lists the users in the org, each with their memberships folded in; users with no membership included.
     /// </summary>
-    public Task<IEnumerable<UserEntity>> GetUsersWithMembershipsAsync(Guid organizationId);
+    public Task<IEnumerable<UserEntity>> GetOrganizationUsersWithMembershipsAsync(Guid organizationId);
 
     /// <summary>
     /// Lists the users with a live store membership at the given store, each with their store membership(s).
     /// </summary>
-    public Task<IEnumerable<UserEntity>> GetUsersByStoreIdWithMembershipsAsync(Guid organizationId, Guid storeId);
+    public Task<IEnumerable<UserEntity>> GetStoreUsersWithMembershipsAsync(Guid organizationId, Guid storeId);
 
     /// <summary>
     /// Returns the user's live ORGANIZATION membership rows (one per role held), empty if they have none.
     /// </summary>
-    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsByOrganizationIdAsync(Guid organizationId, Guid userId);
+    public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
     /// Returns the user's live STORE memberships (each with its store name and role), oldest-first.
@@ -44,5 +45,5 @@ public interface IUserRepository
     /// <summary>
     /// Returns the user's live STORE membership rows (one per role) at the given store, empty if none.
     /// </summary>
-    public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId);
+    public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId, Guid storeId);
 }

@@ -35,18 +35,15 @@ public class OrganizationService : IOrganizationService
     /// <inheritdoc />
     public async Task<List<UserDto>> GetUsersAsync(Guid organizationId)
     {
-        return await _userService.GetUsersWithMembershipsAsync(organizationId);
-    }
-
-    /// <inheritdoc />
-    public async Task<UserDto?> GetUserByIdAsync(Guid organizationId, Guid userId)
-    {
-        return await _userService.GetUserByIdWithMembershipsAsync(organizationId, userId);
+        // @TODO: if we do not need to show memberships or userType then just get the metadata
+        // look into adding the userType in users entity to prevent memberships merge
+        return await _userService.GetOrganizationUsersWithMembershipsAsync(organizationId);
     }
 
     /// <inheritdoc />
     public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId)
     {
+        // @TODO: verify if this will return null or empty list
         return await _roleService.GetRolesAsync(organizationId, null);
     }
 
@@ -59,6 +56,7 @@ public class OrganizationService : IOrganizationService
     /// <inheritdoc />
     public async Task<List<StoreDto>> GetStoresAsync(Guid organizationId)
     {
+        // @TODO: verify if this will return null or empty list
         return await _storeService.GetStoresAsync(organizationId);
     }
 }

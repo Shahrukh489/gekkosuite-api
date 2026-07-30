@@ -63,8 +63,7 @@ public class AuthController : BaseController
     }
 
     /// <summary>
-    /// Returns the current user (self read). The userId and organizationId are taken only from the
-    /// validated token, never from the request. Any authenticated user may call this; no permission needed.
+    /// Returns the current user and his memberships
     /// </summary>
     [HttpGet("me")]
     [EndpointName("GetCurrentUser")]

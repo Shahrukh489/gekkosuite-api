@@ -28,7 +28,7 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     private async Task<bool> CheckOrganizationAccess(Guid organizationId, Guid userId, string permission)
     {
         _logger.LogDebug("Authorizing {UserId}: checking ORGANIZATION membership in org {OrganizationId} for permission {Permission}.", userId, organizationId, permission);
-        List<MembershipDto>? memberships = await _userService.GetUserOrganizationMembershipsByOrganizationIdAsync(organizationId, userId);
+        List<MembershipDto>? memberships = await _userService.GetUserOrganizationMembershipsAsync(organizationId, userId);
         return Grants(memberships, permission);
     }
 
@@ -39,7 +39,7 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     private async Task<bool> CheckStoreAccess(Guid organizationId, Guid userId, Guid storeId, string permission)
     {
         _logger.LogDebug("Authorizing {UserId}: checking STORE membership at store {StoreId} in org {OrganizationId} for permission {Permission}.", userId, storeId, organizationId, permission);
-        List<MembershipDto>? storeMemberships = await _userService.GetUserStoreMembershipsByStoreIdAsync(organizationId, userId, storeId);
+        List<MembershipDto>? storeMemberships = await _userService.GetUserStoreMembershipsAsync(organizationId, userId, storeId);
         return Grants(storeMemberships, permission);
     }
 

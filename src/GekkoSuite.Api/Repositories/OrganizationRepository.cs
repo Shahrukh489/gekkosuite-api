@@ -42,8 +42,7 @@ public class OrganizationRepository : BaseRepository, IOrganizationRepository
                             )
                      FROM subscription s
                      JOIN offering off ON off.offering_id = s.offering_id
-                     WHERE s.organization_id = o.organization_id
-                       AND s.status IN ('ACTIVE', 'TRIALING')),
+                     WHERE s.organization_id = o.organization_id AND s.status IN ('ACTIVE', 'TRIALING')),
                     '[]'
                 ) AS Subscriptions
             FROM organization o

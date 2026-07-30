@@ -16,11 +16,6 @@ public interface IOrganizationService
     Task<List<UserDto>> GetUsersAsync(Guid organizationId);
 
     /// <summary>
-    /// Returns one user in the org — their record plus their memberships — or null if not found there.
-    /// </summary>
-    Task<UserDto?> GetUserByIdAsync(Guid organizationId, Guid userId);
-
-    /// <summary>
     /// Lists the roles assignable in the org (managed + the org's own), optionally filtered to one scope.
     /// </summary>
     Task<List<RoleDto>> GetRolesAsync(Guid organizationId);
