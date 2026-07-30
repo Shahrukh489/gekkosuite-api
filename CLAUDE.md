@@ -78,6 +78,14 @@ Rules are guarded in up to three layers, and docs reflect this pattern — keep 
 - `docs/ui.md` — one app, one set of screens; a store switcher sets context, memberships decide
   available contexts, permissions decide which tabs/actions show.
 - `docs/post-mvp.md` — deferred features.
+- `docs/returns.md` — plan for the in-store returns/RMA system: scope decisions, schema, API, and UI
+  needed to process a return against a prior sale. Nothing in it is built yet; orders (`sales_order`)
+  have to be migrated for real first — see its "Phase 0" section.
+- `docs/customers.md` — plan for a customer data model that covers both B2C (individual) and B2B
+  (business) accounts: a shared `customer` core + `customer_type`, a `customer_business_detail` table for
+  business-only fields (tax ID, billing terms, credit limit), and `customer_contact` for the multiple
+  people who can buy on one business account. Includes compliance notes (exemption certificates, PII
+  minimization, PCI-DSS, consent tracking). Nothing in it is built yet.
 
 When editing docs, keep the heavy cross-referencing between files intact (they cite each other by
 name), and preserve the existing voice: worked examples, tables, and explicit "why this matters" notes.

@@ -185,9 +185,47 @@ CREATE INDEX ON store (organization_id);
 -- at most one default store per org (only live stores count)
 CREATE UNIQUE INDEX store_one_default_per_org ON store (organization_id) WHERE is_default AND NOT is_deleted;
 
+-- A product: the shared, org-level identity for an item — written only when the org turns on
+-- share_products (product.md). store_product is always written regardless; this is its optional
+-- org-wide mirror, used for cross-store search/reporting and seeding a new store's catalog. Never
+-- carries price, cost, or stock — those stay per-store even when the identity is shared (CLAUDE.md).
+-- supplier_id is deferred until the `supplier` table itself is migrated (product.md).
+CREATE TABLE product (
+    -- product id
+    product_id                 UUID PRIMARY KEY,
+    -- owning org (the tenant)
+    organization_id            UUID NOT NULL REFERENCES organization (organization_id),
+    -- product display name, e.g. 'Espresso Beans 1kg'
+    name                       VARCHAR(256) NOT NULL,
+    -- optional human description
+    description                VARCHAR(1024),
+    -- free-text grouping, e.g. 'Bakery', 'Beverages'
+    category                   VARCHAR(128),
+    -- free-text brand/manufacturer, e.g. 'Lavazza'
+    brand                      VARCHAR(128),
+    -- up to 3 variant dimensions (Flavor/Size/Color/...) that differentiate this item from sibling
+    -- store_products sharing the same name — see product.md "Variants: no new table needed"
+    variant_option_one_name    VARCHAR(64),
+    variant_option_one_value   VARCHAR(256),
+    variant_option_two_name    VARCHAR(64),
+    variant_option_two_value   VARCHAR(256),
+    variant_option_three_name  VARCHAR(64),
+    variant_option_three_value VARCHAR(256),
+    -- when the shared record was created (stored UTC)
+    created_at                 TIMESTAMPTZ NOT NULL,
+    -- when it was last modified (stored UTC)
+    updated_at                 TIMESTAMPTZ NOT NULL,
+    -- soft-delete flag; TRUE = removed but kept for history
+    is_deleted                 BOOLEAN NOT NULL,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at                 TIMESTAMPTZ
+);
+CREATE INDEX ON product (organization_id);
+
 -- A store_product: a product as it exists AT ONE STORE — its own stock and price. Always written when a
 -- product is created (the shared org-level `product` is written only when share_products is on). Stock and
--- price are ALWAYS per-store, never shared (see tenancy.md / CLAUDE.md).
+-- price are ALWAYS per-store, never shared (see tenancy.md / CLAUDE.md). Must be able to stand alone with
+-- no shared `product` row, since sharing is off by default (product.md).
 CREATE TABLE store_product (
     -- store_product id
     store_product_id UUID PRIMARY KEY,
@@ -195,16 +233,45 @@ CREATE TABLE store_product (
     store_id         UUID NOT NULL REFERENCES store (store_id),
     -- the owning org (the tenant boundary — stamped for RLS and cross-store isolation)
     organization_id  UUID NOT NULL REFERENCES organization (organization_id),
+    -- the shared org-wide identity this product is recognized as; set only when share_products is on
+    -- (product.md — "How product and store_product connect")
+    product_id       UUID REFERENCES product (product_id),
     -- product display name, e.g. 'Espresso Beans 1kg'
     name             VARCHAR(256) NOT NULL,
     -- optional human description
     description      VARCHAR(1024),
     -- stock-keeping unit; the store's own product code (optional, unique per store — index below)
     sku              VARCHAR(64),
+    -- manufacturer barcode (UPC/EAN); optional, unique per store — index below (distinct from `sku`,
+    -- the store's own code: a barcode scan at checkout looks this up, not the SKU)
+    barcode          VARCHAR(64),
+    -- free-text grouping for browsing/filtering at checkout, e.g. 'Bakery', 'Beverages'
+    category         VARCHAR(128),
+    -- free-text brand/manufacturer, e.g. 'Lavazza'
+    brand            VARCHAR(128),
+    -- up to 3 variant dimensions (Flavor/Size/Color/...) that differentiate this row from sibling
+    -- store_products sharing the same name — see product.md "Variants: no new table needed"
+    variant_option_one_name    VARCHAR(64),
+    variant_option_one_value   VARCHAR(256),
+    variant_option_two_name    VARCHAR(64),
+    variant_option_two_value   VARCHAR(256),
+    variant_option_three_name  VARCHAR(64),
+    variant_option_three_value VARCHAR(256),
     -- this store's selling price (never shared across stores)
     price            NUMERIC NOT NULL,
-    -- units on hand at this store (never shared across stores)
+    -- what this store paid per unit (never shared across stores); for margin reporting, not shown at checkout
+    cost             NUMERIC,
+    -- units on hand at this store (never shared across stores); allowed to go negative — overselling/
+    -- backorder is real, not a bug (product.md's "Data quality" — do not add a `stock >= 0` CHECK)
     stock            INTEGER NOT NULL,
+    -- whether stock is decremented on sale at all; FALSE = never tracked (e.g. a service, not a good)
+    track_inventory  BOOLEAN NOT NULL DEFAULT TRUE,
+    -- whether a sale of this product is taxed; FALSE = always tax-exempt regardless of tax_rate
+    is_taxable       BOOLEAN NOT NULL DEFAULT TRUE,
+    -- tax percentage applied at checkout when is_taxable (e.g. 8.25 = 8.25%); ignored otherwise
+    tax_rate         NUMERIC(5, 2) NOT NULL DEFAULT 0,
+    -- optional low-stock threshold for reorder alerts; NULL = no threshold set
+    reorder_point    INTEGER,
     -- listing toggle; FALSE = hidden from selling but kept
     is_active        BOOLEAN NOT NULL,
     -- when the product was created at this store (stored UTC)
@@ -219,6 +286,10 @@ CREATE TABLE store_product (
 CREATE INDEX ON store_product (store_id);
 -- a SKU is unique within a store (only live products count); NULL SKUs are exempt
 CREATE UNIQUE INDEX store_product_sku_per_store ON store_product (store_id, sku) WHERE sku IS NOT NULL AND NOT is_deleted;
+-- a barcode is unique within a store (only live products count); NULL barcodes are exempt
+CREATE UNIQUE INDEX store_product_barcode_per_store ON store_product (store_id, barcode) WHERE barcode IS NOT NULL AND NOT is_deleted;
+-- products linked to a shared org-wide identity (only rows where share_products created one)
+CREATE INDEX ON store_product (product_id) WHERE product_id IS NOT NULL;
 
 -- A store_customer: a customer as known AT ONE STORE. Always written when a customer is created (the
 -- shared org-level `customer` — recognized org-wide — is written in the same transaction; see

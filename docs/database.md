@@ -567,17 +567,21 @@ CREATE TABLE store_product (
     organization_id  UUID NOT NULL REFERENCES organization (organization_id),
     product_id       UUID REFERENCES product (product_id),
     sku              TEXT,
+    -- manufacturer barcode (UPC/EAN); optional, unique per store — distinct from sku (the store's own code)
+    barcode          TEXT,
+    -- free-text grouping for browsing/filtering at checkout, e.g. 'Bakery', 'Beverages'
+    category         TEXT,
     quantity         INTEGER NOT NULL DEFAULT 0,
     price            NUMERIC(12, 2),
+    -- what this store paid per unit; for margin reporting, not shown at checkout
+    cost             NUMERIC(12, 2),
+    -- whether a sale of this product is taxed; FALSE = always tax-exempt regardless of tax_rate
+    is_taxable       BOOLEAN NOT NULL DEFAULT TRUE,
+    -- tax percentage applied at checkout when is_taxable (e.g. 8.25 = 8.25%); ignored otherwise
+    tax_rate         NUMERIC(5, 2) NOT NULL DEFAULT 0,
     UNIQUE (store_id, sku)
 );
-
-CREATE TABLE product (
-    product_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organization (organization_id),
-    sku             TEXT,
-    UNIQUE (organization_id, sku)
-);
+CREATE UNIQUE INDEX store_product_barcode_uq ON store_product (store_id, barcode) WHERE barcode IS NOT NULL;
 
 
 

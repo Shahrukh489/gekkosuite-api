@@ -21,8 +21,13 @@ public class ProductRepository : BaseRepository, IProductRepository
                 name AS Name,
                 description AS Description,
                 sku AS Sku,
+                barcode AS Barcode,
+                category AS Category,
                 price AS Price,
+                cost AS Cost,
                 stock AS Stock,
+                is_taxable AS IsTaxable,
+                tax_rate AS TaxRate,
                 is_active AS IsActive,
                 created_at AS CreatedAt,
                 updated_at AS UpdatedAt
