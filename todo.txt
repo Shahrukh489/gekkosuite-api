@@ -16,12 +16,7 @@ what if org is not paying subscription
   - review all db queries
   - organizatoin, store and user service review a
   - verify all controller attributes and codes with Ai such as 404 etc..
-
-
-
-# general
-- refactor a lot of user layers teh db queries are near identical
-- testing
+  - postman collection and thorough security and auth access controls testing
 
 
 

@@ -23,7 +23,7 @@ public class AuthController : BaseController
     }
 
     /// <summary>
-    /// Exchanges an email + password for an access token
+    /// Gets an accessToken if a user has verified email and password
     /// </summary>
     [HttpPost("login")]
     [EndpointName("Login")]
@@ -63,7 +63,7 @@ public class AuthController : BaseController
     }
 
     /// <summary>
-    /// Returns the current user and his memberships
+    /// Get the current user and his memberships
     /// </summary>
     [HttpGet("me")]
     [EndpointName("GetCurrentUser")]

@@ -22,7 +22,7 @@ public class OfferingController : BaseController
     }
 
     /// <summary>
-    /// Lists the available offerings (public catalog), optionally filtered to a type (PLAN or ADDON).
+    /// Get all the available offerings (public catalog), optionally filtered to a type (PLAN or ADDON).
     /// </summary>
     [HttpGet]
     [AllowAnonymous]

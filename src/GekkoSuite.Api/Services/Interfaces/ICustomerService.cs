@@ -5,7 +5,7 @@ namespace GekkoSuite.Api.Services;
 public interface ICustomerService
 {
     /// <summary>
-    /// Lists the customers at the given store — the store's own roster with contact details.
+    /// Lists the customers at a given store
     /// </summary>
     Task<List<CustomerDto>> GetStoreCustomersAsync(Guid organizationId, Guid storeId);
 }
