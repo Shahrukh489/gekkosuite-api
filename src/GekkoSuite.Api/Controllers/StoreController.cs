@@ -43,7 +43,7 @@ public class StoreController : BaseController
             StoreDto? store = await _storeService.GetStoreByIdAsync(organizationId, storeId);
             if (store is null)
             {
-                return NotFound(new { message = "Store not found." });
+                return NotFound();
             }
 
             return Ok(store);
@@ -64,7 +64,6 @@ public class StoreController : BaseController
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<List<UserDto>>> GetStoreUsersByStoreIdAsync(Guid storeId)
     {
@@ -83,65 +82,6 @@ public class StoreController : BaseController
     }
 
     /// <summary>
-    /// Lists the STORE-scoped roles assignable in the caller's org, for a store the caller belongs to.
-    /// </summary>
-    [HttpGet("{" + Constants.STORE_ID + "}/roles")]
-    [EndpointName("GetStoreRoles")]
-    [HasPermission(MembershipScope.STORE, "role:list")]
-    [Produces(MediaTypeNames.Application.Json)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<RoleDto>>> GetStoreRolesAsync(Guid storeId)
-    {
-        try
-        {
-            var organizationId = User.GetOrganizationId();
-
-            List<RoleDto> roles = await _storeService.GetStoreRolesAsync(organizationId);
-
-            return Ok(roles);
-        }
-        catch (Exception ex)
-        {
-            return ErrorResponse(ex);
-        }
-    }
-
-    /// <summary>
-    /// Returns one role and the permissions it grants, in the context of a store the caller belongs to.
-    /// The store must belong to the caller's org.
-    /// </summary>
-    [HttpGet("{" + Constants.STORE_ID + "}/roles/{roleId}")]
-    [EndpointName("GetStoreRoleById")]
-    [HasPermission(MembershipScope.STORE, "role:read")]
-    [Produces(MediaTypeNames.Application.Json)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<RoleDto>> GetStoreRoleByIdAsync(Guid storeId, Guid roleId)
-    {
-        try
-        {
-            var organizationId = User.GetOrganizationId();
-
-            RoleDto? role = await _storeService.GetStoreRoleByIdAsync(organizationId, roleId);
-            if (role is null)
-            {
-                return NotFound(new { message = "Role not found." });
-            }
-
-            return Ok(role);
-        }
-        catch (Exception ex)
-        {
-            return ErrorResponse(ex);
-        }
-    }
-
-    /// <summary>
     /// Lists the products at a store — the store's own catalog with its per-store stock and price.
     /// The store must belong to the caller's org.
     /// </summary>
@@ -151,7 +91,6 @@ public class StoreController : BaseController
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<List<ProductDto>>> GetStoreProductsAsync(Guid storeId)
     {
@@ -179,7 +118,6 @@ public class StoreController : BaseController
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<List<CustomerDto>>> GetStoreCustomersAsync(Guid storeId)
     {

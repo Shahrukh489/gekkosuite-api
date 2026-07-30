@@ -42,7 +42,7 @@ public class OrganizationController : BaseController
             OrganizationDto? organization = await _organizationService.GetOrganizationByIdAsync(organizationId);
             if (organization is null)
             {
-                return NotFound(new { message = "Organization not found." });
+                return NotFound();
             }
 
             return Ok(organization);
@@ -99,7 +99,7 @@ public class OrganizationController : BaseController
             UserDto? user = await _organizationService.GetUserByIdAsync(organizationId, userId);
             if (user is null)
             {
-                return NotFound(new { message = "User not found." });
+                return NotFound();
             }
 
             return Ok(user);
@@ -127,6 +127,7 @@ public class OrganizationController : BaseController
         try
         {
             var organizationId = User.GetOrganizationId();
+            
             List<RoleDto> roles = await _organizationService.GetRolesAsync(organizationId);
 
             return Ok(roles);
@@ -157,7 +158,7 @@ public class OrganizationController : BaseController
             RoleDto? role = await _organizationService.GetRoleByIdAsync(organizationId, roleId);
             if (role is null)
             {
-                return NotFound(new { message = "Role not found." });
+                return NotFound();
             }
 
             return Ok(role);

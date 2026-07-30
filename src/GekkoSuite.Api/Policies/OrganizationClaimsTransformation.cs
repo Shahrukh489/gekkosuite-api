@@ -4,12 +4,14 @@ using Microsoft.AspNetCore.Authentication;
 
 using GekkoSuite.Api.Services;
 
-namespace GekkoSuite.Api.Auth;
+namespace GekkoSuite.Api.Policies;
 
 /// <summary>
-/// Enriches the authenticated principal with the caller's organizationId. The token carries only userId, so
-/// the org is resolved from the DB per request and added as a claim (never re-signed into the token). This
-/// only enriches — it cannot reject; the AuthenticationMiddleware gates on the claim's presence.
+/// Enriches the authenticated principal with the caller's organizationId. 
+/// The token carries only userId, so the organizationId is resolved from the DB per request
+/// and added as a claim 
+/// Note: this only enriches — it cannot reject;
+/// The AuthenticationMiddleware runs after this to verify and reject 
 /// </summary>
 public class OrganizationClaimsTransformation : IClaimsTransformation
 {
@@ -23,17 +25,14 @@ public class OrganizationClaimsTransformation : IClaimsTransformation
     }
 
     /// <summary>
-    /// Adds an organizationId claim resolved from the principal's userId. Assumes a single JWT scheme with no
-    /// manual re-authentication, so it runs once per request on a fresh principal (no idempotency guard).
+    /// Adds an organizationId claim resolved from the principal's userId. 
     /// </summary>
-    /// <param name="principal">The authenticated principal carrying the userId claim.</param>
-    /// <returns>The same principal, with an organizationId claim added when one could be resolved.</returns>
     public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
         var userId = principal.FindFirst("userId")?.Value;
         if (!Guid.TryParse(userId, out var userGuid))
         {
-            _logger.LogDebug("Claims transform: no valid userId claim on the token; adding no organizationId.");
+            _logger.LogDebug("Claims transform: no valid userId claim on the token, cant get organizationId.");
             return principal;
         }
 
@@ -42,7 +41,8 @@ public class OrganizationClaimsTransformation : IClaimsTransformation
         Guid? organizationId = await _userService.GetUserOrganizationIdAsync(userGuid);
         if (organizationId is null)
         {
-            _logger.LogDebug("Claims transform: user {UserId} resolved to no live, active organization; adding no claim.", userGuid);
+            _logger.LogDebug("Claims transform: user {UserId} resolved to no organizationId.", userGuid);
+            // @TODO: verify if we can throw an exception here instead.
             return principal;
         }
 

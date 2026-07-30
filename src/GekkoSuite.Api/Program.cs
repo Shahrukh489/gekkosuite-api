@@ -6,12 +6,14 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 
-using GekkoSuite.Api.Auth;
 using GekkoSuite.Api.Configurations;
 using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Policies;
 using GekkoSuite.Api.Repositories;
 using GekkoSuite.Api.Services;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,8 +31,7 @@ SqlMapper.AddTypeHandler(new JsonTypeHandler<List<SubscriptionEntity>>());
 
 builder.Services.AddOpenApi();
 
-// CORS is opt-in via config: Cors:AllowedOrigins (a JSON array). Absent/empty — e.g. production — means
-// no policy is registered and no cross-origin requests are allowed.
+// Setup cors from appsettings configs
 const string CorsPolicyName = "ConfiguredOrigins";
 string[] allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 if (allowedOrigins.Length > 0)
@@ -50,18 +51,17 @@ if (allowedOrigins.Length > 0)
 // serialize enums as their names (e.g. "ORGANIZATION"), not their underlying integer
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
-    options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
 
 // Suppress the framework's automatic RFC-9110 ProblemDetails body on error responses (e.g. 401);
-// endpoints return their own responses, so a bare status code goes out with an empty body.
-builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.SuppressMapClientErrors = true;
 });
 
 
-// DB Connection
+// Connect to database
 var connectionString =
     Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_STRING")
     ?? builder.Configuration.GetConnectionString("Postgres")
@@ -87,10 +87,11 @@ builder.Services.AddSingleton<ICustomerService, CustomerService>();
 builder.Services.AddSingleton<IRoleService, RoleService>();
 builder.Services.AddSingleton<IOfferingService, OfferingService>();
 
-// Enriches the authenticated principal with the caller's organizationId (resolved from the token's userId).
+// Custom Claims Transformation that enriches auth context
+// Use this to add organizationId to claims for the given userId from the token
 builder.Services.AddSingleton<IClaimsTransformation, OrganizationClaimsTransformation>();
 
-// Authorization: the provider turns a HasPermission policy name into a requirement, the handler evaluates it.
+// Custom Authorization Handlers
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 builder.Services.AddSingleton<IAuthorizationHandler, FeatureHandler>();
@@ -98,22 +99,14 @@ builder.Services.AddSingleton<IAuthorizationHandler, FeatureHandler>();
 // JWT signing settings
 var jwtOptions = new JwtOptions
 {
-    Secret =
-        Environment.GetEnvironmentVariable("JWT_SECRET")
-        ?? builder.Configuration["Jwt:Secret"]
-        ?? throw new InvalidOperationException("No JWT secret. Set JWT_SECRET or Jwt:Secret."),
-    Issuer =
-        Environment.GetEnvironmentVariable("JWT_ISSUER")
-        ?? builder.Configuration["Jwt:Issuer"]
-        ?? "gekkosuite-api",
-    Audience =
-        Environment.GetEnvironmentVariable("JWT_AUDIENCE")
-        ?? builder.Configuration["Jwt:Audience"]
-        ?? "gekkosuite-clients",
+    Secret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? throw new InvalidOperationException("No JWT secret. Set JWT_SECRET or Jwt:Secret."),
+    Issuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "gekkosuite-api",
+    Audience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? "gekkosuite-client",
     AccessTokenLifetimeMinutes = 60
 };
 
-// Fail fast if the signing secret is too weak. HS256 needs a key at least as long as its output (256 bits = 32 bytes);
+// Fail fast if the signing secret is too weak. 
+// HS256 needs a key at least as long as its output (256 bits = 32 bytes);
 if (Encoding.UTF8.GetByteCount(jwtOptions.Secret) < 32)
 {
     throw new InvalidOperationException("JWT secret must be at least 32 bytes for HS256.");
@@ -121,8 +114,7 @@ if (Encoding.UTF8.GetByteCount(jwtOptions.Secret) < 32)
 
 builder.Services.AddSingleton(jwtOptions);
 
-// Validate the bearer JWT on every request: pinned HS256, verified signature, and matching issuer, audience, and expiry.
-// Anything else is rejected with 401.
+// Validate the bearer JWT on every request
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -156,8 +148,7 @@ builder.Services
         {
             OnTokenValidated = context =>
             {
-                // the token carries only userId (the org is resolved later by the claims transformation);
-                // reject if it is missing or not a valid GUID
+                // the token carries only userId, validate its a Guid
                 var userId = context.Principal?.FindFirst("userId")?.Value;
 
                 if (!Guid.TryParse(userId, out _))
@@ -170,23 +161,20 @@ builder.Services
         };
     });
 
-// Deny by default: an endpoint with no explicit policy will use this FallBack policy 
-// which requires an authenticated user
+// Default authorization fallback policy which requires auth for endpoints with no authorization attributes
 builder.Services.AddAuthorization(options =>
 {
-    options.FallbackPolicy = new AuthorizationPolicyBuilder()
-        .RequireAuthenticatedUser()
-        .Build();
+    options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
 });
 
 var app = builder.Build();
 
-// Top of the pipeline: catch every unhandled exception 
+// Global exception handler for any errors not caught in controller layer
 app.UseExceptionHandler(handler =>
 {
     handler.Run(async context =>
     {
-        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var feature = context.Features.Get<IExceptionHandlerFeature>();
         var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
         logger.LogError(feature?.Error, "Handling Global Unhandled exception.");
 
@@ -195,23 +183,26 @@ app.UseExceptionHandler(handler =>
     });
 });
 
+
+// add open-api spec in development only with no auth
 if (app.Environment.IsDevelopment())
 {
-    // exempt from the deny-by-default FallbackPolicy so the spec is reachable without a token
     app.MapOpenApi().AllowAnonymous();
 }
 
 app.UseHttpsRedirection();
 app.UseRouting();
 
-// CORS runs before authentication so preflight OPTIONS requests are answered before auth can reject them.
-// Only mapped when origins were configured (registered above, before the app was built).
+// Add CORS middleware before authentication so preflight OPTIONS requests are answered before auth can reject them.
 if (allowedOrigins.Length > 0)
 {
     app.UseCors(CorsPolicyName);
 }
 
+// enable JWT authentication validation
 app.UseAuthentication();
+
+// add custom middleware to run after token auth validation and custom claims transformations
 app.UseMiddleware<GekkoSuite.Api.Middlewares.AuthenticationMiddleware>();
 app.UseAuthorization();
 app.MapControllers();

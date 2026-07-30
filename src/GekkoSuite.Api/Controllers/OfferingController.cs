@@ -39,7 +39,7 @@ public class OfferingController : BaseController
             {
                 if (!Enum.TryParse<OfferingType>(type, out var value))
                 {
-                    return BadRequest(new { message = "Invalid type. Use PLAN or ADDON." });
+                    return BadRequest("Invalid type. Use PLAN or ADDON.");
                 }
 
                 parsedType = value;
