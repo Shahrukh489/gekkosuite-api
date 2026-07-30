@@ -11,8 +11,13 @@ what if org is not paying subscription
 - add email based login so we send pin to email every login instead of passwqord only
 
 
-@TODO: add userType record to user entity so we dont have to merge with memberships eacth time to decide
-@TODO: review all db queries
+@TODO: 
+  - add userType record to user entity so we dont have to merge with memberships eacth time to decide
+  - review all db queries
+  - organizatoin, store and user service review a
+  - verify all controller attributes and codes with Ai such as 404 etc..
+
+
 
 # general
 - refactor a lot of user layers teh db queries are near identical

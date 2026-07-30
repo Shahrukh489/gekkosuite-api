@@ -11,7 +11,7 @@ public class StoreRepository : BaseRepository, IStoreRepository
     }
 
     /// <inheritdoc />
-    /// @TODO:L should we move to organizationRepostiry
+    /// @TODO: should we move to organizationRepostiry
     public Task<IEnumerable<StoreEntity>> GetStoresAsync(Guid organizationId)
     {
         const string sql = """
