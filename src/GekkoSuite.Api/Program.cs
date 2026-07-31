@@ -65,8 +65,7 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 var connectionString =
     Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_STRING")
     ?? builder.Configuration.GetConnectionString("Postgres")
-    ?? throw new InvalidOperationException(
-        "No Postgres connection string. Set POSTGRES_CONNECTION_STRING or ConnectionStrings:Postgres.");
+    ?? throw new InvalidOperationException("No Db connection string");
 
 builder.Services.AddNpgsqlDataSource(connectionString);
 
@@ -74,16 +73,12 @@ builder.Services.AddNpgsqlDataSource(connectionString);
 builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>();
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<IStoreRepository, StoreRepository>();
-builder.Services.AddSingleton<IProductRepository, ProductRepository>();
-builder.Services.AddSingleton<ICustomerRepository, CustomerRepository>();
 builder.Services.AddSingleton<IRoleRepository, RoleRepository>();
 builder.Services.AddSingleton<IOfferingRepository, OfferingRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
 builder.Services.AddSingleton<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<IStoreService, StoreService>();
-builder.Services.AddSingleton<IProductService, ProductService>();
-builder.Services.AddSingleton<ICustomerService, CustomerService>();
 builder.Services.AddSingleton<IRoleService, RoleService>();
 builder.Services.AddSingleton<IOfferingService, OfferingService>();
 
