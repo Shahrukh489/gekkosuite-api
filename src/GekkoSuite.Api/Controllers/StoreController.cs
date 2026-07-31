@@ -23,8 +23,10 @@ public class StoreController : BaseController
         _storeService = storeService;
     }
 
+
     /// <summary>
-    /// Returns a store's record and its store-scoped features. The store must belong to the caller's org.
+    /// Get the store details and features.
+    /// Caller must have an store or organization membership and a role with store:read permissions 
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}")]
     [EndpointName("GetStoreById")]
@@ -55,8 +57,8 @@ public class StoreController : BaseController
     }
 
     /// <summary>
-    /// Lists the staff roster at a store — the users with a membership there, each with their store role(s).
-    /// The store must belong to the caller's org.
+    /// Get the store's users with there memberships
+    /// Caller must have an store or organization membership and a role with user:list permissions 
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}/users")]
     [EndpointName("GetStoreUsers")]
@@ -81,57 +83,4 @@ public class StoreController : BaseController
         }
     }
 
-    /// <summary>
-    /// Lists the products at a store — the store's own catalog with its per-store stock and price.
-    /// The store must belong to the caller's org.
-    /// </summary>
-    [HttpGet("{" + Constants.STORE_ID + "}/products")]
-    [EndpointName("GetStoreProducts")]
-    [HasPermission(MembershipScope.STORE, "product:list")]
-    [Produces(MediaTypeNames.Application.Json)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<ProductDto>>> GetStoreProductsAsync(Guid storeId)
-    {
-        try
-        {
-            var organizationId = User.GetOrganizationId();
-
-            List<ProductDto> products = await _storeService.GetStoreProductsAsync(organizationId, storeId);
-
-            return Ok(products);
-        }
-        catch (Exception ex)
-        {
-            return ErrorResponse(ex);
-        }
-    }
-
-    /// <summary>
-    /// Lists the customers at a store — the store's own roster with contact details.
-    /// The store must belong to the caller's org.
-    /// </summary>
-    [HttpGet("{" + Constants.STORE_ID + "}/customers")]
-    [EndpointName("GetStoreCustomers")]
-    [HasPermission(MembershipScope.STORE, "customer:list")]
-    [Produces(MediaTypeNames.Application.Json)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<CustomerDto>>> GetStoreCustomersAsync(Guid storeId)
-    {
-        try
-        {
-            var organizationId = User.GetOrganizationId();
-
-            List<CustomerDto> customers = await _storeService.GetStoreCustomersAsync(organizationId, storeId);
-
-            return Ok(customers);
-        }
-        catch (Exception ex)
-        {
-            return ErrorResponse(ex);
-        }
-    }
 }
