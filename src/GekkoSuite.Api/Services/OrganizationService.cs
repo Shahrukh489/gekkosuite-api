@@ -8,16 +8,12 @@ namespace GekkoSuite.Api.Services;
 public class OrganizationService : IOrganizationService
 {
     private readonly IOrganizationRepository _organizationRepository;
-    private readonly IUserService _userService;
     private readonly IRoleService _roleService;
-    private readonly IStoreService _storeService;
 
-    public OrganizationService(IOrganizationRepository organizationRepository, IUserService userService, IRoleService roleService, IStoreService storeService)
+    public OrganizationService(IOrganizationRepository organizationRepository, IRoleService roleService)
     {
         _organizationRepository = organizationRepository;
-        _userService = userService;
         _roleService = roleService;
-        _storeService = storeService;
     }
 
     /// <inheritdoc />
@@ -33,32 +29,31 @@ public class OrganizationService : IOrganizationService
     }
 
     /// <inheritdoc />
-    public async Task<List<UserDto>> GetUsersAsync(Guid organizationId)
+    public async Task<List<UserDto>> GetOrganizationUsersAsync(Guid organizationId)
     {
-        return await _userService.GetUsersWithMembershipsAsync(organizationId);
+        IEnumerable<UserEntity> userEntities = await _organizationRepository.GetOrganizationUsersAsync(organizationId);
+        return userEntities.Select(UserDto.FromEntity).ToList();
     }
 
     /// <inheritdoc />
-    public async Task<UserDto?> GetUserByIdAsync(Guid organizationId, Guid userId)
+    public async Task<List<RoleDto>> GetOrganizationRolesAsync(Guid organizationId)
     {
-        return await _userService.GetUserByIdWithMembershipsAsync(organizationId, userId);
+        // @TODO: verify if this will return null or empty list
+        return await _roleService.GetRolesAsync(organizationId);
     }
 
     /// <inheritdoc />
-    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId)
-    {
-        return await _roleService.GetRolesAsync(organizationId, null);
-    }
-
-    /// <inheritdoc />
-    public async Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId)
+    public async Task<RoleDto?> GetOrganizationRoleByIdAsync(Guid organizationId, Guid roleId)
     {
         return await _roleService.GetRoleByIdAsync(organizationId, roleId);
     }
 
     /// <inheritdoc />
-    public async Task<List<StoreDto>> GetStoresAsync(Guid organizationId)
+    public async Task<List<StoreDto>> GetOrganizationStoresAsync(Guid organizationId)
     {
-        return await _storeService.GetStoresAsync(organizationId);
+        // @TODO: verify if this will return null or empty list
+        IEnumerable<StoreEntity> storeEntities = await _organizationRepository.GetOrganizationStoresAsync(organizationId);
+        return storeEntities.Select(StoreDto.FromEntity).ToList();
     }
+
 }

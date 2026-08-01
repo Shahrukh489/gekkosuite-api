@@ -6,14 +6,12 @@ namespace GekkoSuite.Api.Repositories;
 public interface IRoleRepository
 {
     /// <summary>
-    /// Lists the roles assignable in the org — managed roles plus the org's own custom roles,
-    /// optionally filtered to one scope (ORGANIZATION or STORE).
+    /// Gets all roles in an organization
     /// </summary>
-    public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId, MembershipScope? scope);
+    public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId);
 
     /// <summary>
-    /// Finds one role by id, optionally filtered to a scope (ORGANIZATION or STORE); visible only if it is
-    /// managed or owned by the given org; null if not found or the scope doesn't match.
+    /// Get a role with its permissions 
     /// </summary>
-    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId, MembershipScope? scope = null);
+    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId);
 }

@@ -12,9 +12,8 @@ public class RoleRepository : BaseRepository, IRoleRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId, MembershipScope? scope)
+    public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId)
     {
-        // managed roles (org-null) are visible to everyone; custom roles only to their owning org.
         const string sql = """
             SELECT
                 role_id AS RoleId,
@@ -24,15 +23,14 @@ public class RoleRepository : BaseRepository, IRoleRepository
                 is_managed AS IsManaged
             FROM role
             WHERE (is_managed OR organization_id = @organizationId)
-              AND (@scope IS NULL OR scope::text = @scope)
             ORDER BY name
             """;
 
-        return QueryAsync<RoleEntity>(organizationId, sql, new { organizationId, scope = scope?.ToString() });
+        return QueryAsync<RoleEntity>(organizationId, sql, new { organizationId });
     }
 
     /// <inheritdoc />
-    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId, MembershipScope? scope = null)
+    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId)
     {
         const string sql = """
             SELECT
@@ -56,11 +54,10 @@ public class RoleRepository : BaseRepository, IRoleRepository
             LEFT JOIN role_permission rp ON rp.role_id = r.role_id
             LEFT JOIN permission p ON p.permission_id = rp.permission_id
             WHERE r.role_id = @roleId
-              AND (@scope IS NULL OR r.scope::text = @scope)
               AND (r.is_managed OR r.organization_id = @organizationId)
             GROUP BY r.role_id, r.name, r.description, r.scope, r.is_managed
             """;
 
-        return QuerySingleOrDefaultAsync<RoleEntity>(organizationId, sql, new { roleId, organizationId, scope = scope?.ToString() });
+        return QuerySingleOrDefaultAsync<RoleEntity>(organizationId, sql, new { roleId, organizationId});
     }
 }

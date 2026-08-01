@@ -5,7 +5,7 @@ namespace GekkoSuite.Api.Services;
 public interface IAuthService
 {
     /// <summary>
-    /// Verifies an email + password against the stored credentials
+    /// Verifies an email + password against the stored credentials and returns an accessToken
     /// </summary>
     Task<LoginResponse?> LoginAsync(string email, string password);
 

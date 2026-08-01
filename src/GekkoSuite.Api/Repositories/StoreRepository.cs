@@ -11,26 +11,6 @@ public class StoreRepository : BaseRepository, IStoreRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<StoreEntity>> GetStoresAsync(Guid organizationId)
-    {
-        const string sql = """
-            SELECT
-                store_id AS StoreId,
-                organization_id AS OrganizationId,
-                name AS Name,
-                type::text AS Type,
-                is_default AS IsDefault,
-                created_at AS CreatedAt
-            FROM store
-            WHERE organization_id = @organizationId
-              AND NOT is_deleted
-            ORDER BY is_default DESC, name
-            """;
-
-        return QueryAsync<StoreEntity>(organizationId, sql, new { organizationId });
-    }
-
-    /// <inheritdoc />
     public Task<StoreEntity?> GetStoreByIdAsync(Guid organizationId, Guid storeId)
     {
         const string sql = """
@@ -74,5 +54,27 @@ public class StoreRepository : BaseRepository, IStoreRepository
             """;
 
         return QuerySingleOrDefaultAsync<StoreEntity>(organizationId, storeId, sql, new { storeId, organizationId });
+    }
+
+    /// <inheritdoc />
+    public Task<IEnumerable<UserEntity>> GetStoreUsersAsync(Guid organizationId, Guid storeId)
+    {
+        const string sql = """
+            SELECT
+                u.user_id AS UserId,
+                u.first_name AS FirstName,
+                u.last_name AS LastName,
+                u.email AS Email,
+                u.is_active AS IsActive
+            FROM membership m
+            JOIN user_account u ON u.user_id = m.user_id AND NOT u.is_deleted
+            WHERE m.store_id = @storeId
+              AND m.organization_id = @organizationId
+              AND m.scope = 'STORE'
+              AND m.is_active AND NOT m.is_deleted
+            ORDER BY u.first_name
+            """;
+
+        return QueryAsync<UserEntity>(organizationId, storeId, sql, new { organizationId, storeId });
     }
 }

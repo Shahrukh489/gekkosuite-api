@@ -23,7 +23,8 @@ public class AuthController : BaseController
     }
 
     /// <summary>
-    /// Exchanges an email + password for an access token
+    /// Gets an accessToken if a user has verified email and password
+    /// Public endpoint without any permissions needed
     /// </summary>
     [HttpPost("login")]
     [EndpointName("Login")]
@@ -33,18 +34,19 @@ public class AuthController : BaseController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<LoginResponse>> LoginAsync([FromBody] LoginRequest request)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
             {
-                return BadRequest(new { message = "Email and password are required." });
+                return BadRequest("Email and password are required." );
             }
 
             if (request.Email.Length > 254 || request.Password.Length > 128)
             {
-                return BadRequest(new { message = "Email or password is too long."});
+                return BadRequest("Email or password is too long.");
             }
 
             LoginResponse? response = await _authService.LoginAsync(request.Email, request.Password);
@@ -62,8 +64,7 @@ public class AuthController : BaseController
     }
 
     /// <summary>
-    /// Returns the current user (self read). The userId and organizationId are taken only from the
-    /// validated token, never from the request. Any authenticated user may call this; no permission needed.
+    /// Get the current user and his memberships
     /// </summary>
     [HttpGet("me")]
     [EndpointName("GetCurrentUser")]
@@ -76,16 +77,13 @@ public class AuthController : BaseController
     {
         try
         {
-            // @TODO: this will be a gap, because we should not put organizationId in the token or
-            // return it for store Users, we need to improvise and add instead the storeIds in the token?
-            // need to investigate
             var userId = User.GetUserId();
             var organizationId = User.GetOrganizationId();
 
             UserDto? user = await _authService.GetCurrentUserAsync(organizationId, userId);
             if (user is null)
             {
-                return NotFound(new { message = "User not found."});
+                return NotFound();
             }
 
             return Ok(user);

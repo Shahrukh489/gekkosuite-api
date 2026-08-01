@@ -22,7 +22,8 @@ public class OfferingController : BaseController
     }
 
     /// <summary>
-    /// Lists the available offerings (public catalog), optionally filtered to a type (PLAN or ADDON).
+    /// Get all the available offerings
+    /// Public endpoint without any permissions needed
     /// </summary>
     [HttpGet]
     [AllowAnonymous]
@@ -30,22 +31,11 @@ public class OfferingController : BaseController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<OfferingDto>>> GetOfferingsAsync([FromQuery] string? type)
+    public async Task<ActionResult<List<OfferingDto>>> GetOfferingsAsync()
     {
         try
         {
-            OfferingType? parsedType = null;
-            if (!string.IsNullOrEmpty(type))
-            {
-                if (!Enum.TryParse<OfferingType>(type, out var value))
-                {
-                    return BadRequest(new { message = "Invalid type. Use PLAN or ADDON." });
-                }
-
-                parsedType = value;
-            }
-
-            List<OfferingDto> offerings = await _offeringService.GetOfferingsAsync(parsedType);
+            List<OfferingDto> offerings = await _offeringService.GetOfferingsAsync();
 
             return Ok(offerings);
         }

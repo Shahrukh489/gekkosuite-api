@@ -15,16 +15,16 @@ public class RoleService : IRoleService
     }
 
     /// <inheritdoc />
-    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId, MembershipScope? scope)
+    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId)
     {
-        IEnumerable<RoleEntity> roleEntities = await _roleRepository.GetRolesAsync(organizationId, scope);
+        IEnumerable<RoleEntity> roleEntities = await _roleRepository.GetRolesAsync(organizationId);
         return RoleDto.FromEntityList(roleEntities.ToList());
     }
 
     /// <inheritdoc />
-    public async Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId, MembershipScope? scope = null)
+    public async Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId)
     {
-        RoleEntity? roleEntity = await _roleRepository.GetRoleByIdAsync(organizationId, roleId, scope);
+        RoleEntity? roleEntity = await _roleRepository.GetRoleByIdAsync(organizationId, roleId);
         if (roleEntity is null)
         {
             return null;

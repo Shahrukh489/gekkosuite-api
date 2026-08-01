@@ -6,32 +6,27 @@ namespace GekkoSuite.Api.Services;
 public interface IOrganizationService
 {
     /// <summary>
-    /// Returns the organization record with its live subscriptions and org-scoped features, or null if not found.
+    /// Get the organization details with its subscriptions and features
     /// </summary>
     Task<OrganizationDto?> GetOrganizationByIdAsync(Guid organizationId);
 
     /// <summary>
-    /// Lists the org's users, each with their memberships (role names + membership details).
+    /// Get the organizations users with their memberships
     /// </summary>
-    Task<List<UserDto>> GetUsersAsync(Guid organizationId);
+    Task<List<UserDto>> GetOrganizationUsersAsync(Guid organizationId);
 
     /// <summary>
-    /// Returns one user in the org — their record plus their memberships — or null if not found there.
+    /// Get all the available roles in the organization 
     /// </summary>
-    Task<UserDto?> GetUserByIdAsync(Guid organizationId, Guid userId);
+    Task<List<RoleDto>> GetOrganizationRolesAsync(Guid organizationId);
 
     /// <summary>
-    /// Lists the roles assignable in the org (managed + the org's own), optionally filtered to one scope.
+    /// Returns a role with its details and permissions
     /// </summary>
-    Task<List<RoleDto>> GetRolesAsync(Guid organizationId);
+    Task<RoleDto?> GetOrganizationRoleByIdAsync(Guid organizationId, Guid roleId);
 
     /// <summary>
-    /// Returns one role and the permissions it grants, or null if not visible to the org.
+    /// Get all the stores in the organization
     /// </summary>
-    Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId);
-
-    /// <summary>
-    /// Lists the stores in the org (the org's roster).
-    /// </summary>
-    Task<List<StoreDto>> GetStoresAsync(Guid organizationId);
+    Task<List<StoreDto>> GetOrganizationStoresAsync(Guid organizationId);
 }

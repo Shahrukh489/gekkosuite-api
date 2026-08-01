@@ -23,9 +23,11 @@ public class OrganizationController : BaseController
     }
 
     /// <summary>
-    /// Returns the caller's organization record. The organizationId is taken from the validated token.
+    /// Get an organization's details
+    /// Caller must have an organization membership and a role with organization:read permissions 
+    /// @TODO: look at if the user is org owner how to handle.. does he have a membership?
     /// </summary>
-    [HttpGet("")]
+    [HttpGet]
     [EndpointName("GetOrganization")]
     [HasPermission(MembershipScope.ORGANIZATION, "organization:read")]
     [Produces(MediaTypeNames.Application.Json)]
@@ -42,7 +44,7 @@ public class OrganizationController : BaseController
             OrganizationDto? organization = await _organizationService.GetOrganizationByIdAsync(organizationId);
             if (organization is null)
             {
-                return NotFound(new { message = "Organization not found." });
+                return NotFound();
             }
 
             return Ok(organization);
@@ -54,7 +56,8 @@ public class OrganizationController : BaseController
     }
 
     /// <summary>
-    /// Lists the users in the caller's organization, each with their memberships (role names and details).
+    /// Get all of the users in an organization with there memberships.
+    /// Caller must have an organization membership and a role with user:list permissions 
     /// </summary>
     [HttpGet("users")]
     [EndpointName("GetOrganizationUsers")]
@@ -63,13 +66,13 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<UserDto>>> GetUsersAsync()
+    public async Task<ActionResult<List<UserDto>>> GetOrganizationUsersAsync()
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            List<UserDto> users = await _organizationService.GetUsersAsync(organizationId);
+            List<UserDto> users = await _organizationService.GetOrganizationUsersAsync(organizationId);
 
             return Ok(users);
         }
@@ -78,41 +81,12 @@ public class OrganizationController : BaseController
             return ErrorResponse(ex);
         }
     }
+    // @TODO: add get organization user details with memberships information
+
 
     /// <summary>
-    /// Returns one user in the caller's organization — their record plus their memberships (org or store).
-    /// </summary>
-    [HttpGet("users/{userId}")]
-    [EndpointName("GetOrganizationUserById")]
-    [HasPermission(MembershipScope.ORGANIZATION, "user:read")]
-    [Produces(MediaTypeNames.Application.Json)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<UserDto>> GetUserByIdAsync(Guid userId)
-    {
-        try
-        {
-            var organizationId = User.GetOrganizationId();
-
-            UserDto? user = await _organizationService.GetUserByIdAsync(organizationId, userId);
-            if (user is null)
-            {
-                return NotFound(new { message = "User not found." });
-            }
-
-            return Ok(user);
-        }
-        catch (Exception ex)
-        {
-            return ErrorResponse(ex);
-        }
-    }
-
-    /// <summary>
-    /// Lists the roles assignable in the caller's org — managed roles plus the org's own custom roles.
-    /// Pass ?scope=ORGANIZATION or ?scope=STORE to return only roles valid for that membership kind.
+    /// Get all of the roles in an organization.
+    /// Caller must have an organization membership and a role with role:list permissions 
     /// </summary>
     [HttpGet("roles")]
     [EndpointName("GetOrganizationRoles")]
@@ -122,12 +96,13 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<RoleDto>>> GetRolesAsync()
+    public async Task<ActionResult<List<RoleDto>>> GetOrganizationRolesAsync()
     {
         try
         {
             var organizationId = User.GetOrganizationId();
-            List<RoleDto> roles = await _organizationService.GetRolesAsync(organizationId);
+            
+            List<RoleDto> roles = await _organizationService.GetOrganizationRolesAsync(organizationId);
 
             return Ok(roles);
         }
@@ -137,8 +112,10 @@ public class OrganizationController : BaseController
         }
     }
 
+
     /// <summary>
-    /// Returns one role and the permissions it grants. Visible only if it is managed or owned by the caller's org.
+    /// Get the details and permissions of a role
+    /// Caller must have an organization membership and a role with role:read permissions 
     /// </summary>
     [HttpGet("roles/{roleId}")]
     [EndpointName("GetOrganizationRoleById")]
@@ -148,16 +125,16 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<RoleDto>> GetRoleByIdAsync(Guid roleId)
+    public async Task<ActionResult<RoleDto>> GetOrganizationRoleByIdAsync(Guid roleId)
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            RoleDto? role = await _organizationService.GetRoleByIdAsync(organizationId, roleId);
+            RoleDto? role = await _organizationService.GetOrganizationRoleByIdAsync(organizationId, roleId);
             if (role is null)
             {
-                return NotFound(new { message = "Role not found." });
+                return NotFound();
             }
 
             return Ok(role);
@@ -168,8 +145,10 @@ public class OrganizationController : BaseController
         }
     }
 
+
     /// <summary>
-    /// Lists the stores in the caller's organization (the org's roster).
+    /// Get the stores in an organization.
+    /// Caller must have an organization membership and a role with store:list permissions 
     /// </summary>
     [HttpGet("stores")]
     [EndpointName("GetOrganizationStores")]
@@ -178,13 +157,13 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<StoreDto>>> GetStoresAsync()
+    public async Task<ActionResult<List<StoreDto>>> GetOrganizationStoresAsync()
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            List<StoreDto> stores = await _organizationService.GetStoresAsync(organizationId);
+            List<StoreDto> stores = await _organizationService.GetOrganizationStoresAsync(organizationId);
 
             return Ok(stores);
         }
