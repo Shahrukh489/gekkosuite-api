@@ -34,13 +34,10 @@ public class UserService : IUserService
         return await _userRepository.GetUserOrganizationIdAsync(userId);
     }
 
-
-
-
     /// <inheritdoc />
-    public async Task<List<MembershipDto>?> GetUserStoresMembershipsAsync(Guid organizationId, Guid userId)
+    public async Task<List<MembershipDto>?> GetUserAllStoresMembershipsAsync(Guid organizationId, Guid userId)
     {
-        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserStoresMembershipsAsync(organizationId, userId);
+        IEnumerable<MembershipEntity> membershipEntities = await _userRepository.GetUserAllStoresMembershipsAsync(organizationId, userId);
         if (membershipEntities.Count() == 0)
         {
             return null;
@@ -94,7 +91,7 @@ public class UserService : IUserService
         // If we detect both then we throw an Exception,
         // something went wrong in our database that allowed this to happen
         var orgMemberships = await GetUserOrganizationMembershipsAsync(organizationId, userId);
-        var storeMemberships = await GetUserStoresMembershipsAsync(organizationId, userId);
+        var storeMemberships = await GetUserAllStoresMembershipsAsync(organizationId, userId);
         if (orgMemberships is not null && storeMemberships is not null)
         {
             throw new ValidationException($"User {userId} can not hold both an organization and store membership.");

@@ -101,7 +101,7 @@ public class UserRepository : BaseRepository, IUserRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<MembershipEntity>> GetUserStoresMembershipsAsync(Guid organizationId, Guid userId)
+    public Task<IEnumerable<MembershipEntity>> GetUserAllStoresMembershipsAsync(Guid organizationId, Guid userId)
     {
         const string sql = """
             SELECT

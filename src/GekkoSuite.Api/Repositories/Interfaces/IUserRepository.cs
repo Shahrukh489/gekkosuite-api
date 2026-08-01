@@ -7,33 +7,32 @@ namespace GekkoSuite.Api.Repositories;
 public interface IUserRepository
 {
     /// <summary>
+    /// Get a user's metadata
+    /// </summary>
+    public Task<UserEntity?> GetUserByIdAsync(Guid organizationId, Guid userId);
+
+    /// <summary>
     /// Finds a live user by their login email
     /// </summary>
     public Task<UserEntity?> GetUserByEmailAsync(string email);
 
     /// <summary>
-    /// Resolves a live user's home organization id from their id alone (no tenant known yet). Used to
-    /// establish the caller's org from the token's userId; null if not found.
+    /// Get a user's organizationId
     /// </summary>
     public Task<Guid?> GetUserOrganizationIdAsync(Guid userId);
 
     /// <summary>
-    /// Finds a live user by id within the given organization, or null if not found there.
-    /// </summary>
-    public Task<UserEntity?> GetUserByIdAsync(Guid organizationId, Guid userId);
-
-    /// <summary>
-    /// Returns the user's live ORGANIZATION membership rows (one per role held), empty if they have none.
+    /// Get a user's organization membership
     /// </summary>
     public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
-    /// Returns the user's live STORE memberships (each with its store name and role), oldest-first.
-    /// </summary>
-    public Task<IEnumerable<MembershipEntity>> GetUserStoresMembershipsAsync(Guid organizationId, Guid userId);
+    /// Get a user's memberships across all stores
+    /// </summary>    
+    public Task<IEnumerable<MembershipEntity>> GetUserAllStoresMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
-    /// Returns the user's live STORE membership rows (one per role) at the given store, empty if none.
+    /// Get a user's store membership
     /// </summary>
     public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId, Guid storeId);
 }

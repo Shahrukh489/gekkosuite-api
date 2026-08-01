@@ -22,7 +22,7 @@ public interface IUserService
     /// <summary>
     /// Get a user's memberships across all stores
     /// </summary>
-    Task<List<MembershipDto>?> GetUserStoresMembershipsAsync(Guid organizationId, Guid userId);
+    Task<List<MembershipDto>?> GetUserAllStoresMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
     /// Get a user's store membership

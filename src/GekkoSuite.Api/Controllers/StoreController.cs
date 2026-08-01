@@ -81,5 +81,7 @@ public class StoreController : BaseController
             return ErrorResponse(ex);
         }
     }
+    // @TODO: add get store user details with memberships information
+
 
 }

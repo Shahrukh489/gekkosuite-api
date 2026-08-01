@@ -81,6 +81,7 @@ public class OrganizationController : BaseController
             return ErrorResponse(ex);
         }
     }
+    // @TODO: add get organization user details with memberships information
 
 
     /// <summary>

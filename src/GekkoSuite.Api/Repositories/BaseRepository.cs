@@ -3,15 +3,7 @@ using Npgsql;
 
 namespace GekkoSuite.Api.Repositories;
 
-/// <summary>
-/// Base for all repositories. Most calls open one transaction that first stamps the tenant onto the DB
-/// session so Row-Level Security scopes the query, then runs the raw SQL.
-///  Two levels (see auth.md):
-///   - org actions   → set app.current_org (prevent different orgs from leaking data)
-///   - store actions → set app.current_org AND app.current_store (prevent different stores in same org from leaking data)
-/// The pre-tenant lookups (e.g. login, where the tenant isn't known yet) instead use
-/// QuerySingleOrDefaultUnscopedAsync — see its own doc comment for when that's safe to use.
-/// </summary>
+
 public abstract class BaseRepository
 {
     private readonly NpgsqlDataSource _dataSource;
@@ -22,7 +14,8 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs a SELECT and returns every matching row, org-scoped by RLS.
+    /// Runs a SELECT and returns every matching row
+    /// RLS scope is organization level.
     /// </summary>
     protected Task<IEnumerable<T>> QueryAsync<T>(Guid organizationId, string sql, object? parameters = null)
     {
@@ -30,7 +23,8 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs a SELECT expected to return exactly one row, org-scoped by RLS. 
+    /// Runs a SELECT expected to return exactly one row
+    /// RLS scope is organization level.
     /// </summary>
     protected Task<T> QuerySingleAsync<T>(Guid organizationId, string sql, object? parameters = null)
     {
@@ -38,7 +32,8 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs a SELECT expected to return one row or none, org-scoped by RLS.
+    /// Runs a SELECT expected to return one row or none
+    /// RLS scope is organization level.
     /// </summary>
     protected Task<T?> QuerySingleOrDefaultAsync<T>(Guid organizationId, string sql, object? parameters = null)
     {
@@ -46,7 +41,8 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs an INSERT/UPDATE/DELETE, org-scoped by RLS.
+    /// Runs an INSERT/UPDATE/DELETE
+    /// RLS scope is organization level.
     /// </summary>
     protected Task<int> ExecuteAsync(Guid organizationId, string sql, object? parameters = null)
     {
@@ -54,7 +50,8 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs a SELECT and returns every matching row, scoped by RLS to one org and one store.
+    /// Runs a SELECT and returns every matching row,
+    /// RLS scope is store and organization level.
     /// </summary>
     protected Task<IEnumerable<T>> QueryAsync<T>(Guid organizationId, Guid storeId, string sql, object? parameters = null)
     {
@@ -62,7 +59,8 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs a SELECT expected to return exactly one row, scoped by RLS to one org and one store. 
+    /// Runs a SELECT expected to return exactly one row
+    /// RLS scope is store and organization level.
     /// </summary>
     protected Task<T> QuerySingleAsync<T>(Guid organizationId, Guid storeId, string sql, object? parameters = null)
     {
@@ -70,7 +68,8 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs a SELECT expected to return one row or none, scoped by RLS to one org and one store. 
+    /// Runs a SELECT expected to return one row or none
+    /// RLS scope is store and organization level.
     /// </summary>
     protected Task<T?> QuerySingleOrDefaultAsync<T>(Guid organizationId, Guid storeId, string sql, object? parameters = null)
     {
@@ -78,7 +77,8 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs an INSERT/UPDATE/DELETE, scoped by RLS to one org and one store.
+    /// Runs an INSERT/UPDATE/DELETE
+    /// RLS scope is store and organization level.
     /// </summary>
     protected Task<int> ExecuteAsync(Guid organizationId, Guid storeId, string sql, object? parameters = null)
     {
@@ -86,7 +86,9 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs a SELECT expected to return one row or none not using RLS
+    /// Runs a SELECT expected to return one row or none 
+    /// Bypasses RLS
+    /// </summary>
     protected async Task<T?> QuerySingleOrDefaultUnscopedAsync<T>(string sql, object? parameters = null)
     {
         await using var connection = await _dataSource.OpenConnectionAsync();
@@ -94,7 +96,8 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// Runs a SELECT and returns every matching row, not using RLS (for global, tenant-less catalog tables).
+    /// Runs a SELECT and returns every matching row
+    /// Bypasses RLS
     /// </summary>
     protected async Task<IEnumerable<T>> QueryUnscopedAsync<T>(string sql, object? parameters = null)
     {
@@ -103,7 +106,7 @@ public abstract class BaseRepository
     }
 
     /// <summary>
-    /// The single place that opens a connection + transaction, stamps the tenant onto the DB session for RLS
+    /// Runs the database query and adds the Organization RLS scope and optional Store RLS scope
     /// </summary>
     private async Task<TResult> RunAsync<TResult>(Guid organizationId, Guid? storeId, Func<NpgsqlConnection, Task<TResult>> query)
     {
