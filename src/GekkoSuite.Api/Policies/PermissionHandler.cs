@@ -79,10 +79,13 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
 
         foreach (MembershipDto membership in memberships)
         {
-            if (membership.Permissions != null && membership.Permissions.Contains(permission))
+            foreach (MembershipAssignmentDto assignment in membership.Assignments)
             {
-                _logger.LogDebug("Allowed: membership {MembershipId} role {RoleName} ({RoleId}) grants permission {Permission}.", membership.MembershipId, membership.RoleName, membership.RoleId, permission);
-                return true;
+                if (assignment.Permissions != null && assignment.Permissions.Contains(permission))
+                {
+                    _logger.LogDebug("Allowed: membership {MembershipId} role {RoleName} ({RoleId}) grants permission {Permission}.", membership.MembershipId, assignment.RoleName, assignment.RoleId, permission);
+                    return true;
+                }
             }
         }
 

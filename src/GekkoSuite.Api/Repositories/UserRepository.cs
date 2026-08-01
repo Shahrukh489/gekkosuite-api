@@ -73,20 +73,32 @@ public class UserRepository : BaseRepository, IUserRepository
         const string sql = """
             SELECT
                 m.membership_id AS MembershipId,
-                ma.assignment_id AS AssignmentId,
                 m.scope::text AS Scope,
                 o.organization_id AS OrganizationId,
                 o.name AS Name,
-                r.role_id AS RoleId,
-                r.name AS RoleName,
-                ma.assigned_at AS AssignedAt,
-                ma.expires_at AS ExpiresAt,
-                array_agg(p.resource || ':' || p.action) AS Permissions
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'assignmentId', ma.assignment_id,
+                            'roleId', r.role_id,
+                            'roleName', r.name,
+                            'assignedAt', ma.assigned_at,
+                            'expiresAt', ma.expires_at,
+                            'permissions', COALESCE(
+                                (SELECT array_agg(p.resource || ':' || p.action)
+                                 FROM role_permission rp
+                                 JOIN permission p ON p.permission_id = rp.permission_id
+                                 WHERE rp.role_id = r.role_id),
+                                '{}'
+                            )
+                        ) ORDER BY r.name
+                    )
+                    FROM membership_assignment ma
+                    JOIN role r ON r.role_id = ma.role_id AND r.scope = 'ORGANIZATION'
+                    WHERE ma.membership_id = m.membership_id
+                      AND (ma.expires_at IS NULL OR ma.expires_at > now())
+                ) AS Assignments
             FROM membership m
-            JOIN membership_assignment ma ON ma.membership_id = m.membership_id
-            JOIN role r ON r.role_id = ma.role_id AND r.scope = 'ORGANIZATION'
-            JOIN role_permission rp ON rp.role_id = r.role_id
-            JOIN permission p ON p.permission_id = rp.permission_id
             JOIN organization o ON o.organization_id = m.organization_id AND NOT o.is_deleted
             JOIN user_account u ON u.user_id = m.user_id
             WHERE m.user_id = @userId
@@ -94,8 +106,6 @@ public class UserRepository : BaseRepository, IUserRepository
               AND m.scope = 'ORGANIZATION'
               AND u.is_active AND NOT u.is_deleted
               AND m.is_active AND NOT m.is_deleted
-              AND (ma.expires_at IS NULL OR ma.expires_at > now())
-            GROUP BY m.membership_id, ma.assignment_id, m.scope, o.organization_id, o.name, r.role_id, r.name, ma.assigned_at, ma.expires_at
             """;
 
         return QueryAsync<MembershipEntity>(organizationId, sql, new { userId, organizationId });
@@ -107,20 +117,32 @@ public class UserRepository : BaseRepository, IUserRepository
         const string sql = """
             SELECT
                 m.membership_id AS MembershipId,
-                ma.assignment_id AS AssignmentId,
                 m.scope::text AS Scope,
                 s.store_id AS StoreId,
                 s.name AS Name,
-                r.role_id AS RoleId,
-                r.name AS RoleName,
-                ma.assigned_at AS AssignedAt,
-                ma.expires_at AS ExpiresAt,
-                array_agg(p.resource || ':' || p.action) AS Permissions
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'assignmentId', ma.assignment_id,
+                            'roleId', r.role_id,
+                            'roleName', r.name,
+                            'assignedAt', ma.assigned_at,
+                            'expiresAt', ma.expires_at,
+                            'permissions', COALESCE(
+                                (SELECT array_agg(p.resource || ':' || p.action)
+                                 FROM role_permission rp
+                                 JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
+                                 WHERE rp.role_id = r.role_id),
+                                '{}'
+                            )
+                        ) ORDER BY r.name
+                    )
+                    FROM membership_assignment ma
+                    JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
+                    WHERE ma.membership_id = m.membership_id
+                      AND (ma.expires_at IS NULL OR ma.expires_at > now())
+                ) AS Assignments
             FROM membership m
-            JOIN membership_assignment ma ON ma.membership_id = m.membership_id
-            JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
-            JOIN role_permission rp ON rp.role_id = r.role_id
-            JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
             JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
             JOIN user_account u ON u.user_id = m.user_id
             WHERE m.user_id = @userId
@@ -128,8 +150,6 @@ public class UserRepository : BaseRepository, IUserRepository
               AND m.scope = 'STORE'
               AND u.is_active AND NOT u.is_deleted
               AND m.is_active AND NOT m.is_deleted
-              AND (ma.expires_at IS NULL OR ma.expires_at > now())
-            GROUP BY m.membership_id, ma.assignment_id, m.scope, s.store_id, s.name, r.role_id, r.name, ma.assigned_at, ma.expires_at, m.created_at
             ORDER BY m.created_at
             """;
 
@@ -142,20 +162,32 @@ public class UserRepository : BaseRepository, IUserRepository
         const string sql = """
             SELECT
                 m.membership_id AS MembershipId,
-                ma.assignment_id AS AssignmentId,
                 m.scope::text AS Scope,
                 s.store_id AS StoreId,
                 s.name AS Name,
-                r.role_id AS RoleId,
-                r.name AS RoleName,
-                ma.assigned_at AS AssignedAt,
-                ma.expires_at AS ExpiresAt,
-                array_agg(p.resource || ':' || p.action) AS Permissions
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'assignmentId', ma.assignment_id,
+                            'roleId', r.role_id,
+                            'roleName', r.name,
+                            'assignedAt', ma.assigned_at,
+                            'expiresAt', ma.expires_at,
+                            'permissions', COALESCE(
+                                (SELECT array_agg(p.resource || ':' || p.action)
+                                 FROM role_permission rp
+                                 JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
+                                 WHERE rp.role_id = r.role_id),
+                                '{}'
+                            )
+                        ) ORDER BY r.name
+                    )
+                    FROM membership_assignment ma
+                    JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
+                    WHERE ma.membership_id = m.membership_id
+                      AND (ma.expires_at IS NULL OR ma.expires_at > now())
+                ) AS Assignments
             FROM membership m
-            JOIN membership_assignment ma ON ma.membership_id = m.membership_id
-            JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
-            JOIN role_permission rp ON rp.role_id = r.role_id
-            JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
             JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
             JOIN user_account u ON u.user_id = m.user_id
             WHERE m.user_id = @userId
@@ -164,8 +196,6 @@ public class UserRepository : BaseRepository, IUserRepository
               AND m.scope = 'STORE'
               AND u.is_active AND NOT u.is_deleted
               AND m.is_active AND NOT m.is_deleted
-              AND (ma.expires_at IS NULL OR ma.expires_at > now())
-            GROUP BY m.membership_id, ma.assignment_id, m.scope, s.store_id, s.name, r.role_id, r.name, ma.assigned_at, ma.expires_at
             """;
 
         return QueryAsync<MembershipEntity>(organizationId, storeId, sql, new { userId, organizationId, storeId });

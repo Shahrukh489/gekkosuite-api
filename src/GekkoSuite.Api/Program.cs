@@ -28,6 +28,7 @@ builder.Logging.AddSimpleConsole(options =>
 // map json_agg columns onto entity collections (e.g. a role's permissions)
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<PermissionEntity>>());
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<MembershipEntity>>());
+SqlMapper.AddTypeHandler(new JsonTypeHandler<List<MembershipAssignmentEntity>>());
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<SubscriptionEntity>>());
 
 builder.Services.AddOpenApi();

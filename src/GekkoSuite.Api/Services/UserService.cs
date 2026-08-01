@@ -6,7 +6,6 @@ using GekkoSuite.Api.Enums;
 
 namespace GekkoSuite.Api.Services;
 
-
 public class UserService : IUserService
 {
     private readonly IUserRepository _userRepository;
