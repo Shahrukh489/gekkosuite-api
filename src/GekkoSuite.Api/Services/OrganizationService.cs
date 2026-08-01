@@ -32,7 +32,7 @@ public class OrganizationService : IOrganizationService
     public async Task<List<UserDto>> GetOrganizationUsersAsync(Guid organizationId)
     {
         IEnumerable<UserEntity> userEntities = await _organizationRepository.GetOrganizationUsersAsync(organizationId);
-        return userEntities.Select(UserDto.FromEntity).ToList();
+        return UserDto.FromEntityList(userEntities.ToList());
     }
 
     /// <inheritdoc />
@@ -53,7 +53,7 @@ public class OrganizationService : IOrganizationService
     {
         // @TODO: verify if this will return null or empty list
         IEnumerable<StoreEntity> storeEntities = await _organizationRepository.GetOrganizationStoresAsync(organizationId);
-        return storeEntities.Select(StoreDto.FromEntity).ToList();
+        return StoreDto.FromEntityList(storeEntities.ToList());
     }
 
 }

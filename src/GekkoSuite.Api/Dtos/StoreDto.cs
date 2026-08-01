@@ -49,4 +49,17 @@ public class StoreDto
             Features = features.Count > 0 ? features : null,
         };
     }
+
+    /// <summary>Map from a StoreEntity list to a StoreDto list.</summary>
+    public static List<StoreDto> FromEntityList(List<StoreEntity> storeEntities)
+    {
+        List<StoreDto> storeDtos = new List<StoreDto>();
+
+        for (int i = 0; i < storeEntities.Count; i++)
+        {
+            storeDtos.Add(FromEntity(storeEntities[i]));
+        }
+
+        return storeDtos;
+    }
 }

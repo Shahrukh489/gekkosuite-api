@@ -67,4 +67,17 @@ public class UserDto
             Memberships = MembershipDto.FromEntityList(userEntity.Memberships)
         };
     }
+
+    /// <summary>Map from a UserEntity list to a UserDto list.</summary>
+    public static List<UserDto> FromEntityList(List<UserEntity> userEntities)
+    {
+        List<UserDto> userDtos = new List<UserDto>();
+
+        for (int i = 0; i < userEntities.Count; i++)
+        {
+            userDtos.Add(FromEntity(userEntities[i]));
+        }
+
+        return userDtos;
+    }
 }

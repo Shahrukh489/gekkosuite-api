@@ -57,8 +57,6 @@ public class UserService : IUserService
         }
 
         // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user
-
-        // @ TODO: use one of these patterns not both userEntities.Select(UserDto.FromEntity).ToList();
         return MembershipDto.FromEntityList(membershipEntities.ToList());
     }
 

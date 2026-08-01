@@ -17,7 +17,7 @@ public class StoreService : IStoreService
     public async Task<List<UserDto>> GetStoreUsersAsync(Guid organizationId, Guid storeId)
     {
         IEnumerable<UserEntity> userEntities = await _storeRepository.GetStoreUsersAsync(organizationId, storeId);
-        return userEntities.Select(UserDto.FromEntity).ToList();
+        return UserDto.FromEntityList(userEntities.ToList());
     }
 
     /// <inheritdoc />
