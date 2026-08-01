@@ -1,6 +1,5 @@
 using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Enums;
-using GekkoSuite.Api.Exceptions;
 
 namespace GekkoSuite.Api.Dtos;
 
@@ -33,28 +32,6 @@ public class UserDto
     ///<summary>Map from UserEntity to UserDto; derives UserType from the memberships and enforces the one-kind rule.</summary>
     public static UserDto FromEntity(UserEntity userEntity)
     {
-        // @TODO: remove this , since we dont query memberships from db when we getUserById
-        // this will always be null, investigate impact of removal
-        
-        // A user is EITHER an org member OR a store member, never both.
-        // If he has both then return an error as something is wrong in the database that needs investigation
-        bool hasOrg = userEntity.Memberships.Any(membership => membership.Scope == MembershipScope.ORGANIZATION);
-        bool hasStore = userEntity.Memberships.Any(membership => membership.Scope == MembershipScope.STORE);
-        if (hasOrg && hasStore)
-        {
-            throw new ValidationException($"User {userEntity.UserId} can not hold both an organization and store membership.");
-        }
-
-        MembershipScope? userType = null;
-        if (hasOrg)
-        {
-            userType = MembershipScope.ORGANIZATION;
-        }
-        else if (hasStore)
-        {
-            userType = MembershipScope.STORE;
-        }
-
         return new UserDto()
         {
             FirstName = userEntity.FirstName,
@@ -63,7 +40,6 @@ public class UserDto
             Email = userEntity.Email,
             UserId = userEntity.UserId,
             IsActive = userEntity.IsActive,
-            UserType = userType,
             Memberships = MembershipDto.FromEntityList(userEntity.Memberships)
         };
     }

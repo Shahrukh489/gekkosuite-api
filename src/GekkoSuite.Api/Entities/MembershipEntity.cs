@@ -2,6 +2,7 @@ using GekkoSuite.Api.Enums;
 
 namespace GekkoSuite.Api.Entities;
 
+// @TODO: fix this to be two seperate entity Membership and MembershipAssignment
 public class MembershipEntity
 {
     /// <summary>The membership's id.</summary>

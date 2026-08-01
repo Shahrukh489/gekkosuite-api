@@ -115,6 +115,8 @@ CREATE TABLE user_account (
     phone              VARCHAR(32),
     -- account kill switch; false = all memberships suspended (revoke, not delete)
     is_active          BOOLEAN NOT NULL,
+    -- type based on theie memberships
+    user_type          scope,
     -- the org owner — full access that can't be stripped (transfer only). Exactly one per org (index below)
     is_org_owner       BOOLEAN NOT NULL,
     -- the admin who created this account (audit); NULL only for the bootstrap owner
