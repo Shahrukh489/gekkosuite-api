@@ -85,11 +85,17 @@ public class UserRepository : BaseRepository, IUserRepository
                             'assignedAt', ma.assigned_at,
                             'expiresAt', ma.expires_at,
                             'permissions', COALESCE(
-                                (SELECT array_agg(p.resource || ':' || p.action)
+                                (SELECT json_agg(
+                                        json_build_object(
+                                            'permissionId', p.permission_id,
+                                            'resource', p.resource,
+                                            'action', p.action,
+                                            'isElevated', p.is_elevated
+                                        ))
                                  FROM role_permission rp
                                  JOIN permission p ON p.permission_id = rp.permission_id
                                  WHERE rp.role_id = r.role_id),
-                                '{}'
+                                '[]'
                             )
                         ) ORDER BY r.name
                     )
@@ -129,11 +135,17 @@ public class UserRepository : BaseRepository, IUserRepository
                             'assignedAt', ma.assigned_at,
                             'expiresAt', ma.expires_at,
                             'permissions', COALESCE(
-                                (SELECT array_agg(p.resource || ':' || p.action)
+                                (SELECT json_agg(
+                                        json_build_object(
+                                            'permissionId', p.permission_id,
+                                            'resource', p.resource,
+                                            'action', p.action,
+                                            'isElevated', p.is_elevated
+                                        ))
                                  FROM role_permission rp
                                  JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
                                  WHERE rp.role_id = r.role_id),
-                                '{}'
+                                '[]'
                             )
                         ) ORDER BY r.name
                     )
@@ -174,11 +186,17 @@ public class UserRepository : BaseRepository, IUserRepository
                             'assignedAt', ma.assigned_at,
                             'expiresAt', ma.expires_at,
                             'permissions', COALESCE(
-                                (SELECT array_agg(p.resource || ':' || p.action)
+                                (SELECT json_agg(
+                                        json_build_object(
+                                            'permissionId', p.permission_id,
+                                            'resource', p.resource,
+                                            'action', p.action,
+                                            'isElevated', p.is_elevated
+                                        ))
                                  FROM role_permission rp
                                  JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
                                  WHERE rp.role_id = r.role_id),
-                                '{}'
+                                '[]'
                             )
                         ) ORDER BY r.name
                     )

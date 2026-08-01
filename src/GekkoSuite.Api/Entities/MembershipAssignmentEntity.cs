@@ -17,6 +17,6 @@ public class MembershipAssignmentEntity
     /// <summary>Optional expiry; null = never expires.</summary>
     public DateTimeOffset? ExpiresAt { get; set; }
 
-    /// <summary>The permission codes (resource:action) this role grants, e.g. "product:read".</summary>
-    public string[] Permissions { get; set; } = [];
+    /// <summary>The permissions this role grants (folded from json_agg); each a full permission row.</summary>
+    public List<PermissionEntity> Permissions { get; set; } = [];
 }

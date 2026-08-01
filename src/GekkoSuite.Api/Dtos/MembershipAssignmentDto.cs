@@ -35,8 +35,9 @@ public class MembershipAssignmentDto
             RoleName = assignmentEntity.RoleName,
             AssignedAt = assignmentEntity.AssignedAt,
             ExpiresAt = assignmentEntity.ExpiresAt,
-            Permissions = assignmentEntity.Permissions.Length > 0
-                ? assignmentEntity.Permissions.ToList()
+            // the repo returns raw permission rows; collapse each to its resource:action code here
+            Permissions = assignmentEntity.Permissions.Count > 0
+                ? assignmentEntity.Permissions.Select(permission => $"{permission.Resource}:{permission.Action}").ToList()
                 : null
         };
     }
