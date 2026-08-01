@@ -77,4 +77,26 @@ public class OrganizationRepository : BaseRepository, IOrganizationRepository
         return QueryAsync<StoreEntity>(organizationId, sql, new { organizationId });
     }
 
+    /// <inheritdoc />
+    public Task<IEnumerable<UserEntity>> GetOrganizationUsersAsync(Guid organizationId)
+    {
+        const string sql = """
+            SELECT
+                user_id AS UserId,
+                first_name AS FirstName,
+                last_name AS LastName,
+                email AS Email,
+                phone AS Phone,
+                is_active AS IsActive,
+                organization_id AS OrganizationId,
+                created_at AS CreatedAt
+            FROM user_account
+            WHERE organization_id = @organizationId
+              AND NOT is_deleted
+            ORDER BY first_name
+            """;
+
+        return QueryAsync<UserEntity>(organizationId, sql, new { organizationId });
+    }
+
 }

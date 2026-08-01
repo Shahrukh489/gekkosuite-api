@@ -23,16 +23,6 @@ public interface IUserRepository
     public Task<UserEntity?> GetUserByIdAsync(Guid organizationId, Guid userId);
 
     /// <summary>
-    /// Lists the users in the org, each with their memberships folded in; users with no membership included.
-    /// </summary>
-    public Task<IEnumerable<UserEntity>> GetOrganizationUsersWithMembershipsAsync(Guid organizationId);
-
-    /// <summary>
-    /// Lists the users with a live store membership at the given store, each with their store membership(s).
-    /// </summary>
-    public Task<IEnumerable<UserEntity>> GetStoreUsersWithMembershipsAsync(Guid organizationId, Guid storeId);
-
-    /// <summary>
     /// Returns the user's live ORGANIZATION membership rows (one per role held), empty if they have none.
     /// </summary>
     public Task<IEnumerable<MembershipEntity>> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId);

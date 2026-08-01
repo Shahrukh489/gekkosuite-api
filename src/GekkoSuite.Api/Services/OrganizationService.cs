@@ -8,13 +8,11 @@ namespace GekkoSuite.Api.Services;
 public class OrganizationService : IOrganizationService
 {
     private readonly IOrganizationRepository _organizationRepository;
-    private readonly IUserService _userService;
     private readonly IRoleService _roleService;
 
-    public OrganizationService(IOrganizationRepository organizationRepository, IUserService userService, IRoleService roleService)
+    public OrganizationService(IOrganizationRepository organizationRepository, IRoleService roleService)
     {
         _organizationRepository = organizationRepository;
-        _userService = userService;
         _roleService = roleService;
     }
 
@@ -33,9 +31,8 @@ public class OrganizationService : IOrganizationService
     /// <inheritdoc />
     public async Task<List<UserDto>> GetOrganizationUsersAsync(Guid organizationId)
     {
-        // @TODO: if we do not need to show memberships or userType then just get the metadata
-        // look into adding the userType in users entity to prevent memberships merge
-        return await _userService.GetOrganizationUsersWithMembershipsAsync(organizationId);
+        IEnumerable<UserEntity> userEntities = await _organizationRepository.GetOrganizationUsersAsync(organizationId);
+        return userEntities.Select(UserDto.FromEntity).ToList();
     }
 
     /// <inheritdoc />

@@ -55,4 +55,26 @@ public class StoreRepository : BaseRepository, IStoreRepository
 
         return QuerySingleOrDefaultAsync<StoreEntity>(organizationId, storeId, sql, new { storeId, organizationId });
     }
+
+    /// <inheritdoc />
+    public Task<IEnumerable<UserEntity>> GetStoreUsersAsync(Guid organizationId, Guid storeId)
+    {
+        const string sql = """
+            SELECT
+                u.user_id AS UserId,
+                u.first_name AS FirstName,
+                u.last_name AS LastName,
+                u.email AS Email,
+                u.is_active AS IsActive
+            FROM membership m
+            JOIN user_account u ON u.user_id = m.user_id AND NOT u.is_deleted
+            WHERE m.store_id = @storeId
+              AND m.organization_id = @organizationId
+              AND m.scope = 'STORE'
+              AND m.is_active AND NOT m.is_deleted
+            ORDER BY u.first_name
+            """;
+
+        return QueryAsync<UserEntity>(organizationId, storeId, sql, new { organizationId, storeId });
+    }
 }

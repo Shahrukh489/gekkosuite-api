@@ -5,44 +5,32 @@ namespace GekkoSuite.Api.Services;
 public interface IUserService
 {
     /// <summary>
-    /// Finds a live user by id within the given organization, or null if not found there.
+    /// Get a user's metadata
     /// </summary>
     Task<UserDto?> GetUserByIdAsync(Guid organizationId, Guid userId);
 
     /// <summary>
-    /// Resolves a user's home organization from their id alone (no tenant known yet). Returns null if the
-    /// user does not exist. Used to establish the caller's org from the token's userId.
+    /// Get a user's organizationId
     /// </summary>
     Task<Guid?> GetUserOrganizationIdAsync(Guid userId);
 
     /// <summary>
-    /// Lists the org's users, each with their memberships (role names + membership details); membership-less users included.
-    /// </summary>
-    Task<List<UserDto>> GetOrganizationUsersWithMembershipsAsync(Guid organizationId);
-
-    /// <summary>
-    /// Lists the users with a live store membership at the given store, each with their store membership(s).
-    /// </summary>
-    Task<List<UserDto>> GetStoreUsersWithMembershipsAsync(Guid organizationId, Guid storeId);
-
-    /// <summary>
-    /// Returns the user's live ORGANIZATION memberships (one per role held), or null if they have none.
+    /// Get a user's organization membership
     /// </summary>
     Task<List<MembershipDto>?> GetUserOrganizationMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
-    /// Returns the user's live STORE memberships (each with its store name and role), oldest-first.
+    /// Get a user's memberships across all stores
     /// </summary>
     Task<List<MembershipDto>?> GetUserStoresMembershipsAsync(Guid organizationId, Guid userId);
 
     /// <summary>
-    /// Returns the user's live STORE memberships (one per role) at the given store, or null if none.
+    /// Get a user's store membership
     /// </summary>
     Task<List<MembershipDto>?> GetUserStoreMembershipsAsync(Guid organizationId, Guid userId, Guid storeId);
 
     /// <summary>
-    /// Builds the self-read view for the current user — their profile plus userType, defaultStoreId, and
-    /// memberships (org entry, or store entries oldest-first). Null if the user isn't found.
+    /// Get a user's metadata and memberships
     /// </summary>
     Task<UserDto?> GetUserWithMembershipsAsync(Guid organizationId, Guid userId);
 }

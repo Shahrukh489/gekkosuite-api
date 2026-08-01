@@ -5,12 +5,17 @@ namespace GekkoSuite.Api.Repositories;
 public interface IOrganizationRepository
 {
     /// <summary>
-    /// Finds the organization by id (with its live subscriptions), or null if not found (or soft-deleted).
+    /// Get the organization details with its subscriptions and features
     /// </summary>
     public Task<OrganizationEntity?> GetOrganizationByIdAsync(Guid organizationId);
 
     /// <summary>
-    /// Lists the live stores in the given organization (the org's roster), default store first.
+    /// Get all the stores in the organization
     /// </summary>
     public Task<IEnumerable<StoreEntity>> GetOrganizationStoresAsync(Guid organizationId);
+
+    /// <summary>
+    /// Lists the live users in the org (metadata only, no memberships), ordered by first name.
+    /// </summary>
+    public Task<IEnumerable<UserEntity>> GetOrganizationUsersAsync(Guid organizationId);
 }
