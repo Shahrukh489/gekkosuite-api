@@ -6,7 +6,7 @@ namespace GekkoSuite.Api.Services;
 public interface IOfferingService
 {
     /// <summary>
-    /// Gets the offerings, optionally filtered to one type (PLAN or ADDON).
+    /// Gets all the offerings
     /// </summary>
-    Task<List<OfferingDto>> GetOfferingsAsync(OfferingType? type);
+    Task<List<OfferingDto>> GetOfferingsAsync();
 }

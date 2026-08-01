@@ -12,7 +12,7 @@ public class RoleRepository : BaseRepository, IRoleRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId, MembershipScope? scope)
+    public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId)
     {
         const string sql = """
             SELECT
@@ -23,11 +23,10 @@ public class RoleRepository : BaseRepository, IRoleRepository
                 is_managed AS IsManaged
             FROM role
             WHERE (is_managed OR organization_id = @organizationId)
-              AND (@scope IS NULL OR scope::text = @scope)
             ORDER BY name
             """;
 
-        return QueryAsync<RoleEntity>(organizationId, sql, new { organizationId, scope = scope?.ToString() });
+        return QueryAsync<RoleEntity>(organizationId, sql, new { organizationId });
     }
 
     /// <inheritdoc />

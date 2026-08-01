@@ -5,15 +5,16 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Diagnostics;
 
 using GekkoSuite.Api.Configurations;
 using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Policies;
 using GekkoSuite.Api.Repositories;
 using GekkoSuite.Api.Services;
-using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Diagnostics;
+
 
 var builder = WebApplication.CreateBuilder(args);
 

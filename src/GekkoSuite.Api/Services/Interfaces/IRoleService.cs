@@ -8,7 +8,7 @@ public interface IRoleService
     /// <summary>
     /// Gets all roles in an organization
     /// </summary>
-    Task<List<RoleDto>> GetRolesAsync(Guid organizationId, MembershipScope? scope);
+    Task<List<RoleDto>> GetRolesAsync(Guid organizationId);
 
     /// <summary>
     /// Get a role with its permissions 

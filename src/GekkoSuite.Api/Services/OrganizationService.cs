@@ -39,7 +39,7 @@ public class OrganizationService : IOrganizationService
     public async Task<List<RoleDto>> GetOrganizationRolesAsync(Guid organizationId)
     {
         // @TODO: verify if this will return null or empty list
-        return await _roleService.GetRolesAsync(organizationId, null);
+        return await _roleService.GetRolesAsync(organizationId);
     }
 
     /// <inheritdoc />

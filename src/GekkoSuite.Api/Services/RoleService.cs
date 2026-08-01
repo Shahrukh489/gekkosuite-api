@@ -15,9 +15,9 @@ public class RoleService : IRoleService
     }
 
     /// <inheritdoc />
-    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId, MembershipScope? scope)
+    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId)
     {
-        IEnumerable<RoleEntity> roleEntities = await _roleRepository.GetRolesAsync(organizationId, scope);
+        IEnumerable<RoleEntity> roleEntities = await _roleRepository.GetRolesAsync(organizationId);
         return RoleDto.FromEntityList(roleEntities.ToList());
     }
 

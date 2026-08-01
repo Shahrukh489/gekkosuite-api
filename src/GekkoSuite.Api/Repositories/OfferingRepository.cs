@@ -12,7 +12,7 @@ public class OfferingRepository : BaseRepository, IOfferingRepository
     }
 
     /// <inheritdoc />
-    public Task<IEnumerable<OfferingEntity>> GetOfferingsAsync(OfferingType? type)
+    public Task<IEnumerable<OfferingEntity>> GetOfferingsAsync()
     {
         const string sql = """
             SELECT
@@ -23,10 +23,9 @@ public class OfferingRepository : BaseRepository, IOfferingRepository
                 price_per_store AS PricePerStore
             FROM offering
             WHERE is_active
-              AND (@type IS NULL OR type::text = @type)
             ORDER BY type, name
             """;
 
-        return QueryUnscopedAsync<OfferingEntity>(sql, new { type = type?.ToString() });
+        return QueryUnscopedAsync<OfferingEntity>(sql);
     }
 }

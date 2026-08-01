@@ -8,7 +8,7 @@ public interface IRoleRepository
     /// <summary>
     /// Gets all roles in an organization
     /// </summary>
-    public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId, MembershipScope? scope);
+    public Task<IEnumerable<RoleEntity>> GetRolesAsync(Guid organizationId);
 
     /// <summary>
     /// Get a role with its permissions 
