@@ -17,6 +17,7 @@ what if org is not paying subscription
   - organizatoin, store and user service review a
   - verify all controller attributes and codes with Ai such as 404 etc..
   - postman collection and thorough security and auth access controls testing
+  - update to product:read_metadata not just product:read
 
 
 

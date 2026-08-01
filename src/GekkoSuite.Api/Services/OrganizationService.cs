@@ -10,14 +10,12 @@ public class OrganizationService : IOrganizationService
     private readonly IOrganizationRepository _organizationRepository;
     private readonly IUserService _userService;
     private readonly IRoleService _roleService;
-    private readonly IStoreService _storeService;
 
-    public OrganizationService(IOrganizationRepository organizationRepository, IUserService userService, IRoleService roleService, IStoreService storeService)
+    public OrganizationService(IOrganizationRepository organizationRepository, IUserService userService, IRoleService roleService)
     {
         _organizationRepository = organizationRepository;
         _userService = userService;
         _roleService = roleService;
-        _storeService = storeService;
     }
 
     /// <inheritdoc />
@@ -33,7 +31,7 @@ public class OrganizationService : IOrganizationService
     }
 
     /// <inheritdoc />
-    public async Task<List<UserDto>> GetUsersAsync(Guid organizationId)
+    public async Task<List<UserDto>> GetOrganizationUsersAsync(Guid organizationId)
     {
         // @TODO: if we do not need to show memberships or userType then just get the metadata
         // look into adding the userType in users entity to prevent memberships merge
@@ -41,22 +39,24 @@ public class OrganizationService : IOrganizationService
     }
 
     /// <inheritdoc />
-    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId)
+    public async Task<List<RoleDto>> GetOrganizationRolesAsync(Guid organizationId)
     {
         // @TODO: verify if this will return null or empty list
         return await _roleService.GetRolesAsync(organizationId, null);
     }
 
     /// <inheritdoc />
-    public async Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId)
+    public async Task<RoleDto?> GetOrganizationRoleByIdAsync(Guid organizationId, Guid roleId)
     {
         return await _roleService.GetRoleByIdAsync(organizationId, roleId);
     }
 
     /// <inheritdoc />
-    public async Task<List<StoreDto>> GetStoresAsync(Guid organizationId)
+    public async Task<List<StoreDto>> GetOrganizationStoresAsync(Guid organizationId)
     {
         // @TODO: verify if this will return null or empty list
-        return await _storeService.GetStoresAsync(organizationId);
+        IEnumerable<StoreEntity> storeEntities = await _organizationRepository.GetOrganizationStoresAsync(organizationId);
+        return storeEntities.Select(StoreDto.FromEntity).ToList();
     }
+
 }

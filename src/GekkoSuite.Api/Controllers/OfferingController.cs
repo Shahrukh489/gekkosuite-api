@@ -23,6 +23,7 @@ public class OfferingController : BaseController
 
     /// <summary>
     /// Get all the available offerings (public catalog), optionally filtered to a type (PLAN or ADDON).
+    /// Public endpoint without any permissions needed
     /// </summary>
     [HttpGet]
     [AllowAnonymous]

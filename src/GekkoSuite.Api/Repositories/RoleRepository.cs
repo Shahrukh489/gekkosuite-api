@@ -31,7 +31,7 @@ public class RoleRepository : BaseRepository, IRoleRepository
     }
 
     /// <inheritdoc />
-    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId, MembershipScope? scope = null)
+    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId)
     {
         const string sql = """
             SELECT
@@ -55,11 +55,10 @@ public class RoleRepository : BaseRepository, IRoleRepository
             LEFT JOIN role_permission rp ON rp.role_id = r.role_id
             LEFT JOIN permission p ON p.permission_id = rp.permission_id
             WHERE r.role_id = @roleId
-              AND (@scope IS NULL OR r.scope::text = @scope)
               AND (r.is_managed OR r.organization_id = @organizationId)
             GROUP BY r.role_id, r.name, r.description, r.scope, r.is_managed
             """;
 
-        return QuerySingleOrDefaultAsync<RoleEntity>(organizationId, sql, new { roleId, organizationId, scope = scope?.ToString() });
+        return QuerySingleOrDefaultAsync<RoleEntity>(organizationId, sql, new { roleId, organizationId});
     }
 }

@@ -23,7 +23,6 @@ public class StoreController : BaseController
         _storeService = storeService;
     }
 
-
     /// <summary>
     /// Get the store details and features.
     /// Caller must have an store or organization membership and a role with store:read permissions 
@@ -67,13 +66,13 @@ public class StoreController : BaseController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<UserDto>>> GetStoreUsersByStoreIdAsync(Guid storeId)
+    public async Task<ActionResult<List<UserDto>>> GetStoreUsersAsync(Guid storeId)
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            List<UserDto> users = await _storeService.GetStoreUsersByStoreIdAsync(organizationId, storeId);
+            List<UserDto> users = await _storeService.GetStoreUsersAsync(organizationId, storeId);
 
             return Ok(users);
         }

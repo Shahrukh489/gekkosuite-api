@@ -15,5 +15,5 @@ public interface IRoleRepository
     /// Finds one role by id, optionally filtered to a scope (ORGANIZATION or STORE); visible only if it is
     /// managed or owned by the given org; null if not found or the scope doesn't match.
     /// </summary>
-    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId, MembershipScope? scope = null);
+    public Task<RoleEntity?> GetRoleByIdAsync(Guid organizationId, Guid roleId);
 }

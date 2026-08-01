@@ -66,13 +66,13 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<UserDto>>> GetUsersAsync()
+    public async Task<ActionResult<List<UserDto>>> GetOrganizationUsersAsync()
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            List<UserDto> users = await _organizationService.GetUsersAsync(organizationId);
+            List<UserDto> users = await _organizationService.GetOrganizationUsersAsync(organizationId);
 
             return Ok(users);
         }
@@ -95,13 +95,13 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<RoleDto>>> GetRolesAsync()
+    public async Task<ActionResult<List<RoleDto>>> GetOrganizationRolesAsync()
     {
         try
         {
             var organizationId = User.GetOrganizationId();
             
-            List<RoleDto> roles = await _organizationService.GetRolesAsync(organizationId);
+            List<RoleDto> roles = await _organizationService.GetOrganizationRolesAsync(organizationId);
 
             return Ok(roles);
         }
@@ -124,13 +124,13 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<RoleDto>> GetRoleByIdAsync(Guid roleId)
+    public async Task<ActionResult<RoleDto>> GetOrganizationRoleByIdAsync(Guid roleId)
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            RoleDto? role = await _organizationService.GetRoleByIdAsync(organizationId, roleId);
+            RoleDto? role = await _organizationService.GetOrganizationRoleByIdAsync(organizationId, roleId);
             if (role is null)
             {
                 return NotFound();
@@ -156,13 +156,13 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<StoreDto>>> GetStoresAsync()
+    public async Task<ActionResult<List<StoreDto>>> GetOrganizationStoresAsync()
     {
         try
         {
             var organizationId = User.GetOrganizationId();
 
-            List<StoreDto> stores = await _organizationService.GetStoresAsync(organizationId);
+            List<StoreDto> stores = await _organizationService.GetOrganizationStoresAsync(organizationId);
 
             return Ok(stores);
         }

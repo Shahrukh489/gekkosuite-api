@@ -6,7 +6,7 @@ namespace GekkoSuite.Api.Repositories;
 public interface IOfferingRepository
 {
     /// <summary>
-    /// Lists the active offerings, optionally filtered to one type (PLAN or ADDON). Global catalog, no tenant.
+    /// Gets the active offerings, optionally filtered to one type (PLAN or ADDON)
     /// </summary>
     public Task<IEnumerable<OfferingEntity>> GetOfferingsAsync(OfferingType? type);
 }

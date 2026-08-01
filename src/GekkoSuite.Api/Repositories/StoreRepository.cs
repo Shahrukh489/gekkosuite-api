@@ -11,27 +11,6 @@ public class StoreRepository : BaseRepository, IStoreRepository
     }
 
     /// <inheritdoc />
-    /// @TODO: should we move to organizationRepostiry
-    public Task<IEnumerable<StoreEntity>> GetStoresAsync(Guid organizationId)
-    {
-        const string sql = """
-            SELECT
-                store_id AS StoreId,
-                organization_id AS OrganizationId,
-                name AS Name,
-                type::text AS Type,
-                is_default AS IsDefault,
-                created_at AS CreatedAt
-            FROM store
-            WHERE organization_id = @organizationId
-              AND NOT is_deleted
-            ORDER BY is_default DESC, name
-            """;
-
-        return QueryAsync<StoreEntity>(organizationId, sql, new { organizationId });
-    }
-
-    /// <inheritdoc />
     public Task<StoreEntity?> GetStoreByIdAsync(Guid organizationId, Guid storeId)
     {
         const string sql = """

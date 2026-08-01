@@ -24,6 +24,7 @@ public class AuthController : BaseController
 
     /// <summary>
     /// Gets an accessToken if a user has verified email and password
+    /// Public endpoint without any permissions needed
     /// </summary>
     [HttpPost("login")]
     [EndpointName("Login")]

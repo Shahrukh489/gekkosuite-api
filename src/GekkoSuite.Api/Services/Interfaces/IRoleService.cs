@@ -6,13 +6,12 @@ namespace GekkoSuite.Api.Services;
 public interface IRoleService
 {
     /// <summary>
-    /// Lists the roles assignable in the org (managed + the org's own), optionally filtered to one scope.
+    /// Gets all roles in an organization
     /// </summary>
     Task<List<RoleDto>> GetRolesAsync(Guid organizationId, MembershipScope? scope);
 
     /// <summary>
-    /// Builds the full role view — the role plus the permissions it grants, optionally filtered to a scope.
-    /// Null if not visible to the org or the scope doesn't match.
+    /// Get a role with its permissions 
     /// </summary>
-    Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId, MembershipScope? scope = null);
+    Task<RoleDto?> GetRoleByIdAsync(Guid organizationId, Guid roleId);
 }
