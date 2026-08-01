@@ -54,6 +54,7 @@ public class UserRepository : BaseRepository, IUserRepository
                 last_name AS LastName,
                 phone AS Phone,
                 is_active AS IsActive,
+                user_type::text AS UserType,
                 is_org_owner AS IsOrgOwner,
                 created_by_user_id AS CreatedByUserId,
                 created_at AS CreatedAt

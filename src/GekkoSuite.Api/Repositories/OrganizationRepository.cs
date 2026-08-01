@@ -88,6 +88,7 @@ public class OrganizationRepository : BaseRepository, IOrganizationRepository
                 email AS Email,
                 phone AS Phone,
                 is_active AS IsActive,
+                user_type::text AS UserType,
                 organization_id AS OrganizationId,
                 created_at AS CreatedAt
             FROM user_account

@@ -39,6 +39,7 @@ public class UserDto
             OrganizationId = userEntity.OrganizationId,
             Email = userEntity.Email,
             UserId = userEntity.UserId,
+            UserType = userEntity.UserType,
             IsActive = userEntity.IsActive,
             Memberships = MembershipDto.FromEntityList(userEntity.Memberships)
         };

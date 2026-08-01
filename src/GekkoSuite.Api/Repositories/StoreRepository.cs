@@ -65,7 +65,8 @@ public class StoreRepository : BaseRepository, IStoreRepository
                 u.first_name AS FirstName,
                 u.last_name AS LastName,
                 u.email AS Email,
-                u.is_active AS IsActive
+                u.is_active AS IsActive,
+                u.user_type::text AS UserType
             FROM membership m
             JOIN user_account u ON u.user_id = m.user_id AND NOT u.is_deleted
             WHERE m.store_id = @storeId
