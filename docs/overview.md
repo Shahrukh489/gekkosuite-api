@@ -38,9 +38,6 @@ An **organization** is the business. It owns many **stores** and **handles admin
 | Stores | Create and manage stores. |
 | Products | Manage Products across all stores. |
 | Customers | Manage Customers across all stores. |
-| Plans & Add-ons | The org subscribes to offerings — a base plan plus optional add-ons; their features are scoped per store or per org (stores get the store-scoped ones). |
-| AI Chatbot | Feed KB to AI chatbot, and let each store owner chat with it. |
-| AI Recommendations | Get Organization based Recommendations. |
 | Org-level scope | Make org-level changes |
 
 ---
@@ -52,13 +49,12 @@ A **store** is where selling happens, you can't sell at the organization level. 
 | Feature | What it allows |
 |---|---|
 | Sell | Ring up sales at the store. |
-| Returns | Process returns and refunds for the store's own orders. |
-| Products | Manage the store's own products (SKUs, stock, price). With sharing on, a new product is also added to the org-wide catalog; stock and price stay the store's own. |
-| AI Chatbot | Chat with Organization AI KB for support. |
-| AI Recommendations | Get Store Based Recommendations. |
+| Orders | Manage sales orders for the stores. |
+| Invoices | Manage invoices for the stores. |
+| Receipts | Manage receipts for the stores. |
+| Returns | Process returns and refunds for the store's orders. |
+| Inventory | Manage the store's own inventory (SKUs, stock, price), linked to the Organization's products |
 | Customers | Manage the store's own customers. With sharing on, a new customer is also recognized org-wide. |
-| Customer Requests | Let customer make requests about what they need and want. |
-| Reports | View the store's own reports, plus the purchases/expenses attributed to it. |
 | Store-only scope | A store user only ever acts on their own store's data |
 
 ---

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using GekkoSuite.Api.Entities;
 using GekkoSuite.Api.Enums;
 
@@ -26,8 +28,9 @@ public class UserDto
     /// <summary>The user's type (ORGANIZATION or STORE), or null when they have no memberships yet.</summary>
     public MembershipScope? UserType { get; set; } = null;
 
-    /// <summary>The user's memberships (org entry, or store entries oldest-first); empty when UserType is null.</summary>
-    public List<MembershipDto> Memberships { get; set; } = [];
+    /// <summary>The user's memberships (org entry, or store entries oldest-first); omitted when they have none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<MembershipDto>? Memberships { get; set; }
 
     ///<summary>Map from UserEntity to UserDto; derives UserType from the memberships and enforces the one-kind rule.</summary>
     public static UserDto FromEntity(UserEntity userEntity)
@@ -41,7 +44,9 @@ public class UserDto
             UserId = userEntity.UserId,
             UserType = userEntity.UserType,
             IsActive = userEntity.IsActive,
-            Memberships = MembershipDto.FromEntityList(userEntity.Memberships)
+            Memberships = userEntity.Memberships.Count > 0
+                ? MembershipDto.FromEntityList(userEntity.Memberships)
+                : null
         };
     }
 

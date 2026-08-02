@@ -121,7 +121,7 @@ public class UserService : IUserService
         else
         {
             // if no org or store memberships user type is none, he can not access anything
-            userDto.Memberships = [];
+            userDto.Memberships = null;
         }
 
         return userDto;
