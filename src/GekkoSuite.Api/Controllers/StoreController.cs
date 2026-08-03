@@ -24,8 +24,8 @@ public class StoreController : BaseController
     }
 
     /// <summary>
-    /// Get the store details and features.
-    /// Caller must have an store or organization membership and a role with store:read permissions 
+    /// Get the store details.
+    /// Caller must have an store or organization membership and a role with store:read permissions
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}")]
     [EndpointName("GetStoreById")]

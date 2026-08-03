@@ -10,7 +10,7 @@ public interface IStoreService
     Task<List<UserDto>> GetStoreUsersAsync(Guid organizationId, Guid storeId);
 
     /// <summary>
-    /// Get a store's details with its features
+    /// Get a store's details
     /// </summary>
     Task<StoreDto?> GetStoreByIdAsync(Guid organizationId, Guid storeId);
 }
