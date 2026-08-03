@@ -6,7 +6,7 @@ namespace GekkoSuite.Api.Services;
 public interface IOrganizationService
 {
     /// <summary>
-    /// Get the organization details with its subscriptions and features
+    /// Get the organization details
     /// </summary>
     Task<OrganizationDto?> GetOrganizationByIdAsync(Guid organizationId);
 

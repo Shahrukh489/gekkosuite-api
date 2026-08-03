@@ -53,24 +53,6 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
             .Build();
     }
 
-    /// <summary>
-    /// Parses a HasFeature policy name ("scope:feature") into a policy carrying a FeatureRequirement.
-    /// </summary>
-    /// <param name="policyName">The prefixed policy name from HasFeatureAttribute.</param>
-    /// <returns>The built authorization policy.</returns>
-    private static AuthorizationPolicy BuildFeaturePolicy(string policyName)
-    {
-        string body = policyName.Substring(HasFeatureAttribute.PolicyPrefix.Length);
-        int separator = body.IndexOf(':');
-
-        MembershipScope scope = Enum.Parse<MembershipScope>(body.Substring(0, separator));
-        string feature = body.Substring(separator + 1);
-
-        return new AuthorizationPolicyBuilder()
-            .AddRequirements(new FeatureRequirement(feature, scope))
-            .Build();
-    }
-
     /// <summary>Defers the default policy (used when an endpoint has [Authorize] with no policy name).</summary>
     /// <returns>The default provider's default policy.</returns>
     public Task<AuthorizationPolicy> GetDefaultPolicyAsync()

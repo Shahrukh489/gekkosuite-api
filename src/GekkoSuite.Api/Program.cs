@@ -29,7 +29,6 @@ builder.Logging.AddSimpleConsole(options =>
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<PermissionEntity>>());
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<MembershipEntity>>());
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<MembershipAssignmentEntity>>());
-SqlMapper.AddTypeHandler(new JsonTypeHandler<List<SubscriptionEntity>>());
 
 builder.Services.AddOpenApi();
 
@@ -76,13 +75,11 @@ builder.Services.AddSingleton<IOrganizationRepository, OrganizationRepository>()
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<IStoreRepository, StoreRepository>();
 builder.Services.AddSingleton<IRoleRepository, RoleRepository>();
-builder.Services.AddSingleton<IOfferingRepository, OfferingRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
 builder.Services.AddSingleton<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<IStoreService, StoreService>();
 builder.Services.AddSingleton<IRoleService, RoleService>();
-builder.Services.AddSingleton<IOfferingService, OfferingService>();
 
 // Custom Claims Transformation that enriches auth context
 // Use this to add organizationId to claims for the given userId from the token
@@ -91,7 +88,6 @@ builder.Services.AddSingleton<IClaimsTransformation, OrganizationClaimsTransform
 // Custom Authorization Handlers
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
-builder.Services.AddSingleton<IAuthorizationHandler, FeatureHandler>();
 
 // JWT signing settings
 var jwtOptions = new JwtOptions
