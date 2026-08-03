@@ -113,14 +113,15 @@ public abstract class BaseRepository
         await using var connection = await _dataSource.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
 
+        // @TODO: add later
         // for RLS set the organization_id, any rows not in this organization are invisible to query
-        await connection.ExecuteAsync("SELECT set_config('app.current_org', @org, true)", new { org = organizationId.ToString() });
+        // await connection.ExecuteAsync("SELECT set_config('app.current_org', @org, true)", new { org = organizationId.ToString() });
 
-        // for RLS set the store_id, any rows not in this store are invisible to query
-        if (storeId is not null)
-        {
-            await connection.ExecuteAsync("SELECT set_config('app.current_store', @store, true)", new { store = storeId.Value.ToString() });
-        }
+        // // for RLS set the store_id, any rows not in this store are invisible to query
+        // if (storeId is not null)
+        // {
+        //     await connection.ExecuteAsync("SELECT set_config('app.current_store', @store, true)", new { store = storeId.Value.ToString() });
+        // }
 
         var result = await query(connection);
 

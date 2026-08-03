@@ -6,9 +6,9 @@ using GekkoSuite.Api.Enums;
 namespace GekkoSuite.Api.Policies;
 
 /// <summary>
-/// Builds authorization policies for HasPermission and HasFeature at request time: it parses the scope and
-/// permission (or feature) encoded in the policy name into the matching requirement, so no policy has to be
-/// pre-registered per permission or feature. Any other policy name falls through to the default provider.
+/// Builds authorization policies for HasPermission at request time: it parses the scope and permission
+/// encoded in the policy name into the matching requirement, so no policy has to be pre-registered per
+/// permission. Any other policy name falls through to the default provider.
 /// </summary>
 public class PermissionPolicyProvider : IAuthorizationPolicyProvider
 {
@@ -20,8 +20,8 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
     }
 
     /// <summary>
-    /// Returns the policy for a name. HasPermission and HasFeature prefixed names are parsed into their
-    /// requirement; everything else defers to the default provider.
+    /// Returns the policy for a name. HasPermission prefixed names are parsed into their requirement;
+    /// everything else defers to the default provider.
     /// </summary>
     /// <param name="policyName">The policy name from the endpoint's attribute.</param>
     /// <returns>The built policy, or the default provider's result.</returns>
@@ -30,11 +30,6 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
         if (policyName.StartsWith(HasPermissionAttribute.PolicyPrefix))
         {
             return Task.FromResult<AuthorizationPolicy?>(BuildPermissionPolicy(policyName));
-        }
-
-        if (policyName.StartsWith(HasFeatureAttribute.PolicyPrefix))
-        {
-            return Task.FromResult<AuthorizationPolicy?>(BuildFeaturePolicy(policyName));
         }
 
         return _fallbackProvider.GetPolicyAsync(policyName);

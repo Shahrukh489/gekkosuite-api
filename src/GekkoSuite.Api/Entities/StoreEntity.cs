@@ -22,6 +22,4 @@ public class StoreEntity
     /// <summary>When the store was created (stored UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
-    /// <summary>The org's live subscriptions (folded from json_agg); used to build the store's feature list.</summary>
-    public List<SubscriptionEntity> Subscriptions { get; set; } = [];
 }
