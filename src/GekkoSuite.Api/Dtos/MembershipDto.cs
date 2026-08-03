@@ -10,9 +10,6 @@ public class MembershipDto
     /// <summary>The membership's id.</summary>
     public Guid MembershipId { get; set; }
 
-    /// <summary>The membership-assignment's id (this specific role grant).</summary>
-    public Guid AssignmentId { get; set; }
-
     /// <summary>The membership's scope (ORGANIZATION or STORE).</summary>
     public MembershipScope Scope { get; set; }
 
@@ -27,21 +24,8 @@ public class MembershipDto
     /// <summary>The place's display name — the org name or the store name.</summary>
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>The granted role's id.</summary>
-    public Guid RoleId { get; set; }
-
-    /// <summary>The granted role's display name (e.g. "Cashier", "Org Admin").</summary>
-    public string RoleName { get; set; } = string.Empty;
-
-    /// <summary>When the role was granted (stored UTC).</summary>
-    public DateTimeOffset AssignedAt { get; set; }
-
-    /// <summary>Optional expiry; null = never expires.</summary>
-    public DateTimeOffset? ExpiresAt { get; set; }
-
-    /// <summary>The permission codes this role grants, e.g. "product:read"; omitted when empty.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<string>? Permissions { get; set; }
+    /// <summary>The role grants on this membership; one per role held.</summary>
+    public List<MembershipAssignmentDto> Assignments { get; set; } = [];
 
     ///<summary>Map from MembershipEntity to MembershipDto </summary>
     public static MembershipDto FromEntity(MembershipEntity membershipEntity)
@@ -49,20 +33,14 @@ public class MembershipDto
         return new MembershipDto()
         {
             MembershipId = membershipEntity.MembershipId,
-            AssignmentId = membershipEntity.AssignmentId,
             Scope = membershipEntity.Scope,
             OrganizationId = membershipEntity.OrganizationId,
             StoreId = membershipEntity.StoreId,
             Name = membershipEntity.Name,
-            RoleId = membershipEntity.RoleId,
-            RoleName = membershipEntity.RoleName,
-            AssignedAt = membershipEntity.AssignedAt,
-            ExpiresAt = membershipEntity.ExpiresAt,
-            Permissions = membershipEntity.Permissions.Length > 0
-                ? membershipEntity.Permissions.ToList()
-                : null
+            Assignments = MembershipAssignmentDto.FromEntityList(membershipEntity.Assignments)
         };
     }
+
     ///<summary>Map from MembershipEntityList to MembershipDtoList </summary>
     public static List<MembershipDto> FromEntityList(List<MembershipEntity> membershipEntities)
     {

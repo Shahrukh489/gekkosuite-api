@@ -6,7 +6,6 @@ using GekkoSuite.Api.Enums;
 
 namespace GekkoSuite.Api.Services;
 
-
 public class UserService : IUserService
 {
     private readonly IUserRepository _userRepository;
@@ -57,8 +56,6 @@ public class UserService : IUserService
         }
 
         // @TODO: add LRU in-memory-cache so we dont have to run that large query for every logged in user
-
-        // @ TODO: use one of these patterns not both userEntities.Select(UserDto.FromEntity).ToList();
         return MembershipDto.FromEntityList(membershipEntities.ToList());
     }
 
@@ -96,16 +93,27 @@ public class UserService : IUserService
         {
             throw new ValidationException($"User {userId} can not hold both an organization and store membership.");
         }
+        // the stored user_type column must agree with the memberships actually found (catch denormalization drift)
+        if (orgMemberships is not null && userDto.UserType != MembershipScope.ORGANIZATION)
+        {
+            throw new ValidationException($"User {userId} type and memberships are incorrect.");
+        }
+        if (storeMemberships is not null && userDto.UserType != MembershipScope.STORE)
+        {
+            throw new ValidationException($"User {userId} type and memberships are incorrect.");
+        }
+        if (orgMemberships is null && storeMemberships is null && userDto.UserType is not null)
+        {
+            throw new ValidationException($"User {userId} type and memberships are incorrect.");
+        }
 
         // add the users memberships
         if (orgMemberships is not null)
         {
-            userDto.UserType = MembershipScope.ORGANIZATION;
             userDto.Memberships = orgMemberships;
         }
         else if (storeMemberships is not null)
         {
-            userDto.UserType = MembershipScope.STORE;
             userDto.Memberships = storeMemberships;
             // for store users dont send back the organizationId
             userDto.OrganizationId = null;
@@ -113,8 +121,7 @@ public class UserService : IUserService
         else
         {
             // if no org or store memberships user type is none, he can not access anything
-            userDto.UserType = null;
-            userDto.Memberships = [];
+            userDto.Memberships = null;
         }
 
         return userDto;

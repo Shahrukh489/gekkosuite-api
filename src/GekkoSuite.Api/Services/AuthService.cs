@@ -87,7 +87,6 @@ public class AuthService : IAuthService
         
         return new LoginResponse
         {
-            // @TODO: perhaps add user metadata so UI can route based on the userType??
             AccessToken = new JwtSecurityTokenHandler().WriteToken(token),
             ExpiresIn = _jwtOptions.AccessTokenLifetimeMinutes * 60
         };

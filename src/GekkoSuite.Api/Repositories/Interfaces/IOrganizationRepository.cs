@@ -5,7 +5,7 @@ namespace GekkoSuite.Api.Repositories;
 public interface IOrganizationRepository
 {
     /// <summary>
-    /// Get the organization details with its subscriptions and features
+    /// Get the organization details
     /// </summary>
     public Task<OrganizationEntity?> GetOrganizationByIdAsync(Guid organizationId);
 

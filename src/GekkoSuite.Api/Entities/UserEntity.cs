@@ -1,3 +1,5 @@
+using GekkoSuite.Api.Enums;
+
 namespace GekkoSuite.Api.Entities;
 
 
@@ -26,6 +28,9 @@ public class UserEntity
 
     /// <summary>Account kill switch; false = every membership is suspended (the way to revoke, not delete).</summary>
     public bool IsActive { get; set; }
+
+    /// <summary>User's type based on theie memberships</summary>
+    public MembershipScope? UserType { get; set; }
 
     /// <summary>True for the org owner — full access that can't be stripped, only transferred.</summary>
     public bool IsOrgOwner { get; set; }
