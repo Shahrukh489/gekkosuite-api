@@ -10,6 +10,7 @@ public class UserRepository : BaseRepository, IUserRepository
     {
     }
 
+    // @TODO: make sure lowercase email is unique so only one email normalized in system allowed
     /// <inheritdoc />
     public Task<UserEntity?> GetUserByEmailAsync(string email)
     {
