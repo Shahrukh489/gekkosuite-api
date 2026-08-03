@@ -40,7 +40,6 @@ public class AuthenticationMiddleware
                 return;
             }
 
-            // @TODO: double check this.
             // verify the claims transformation added an organizationId 
             if (context.User.FindFirst("organizationId") is null)
             {

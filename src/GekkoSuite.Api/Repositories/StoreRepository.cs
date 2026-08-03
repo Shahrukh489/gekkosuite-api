@@ -33,6 +33,7 @@ public class StoreRepository : BaseRepository, IStoreRepository
     /// <inheritdoc />
     public Task<IEnumerable<UserEntity>> GetStoreUsersAsync(Guid organizationId, Guid storeId)
     {
+        // @TODO: look at returning non active membership
         const string sql = """
             SELECT
                 u.user_id AS UserId,

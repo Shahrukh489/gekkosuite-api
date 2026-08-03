@@ -14,25 +14,20 @@
 - cd api/GekkoSuite.Api and "dotnet run"
 
 
-## Local dev test account
+## Local dev test accounts
 
-organization user:
+All accounts below are seeded by `local/mock_data.sql`.
 
-```
-{
-    "email":    "admin@gekkosuite.com",
-    "password": "DevPassword123!"
-}
-```
+| Email | Password | Scope | Role | Store |
+| --- | --- | --- | --- | --- |
+| `admin@gekkosuite.com` | `DevPassword123!` | Organization | Org Admin (owner) | — |
+| `steven@gekkosuite.com` | `Password123!` | Organization | Organization Reader | — |
+| `rico@gekkosuite.com` | `Password123!` | Organization | Organization Inventory Manager | — |
+| `marcus@gekkosuite.com` | `Password123!` | Store | Store Manager | Downtown + Online |
+| `john@gekkosuite.com` | `Password123!` | Store | Cashier | Downtown |
+| `nadia@gekkosuite.com` | `Password123!` | Store | Cashier | Online |
 
-store user:
-
-```
-{
-    "email":    "marcus@gekkosuite.com",
-    "password": "Password123!"
-}
-```
+> Every account except `admin` shares the password `Password123!`.
 
 # Db Migrations
 

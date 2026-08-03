@@ -25,10 +25,13 @@ public class OrganizationClaimsTransformation : IClaimsTransformation
     }
 
     /// <summary>
-    /// Adds an organizationId claim resolved from the principal's userId. 
+    /// Adds an organizationId claim resolved from the principal's userId.
     /// </summary>
     public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
+        // @TODO: consider carrying organizationId in the JWT itself and reading it from there instead of a
+        // per-request DB lookup. Tradeoff: cheaper (no query per request) but the token would need re-issuing
+        // to reflect an org change, and we lose the immediate-revocation property of resolving it live.
         var userId = principal.FindFirst("userId")?.Value;
         if (!Guid.TryParse(userId, out var userGuid))
         {

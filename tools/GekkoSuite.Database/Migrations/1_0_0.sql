@@ -4,6 +4,9 @@ CREATE TYPE scope AS ENUM ('ORGANIZATION', 'STORE');
 -- How a store sells: a storefront kind.
 CREATE TYPE store_type AS ENUM ('ONLINE', 'PHYSICAL');
 
+-- Store subtype further describing its purpose
+CREATE TYPE store_subtype AS ENUM ('DEALER_PORTAL', 'RETAIL');
+
 -- The org's overall billing status
 CREATE TYPE billing_status AS ENUM ('ACTIVE', 'PAST_DUE', 'UNPAID', 'CANCELED');
 
@@ -246,25 +249,6 @@ CREATE TABLE role_permission (
     PRIMARY KEY (role_id, permission_id)
 );
 
--- An ELEVATED (company-level) permission may only sit in an ORGANIZATION-scoped role, so it can never
--- reach a store seat (e.g. user:create must not land in a store role → a cashier creating users). Spans
--- permission + role, so it's a trigger, not a CHECK. App service is the primary guard; this is the backstop.
--- CREATE OR REPLACE FUNCTION enforce_role_permission_elevated() RETURNS trigger AS $$
--- BEGIN
---     IF (SELECT p.is_elevated FROM permission p WHERE p.permission_id = NEW.permission_id)
---        AND (SELECT r.scope FROM role r WHERE r.role_id = NEW.role_id) <> 'ORGANIZATION' THEN
---         RAISE EXCEPTION 'elevated permission % may only be granted to an ORGANIZATION role', NEW.permission_id;
---     END IF;
---     RETURN NEW;
--- END;
--- $$ LANGUAGE plpgsql;
-
--- CREATE TRIGGER role_permission_elevated_guard
---     BEFORE INSERT OR UPDATE ON role_permission
---     FOR EACH ROW EXECUTE FUNCTION enforce_role_permission_elevated();
-
-
-
 -- A membership: a place a user belongs — the whole ORGANIZATION, or one STORE. Sets their reach there.
 CREATE TABLE membership (
     -- membership id
@@ -305,48 +289,6 @@ CREATE UNIQUE INDEX membership_org_uq
 -- all of a user's memberships
 CREATE INDEX ON membership (user_id);
 
--- The one-kind rule: a user's live memberships must be ALL organization or ALL store, never both — so a
--- STORE user can never reach ORGANIZATION data (see auth.md, CLAUDE.md). This spans multiple rows (all of
--- a user's memberships), which a CHECK can't express, so it's a trigger. The app service is the primary
--- guard on the write path; this is the database backstop.
--- CREATE OR REPLACE FUNCTION enforce_one_membership_kind() RETURNS trigger AS $$
--- BEGIN
---     IF NEW.is_deleted THEN
---         RETURN NEW;   -- soft-deleting a membership can never create a conflict
---     END IF;
---     IF EXISTS (
---         SELECT 1 FROM membership m
---         WHERE m.user_id = NEW.user_id
---           AND m.membership_id <> NEW.membership_id
---           AND m.scope <> NEW.scope
---           AND NOT m.is_deleted
---     ) THEN
---         RAISE EXCEPTION 'user % already holds a live membership of the other scope (one-kind rule)', NEW.user_id;
---     END IF;
---     RETURN NEW;
--- END;
--- $$ LANGUAGE plpgsql;
-
--- CREATE TRIGGER membership_one_kind
---     BEFORE INSERT OR UPDATE ON membership
---     FOR EACH ROW EXECUTE FUNCTION enforce_one_membership_kind();
-
--- -- A membership must live in the user's OWN organization — its organization_id has to match the user's
--- -- home org. Prevents giving a user a membership in another org (cross-tenant access). Joins membership →
--- -- user, so it's a trigger, not a CHECK.
--- CREATE OR REPLACE FUNCTION enforce_membership_in_user_org() RETURNS trigger AS $$
--- BEGIN
---     IF NEW.organization_id <> (SELECT u.organization_id FROM user_account u WHERE u.user_id = NEW.user_id) THEN
---         RAISE EXCEPTION 'membership org % does not match user %''s home organization', NEW.organization_id, NEW.user_id;
---     END IF;
---     RETURN NEW;
--- END;
--- $$ LANGUAGE plpgsql;
-
--- CREATE TRIGGER membership_in_user_org
---     BEFORE INSERT OR UPDATE ON membership
---     FOR EACH ROW EXECUTE FUNCTION enforce_membership_in_user_org();
-
 -- membership_assignment: a role granted to a membership (many-to-many).
 CREATE TABLE membership_assignment (
     -- assignment id
@@ -364,20 +306,3 @@ CREATE TABLE membership_assignment (
     -- same role can't be granted to the same membership twice
     UNIQUE (membership_id, role_id)
 );
-
--- A role's scope must match the membership's scope: a STORE role only on a STORE membership, an
--- ORGANIZATION role only on an ORGANIZATION membership. Prevents an org role on a store seat (store
--- employee gets org-wide reach). Joins role + membership, so it's a trigger, not a CHECK.
--- CREATE OR REPLACE FUNCTION enforce_assignment_scope_match() RETURNS trigger AS $$
--- BEGIN
---     IF (SELECT r.scope FROM role r WHERE r.role_id = NEW.role_id)
---        <> (SELECT m.scope FROM membership m WHERE m.membership_id = NEW.membership_id) THEN
---         RAISE EXCEPTION 'role % scope does not match membership % scope', NEW.role_id, NEW.membership_id;
---     END IF;
---     RETURN NEW;
--- END;
--- $$ LANGUAGE plpgsql;
-
--- CREATE TRIGGER membership_assignment_type_guard
---     BEFORE INSERT OR UPDATE ON membership_assignment
---     FOR EACH ROW EXECUTE FUNCTION enforce_assignment_scope_match();

@@ -62,9 +62,6 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
         return null;
     }
 
-    // @TODO: how to check if role and membership scope are same along with whether or now the permission is elevated
-    // so it cant be on store role accidentally/.
-
     /// <summary>
     /// True when the caller is authorized: they hold at least one membership, and — if a permission is
     /// required — one of those memberships' roles grants it.
@@ -104,7 +101,6 @@ public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
         var organizationId = context.User.GetOrganizationId();
 
         var route = context.Resource is HttpContext httpContext ? $"{httpContext.Request.Method} {httpContext.Request.Path}" : "unknown";
-        _logger.LogDebug("\n\n"); 
         _logger.LogDebug("Authorizing {UserId} in org {OrganizationId}: {Scope} action requiring {Permission} on {Route}.", userId, organizationId, requirement.Scope, requirement.Permission, route);
 
         if (requirement.Scope == MembershipScope.ORGANIZATION)
