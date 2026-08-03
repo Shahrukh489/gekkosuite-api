@@ -76,33 +76,36 @@ public class UserRepository : BaseRepository, IUserRepository
                 m.scope::text AS Scope,
                 o.organization_id AS OrganizationId,
                 o.name AS Name,
-                (
-                    SELECT json_agg(
-                        json_build_object(
-                            'assignmentId', ma.assignment_id,
-                            'roleId', r.role_id,
-                            'roleName', r.name,
-                            'assignedAt', ma.assigned_at,
-                            'expiresAt', ma.expires_at,
-                            'permissions', COALESCE(
-                                (SELECT json_agg(
-                                        json_build_object(
-                                            'permissionId', p.permission_id,
-                                            'resource', p.resource,
-                                            'action', p.action,
-                                            'isElevated', p.is_elevated
-                                        ))
-                                 FROM role_permission rp
-                                 JOIN permission p ON p.permission_id = rp.permission_id
-                                 WHERE rp.role_id = r.role_id),
-                                '[]'
-                            )
-                        ) ORDER BY r.name
-                    )
-                    FROM membership_assignment ma
-                    JOIN role r ON r.role_id = ma.role_id AND r.scope = 'ORGANIZATION'
-                    WHERE ma.membership_id = m.membership_id
-                      AND (ma.expires_at IS NULL OR ma.expires_at > now())
+                COALESCE(
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'assignmentId', ma.assignment_id,
+                                'roleId', r.role_id,
+                                'roleName', r.name,
+                                'assignedAt', ma.assigned_at,
+                                'expiresAt', ma.expires_at,
+                                'permissions', COALESCE(
+                                    (SELECT json_agg(
+                                            json_build_object(
+                                                'permissionId', p.permission_id,
+                                                'resource', p.resource,
+                                                'action', p.action,
+                                                'isElevated', p.is_elevated
+                                            ))
+                                     FROM role_permission rp
+                                     JOIN permission p ON p.permission_id = rp.permission_id
+                                     WHERE rp.role_id = r.role_id),
+                                    '[]'
+                                )
+                            ) ORDER BY r.name
+                        )
+                        FROM membership_assignment ma
+                        JOIN role r ON r.role_id = ma.role_id AND r.scope = 'ORGANIZATION'
+                        WHERE ma.membership_id = m.membership_id
+                          AND (ma.expires_at IS NULL OR ma.expires_at > now())
+                    ),
+                    '[]'
                 ) AS Assignments
             FROM membership m
             JOIN organization o ON o.organization_id = m.organization_id AND NOT o.is_deleted
@@ -126,33 +129,36 @@ public class UserRepository : BaseRepository, IUserRepository
                 m.scope::text AS Scope,
                 s.store_id AS StoreId,
                 s.name AS Name,
-                (
-                    SELECT json_agg(
-                        json_build_object(
-                            'assignmentId', ma.assignment_id,
-                            'roleId', r.role_id,
-                            'roleName', r.name,
-                            'assignedAt', ma.assigned_at,
-                            'expiresAt', ma.expires_at,
-                            'permissions', COALESCE(
-                                (SELECT json_agg(
-                                        json_build_object(
-                                            'permissionId', p.permission_id,
-                                            'resource', p.resource,
-                                            'action', p.action,
-                                            'isElevated', p.is_elevated
-                                        ))
-                                 FROM role_permission rp
-                                 JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
-                                 WHERE rp.role_id = r.role_id),
-                                '[]'
-                            )
-                        ) ORDER BY r.name
-                    )
-                    FROM membership_assignment ma
-                    JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
-                    WHERE ma.membership_id = m.membership_id
-                      AND (ma.expires_at IS NULL OR ma.expires_at > now())
+                COALESCE(
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'assignmentId', ma.assignment_id,
+                                'roleId', r.role_id,
+                                'roleName', r.name,
+                                'assignedAt', ma.assigned_at,
+                                'expiresAt', ma.expires_at,
+                                'permissions', COALESCE(
+                                    (SELECT json_agg(
+                                            json_build_object(
+                                                'permissionId', p.permission_id,
+                                                'resource', p.resource,
+                                                'action', p.action,
+                                                'isElevated', p.is_elevated
+                                            ))
+                                     FROM role_permission rp
+                                     JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
+                                     WHERE rp.role_id = r.role_id),
+                                    '[]'
+                                )
+                            ) ORDER BY r.name
+                        )
+                        FROM membership_assignment ma
+                        JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
+                        WHERE ma.membership_id = m.membership_id
+                          AND (ma.expires_at IS NULL OR ma.expires_at > now())
+                    ),
+                    '[]'
                 ) AS Assignments
             FROM membership m
             JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
@@ -177,33 +183,36 @@ public class UserRepository : BaseRepository, IUserRepository
                 m.scope::text AS Scope,
                 s.store_id AS StoreId,
                 s.name AS Name,
-                (
-                    SELECT json_agg(
-                        json_build_object(
-                            'assignmentId', ma.assignment_id,
-                            'roleId', r.role_id,
-                            'roleName', r.name,
-                            'assignedAt', ma.assigned_at,
-                            'expiresAt', ma.expires_at,
-                            'permissions', COALESCE(
-                                (SELECT json_agg(
-                                        json_build_object(
-                                            'permissionId', p.permission_id,
-                                            'resource', p.resource,
-                                            'action', p.action,
-                                            'isElevated', p.is_elevated
-                                        ))
-                                 FROM role_permission rp
-                                 JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
-                                 WHERE rp.role_id = r.role_id),
-                                '[]'
-                            )
-                        ) ORDER BY r.name
-                    )
-                    FROM membership_assignment ma
-                    JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
-                    WHERE ma.membership_id = m.membership_id
-                      AND (ma.expires_at IS NULL OR ma.expires_at > now())
+                COALESCE(
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'assignmentId', ma.assignment_id,
+                                'roleId', r.role_id,
+                                'roleName', r.name,
+                                'assignedAt', ma.assigned_at,
+                                'expiresAt', ma.expires_at,
+                                'permissions', COALESCE(
+                                    (SELECT json_agg(
+                                            json_build_object(
+                                                'permissionId', p.permission_id,
+                                                'resource', p.resource,
+                                                'action', p.action,
+                                                'isElevated', p.is_elevated
+                                            ))
+                                     FROM role_permission rp
+                                     JOIN permission p ON p.permission_id = rp.permission_id AND NOT p.is_elevated
+                                     WHERE rp.role_id = r.role_id),
+                                    '[]'
+                                )
+                            ) ORDER BY r.name
+                        )
+                        FROM membership_assignment ma
+                        JOIN role r ON r.role_id = ma.role_id AND r.scope = 'STORE'
+                        WHERE ma.membership_id = m.membership_id
+                          AND (ma.expires_at IS NULL OR ma.expires_at > now())
+                    ),
+                    '[]'
                 ) AS Assignments
             FROM membership m
             JOIN store s ON s.store_id = m.store_id AND NOT s.is_deleted
