@@ -13,4 +13,12 @@ public interface IOrderService
     /// Finds one sales order (receipt) by id at the given store, with its line items, or null if not found.
     /// </summary>
     Task<OrderDto?> GetStoreOrderByIdAsync(Guid organizationId, Guid storeId, Guid orderId);
+
+    /// <summary>
+    /// Rings up a sale: validates the cart against the store's live catalog, prices and taxes it
+    /// server-side, writes the order and decrements stock, and returns the created receipt. Throws
+    /// BadRequestException for an empty cart, an invalid quantity, a product not sellable at this
+    /// store, or a customer not at this store.
+    /// </summary>
+    Task<OrderDto> CreateOrderAsync(Guid organizationId, Guid storeId, Guid soldByUserId, CreateOrderRequest request);
 }

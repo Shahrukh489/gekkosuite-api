@@ -84,4 +84,16 @@ public class StoreService : IStoreService
     {
         return await _orderService.GetStoreOrderByIdAsync(organizationId, storeId, orderId);
     }
+
+    /// <inheritdoc />
+    public async Task<OrderDto> CreateStoreOrderAsync(Guid organizationId, Guid storeId, Guid soldByUserId, CreateOrderRequest request)
+    {
+        return await _orderService.CreateOrderAsync(organizationId, storeId, soldByUserId, request);
+    }
+
+    /// <inheritdoc />
+    public async Task<CustomerDto> CreateStoreCustomerAsync(Guid organizationId, Guid storeId, CreateCustomerRequest request)
+    {
+        return await _customerService.CreateCustomerAsync(organizationId, storeId, request);
+    }
 }

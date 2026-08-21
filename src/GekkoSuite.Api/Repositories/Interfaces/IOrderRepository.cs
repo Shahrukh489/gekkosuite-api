@@ -1,3 +1,4 @@
+using GekkoSuite.Api.Dtos;
 using GekkoSuite.Api.Entities;
 
 namespace GekkoSuite.Api.Repositories;
@@ -13,4 +14,11 @@ public interface IOrderRepository
     /// Finds one sales order (receipt) by id at the given store, with its line items, or null if not found.
     /// </summary>
     public Task<OrderEntity?> GetStoreOrderByIdAsync(Guid organizationId, Guid storeId, Guid orderId);
+
+    /// <summary>
+    /// Writes a completed sale in one statement: assigns the next per-store order number, inserts the
+    /// order and its lines, and decrements stock for every tracked product sold — so a partial failure
+    /// can't leave a receipt with missing lines or untouched inventory.
+    /// </summary>
+    public Task CreateOrderAsync(CreateOrderDto dto, DateTimeOffset now);
 }

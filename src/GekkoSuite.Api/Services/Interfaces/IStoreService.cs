@@ -48,4 +48,14 @@ public interface IStoreService
     /// Finds one sales order (receipt) by id at the given store, with its line items, or null if not found.
     /// </summary>
     Task<OrderDto?> GetStoreOrderByIdAsync(Guid organizationId, Guid storeId, Guid orderId);
+
+    /// <summary>
+    /// Rings up a sale at the given store and returns the created receipt.
+    /// </summary>
+    Task<OrderDto> CreateStoreOrderAsync(Guid organizationId, Guid storeId, Guid soldByUserId, CreateOrderRequest request);
+
+    /// <summary>
+    /// Creates a customer at the given store.
+    /// </summary>
+    Task<CustomerDto> CreateStoreCustomerAsync(Guid organizationId, Guid storeId, CreateCustomerRequest request);
 }

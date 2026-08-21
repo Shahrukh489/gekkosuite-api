@@ -198,6 +198,35 @@ public class StoreController : BaseController
     }
 
     /// <summary>
+    /// Creates a customer at a store the caller belongs to.
+    /// </summary>
+    [HttpPost("{" + Constants.STORE_ID + "}/customers")]
+    [EndpointName("CreateStoreCustomer")]
+    [HasPermission(MembershipScope.STORE, "customer:create")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<CustomerDto>> CreateStoreCustomerAsync(Guid storeId, CreateCustomerRequest request)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            CustomerDto customer = await _storeService.CreateStoreCustomerAsync(organizationId, storeId, request);
+
+            return Ok(customer);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
     /// Lists the sales orders (receipts) rung up at a store, newest first. The store must belong to the caller's org.
     /// </summary>
     [HttpGet("{" + Constants.STORE_ID + "}/orders")]
@@ -217,6 +246,36 @@ public class StoreController : BaseController
             List<OrderDto> orders = await _storeService.GetStoreOrdersAsync(organizationId, storeId);
 
             return Ok(orders);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
+    /// Rings up a sale at a store the caller belongs to: prices and taxes the cart server-side from the
+    /// store's live catalog, writes the order, decrements stock, and returns the created receipt.
+    /// </summary>
+    [HttpPost("{" + Constants.STORE_ID + "}/orders")]
+    [EndpointName("CreateStoreOrder")]
+    [HasPermission(MembershipScope.STORE, "sales_order:create")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<OrderDto>> CreateStoreOrderAsync(Guid storeId, CreateOrderRequest request)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+            var soldByUserId = User.GetUserId();
+
+            OrderDto order = await _storeService.CreateStoreOrderAsync(organizationId, storeId, soldByUserId, request);
+
+            return Ok(order);
         }
         catch (Exception ex)
         {
