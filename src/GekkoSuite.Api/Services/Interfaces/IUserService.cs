@@ -45,4 +45,20 @@ public interface IUserService
     /// memberships (org entry, or store entries oldest-first). Null if the user isn't found.
     /// </summary>
     Task<UserDto?> GetUserByIdWithMembershipsAsync(Guid organizationId, Guid userId);
+
+    /// <summary>
+    /// Creates an organization user: a login plus a live ORGANIZATION membership under the given role.
+    /// Generates a one-time temporary password (there is no invite-email flow yet — docs/auth.md's
+    /// Security Review Notes) and returns it alongside the created user's safe view. Throws
+    /// BadRequestException for invalid input or an unassignable role, ConflictException if the email is
+    /// already taken.
+    /// </summary>
+    Task<(UserDto User, string TemporaryPassword)> CreateUserAsync(CreateUserDto dto);
+
+    /// <summary>
+    /// Updates the given fields on a live organization user (null fields are left unchanged). Returns
+    /// the updated user's view, or null if no live user matches both ids. Throws BadRequestException for
+    /// a blank field, ConflictException if the new email is already taken.
+    /// </summary>
+    Task<UserDto?> UpdateUserAsync(UpdateUserDto dto);
 }

@@ -45,9 +45,43 @@ public class OrganizationService : IOrganizationService
     }
 
     /// <inheritdoc />
-    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId)
+    public async Task<CreateUserResponse> CreateUserAsync(Guid organizationId, Guid createdByUserId, CreateUserRequest request)
     {
-        return await _roleService.GetRolesAsync(organizationId, null);
+        var dto = new CreateUserDto
+        {
+            OrganizationId = organizationId,
+            CreatedByUserId = createdByUserId,
+            FirstName = request.FirstName,
+            LastName = request.LastName,
+            Email = request.Email,
+            RoleId = request.RoleId ?? Guid.Empty,
+        };
+
+        (UserDto user, string temporaryPassword) = await _userService.CreateUserAsync(dto);
+
+        return CreateUserResponse.FromUserDto(user, temporaryPassword);
+    }
+
+    /// <inheritdoc />
+    public async Task<UserDto?> UpdateUserAsync(Guid organizationId, Guid userId, UpdateUserRequest request)
+    {
+        var dto = new UpdateUserDto
+        {
+            OrganizationId = organizationId,
+            UserId = userId,
+            FirstName = request.FirstName,
+            LastName = request.LastName,
+            Email = request.Email,
+            IsActive = request.IsActive,
+        };
+
+        return await _userService.UpdateUserAsync(dto);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<RoleDto>> GetRolesAsync(Guid organizationId, MembershipScope? scope)
+    {
+        return await _roleService.GetRolesAsync(organizationId, scope);
     }
 
     /// <inheritdoc />

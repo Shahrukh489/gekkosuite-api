@@ -1,9 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 
-using Konscious.Security.Cryptography;
 using Microsoft.IdentityModel.Tokens;
 
 using GekkoSuite.Api.Configurations;
@@ -27,47 +25,7 @@ public class AuthService : IAuthService
     }
 
     /// <summary>
-    /// Checks the request password against the hashed one in database for a user
-    /// </summary>
-    private static bool VerifyPassword(string password, string storedHashPassword)
-    {
-        var parts = storedHashPassword.Split(':');
-        if (parts.Length != 2)
-        {
-            return false;
-        }
-
-        var salt = Convert.FromBase64String(parts[0]);
-        var expectedHash = Convert.FromBase64String(parts[1]);
-        var actualHash = HashPassword(password, salt);
-
-        // Fixed-time comparison so a mismatch can't be timed to leak how many leading bytes matched.
-        return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
-    }
-
-    /// <summary>
-    /// Hashes a password with Argon2id using a caller-supplied salt.
-    /// </summary>
-    private static byte[] HashPassword(string password, byte[] salt)
-    {
-        const int ArgonMemoryKb = 19 * 1024;
-        const int ArgonIterations = 2;
-        const int ArgonParallelism = 1;
-        const int ArgonHashLengthBytes = 32;
-
-        using var argon2 = new Argon2id(Encoding.UTF8.GetBytes(password))
-        {
-            Salt = salt,
-            DegreeOfParallelism = ArgonParallelism,
-            MemorySize = ArgonMemoryKb,
-            Iterations = ArgonIterations
-        };
-
-        return argon2.GetBytes(ArgonHashLengthBytes);
-    }
-
-    /// <summary>
-    /// Signs and builds the access token for a logged-in user. 
+    /// Signs and builds the access token for a logged-in user.
     /// </summary>
     private LoginResponse IssueAccessToken(UserEntity user)
     {
@@ -97,7 +55,7 @@ public class AuthService : IAuthService
 
         // Checking the hash even when user is null would be nice for timing-attack hygiene, but is
         // skipped here for simplicity; the meaningful secret (the password) is never exposed either way.
-        if (user is null || !VerifyPassword(password, user.Password) || !user.IsActive)
+        if (user is null || !PasswordHasher.VerifyPassword(password, user.Password) || !user.IsActive)
         {
             return null;
         }

@@ -21,9 +21,23 @@ public interface IOrganizationService
     Task<UserDto?> GetUserByIdAsync(Guid organizationId, Guid userId);
 
     /// <summary>
+    /// Creates an organization user (login plus a live ORGANIZATION membership under the given role) and
+    /// returns it with its one-time temporary password. Throws BadRequestException for invalid input or
+    /// an unassignable role, ConflictException if the email is already taken.
+    /// </summary>
+    Task<CreateUserResponse> CreateUserAsync(Guid organizationId, Guid createdByUserId, CreateUserRequest request);
+
+    /// <summary>
+    /// Updates the given fields on a live organization user (unset fields are left unchanged). Returns
+    /// the updated user, or null if no live user matches both ids. Throws BadRequestException for a
+    /// blank field, ConflictException if the new email is already taken.
+    /// </summary>
+    Task<UserDto?> UpdateUserAsync(Guid organizationId, Guid userId, UpdateUserRequest request);
+
+    /// <summary>
     /// Lists the roles assignable in the org (managed + the org's own), optionally filtered to one scope.
     /// </summary>
-    Task<List<RoleDto>> GetRolesAsync(Guid organizationId);
+    Task<List<RoleDto>> GetRolesAsync(Guid organizationId, MembershipScope? scope);
 
     /// <summary>
     /// Returns one role and the permissions it grants, or null if not visible to the org.

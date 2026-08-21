@@ -112,6 +112,70 @@ public class OrganizationController : BaseController
     }
 
     /// <summary>
+    /// Creates a user in the caller's organization: a login plus a live ORGANIZATION membership under
+    /// the given role. There is no invite-email flow yet, so the response carries a one-time temporary
+    /// password — it is never shown again after this call.
+    /// </summary>
+    [HttpPost("users")]
+    [EndpointName("CreateOrganizationUser")]
+    [HasPermission(MembershipScope.ORGANIZATION, "user:create")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<CreateUserResponse>> CreateUserAsync(CreateUserRequest request)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+            var createdByUserId = User.GetUserId();
+
+            CreateUserResponse response = await _organizationService.CreateUserAsync(organizationId, createdByUserId, request);
+
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
+    /// Updates the given fields on a user in the caller's organization (unset fields are left unchanged).
+    /// </summary>
+    [HttpPatch("users/{userId}")]
+    [EndpointName("UpdateOrganizationUser")]
+    [HasPermission(MembershipScope.ORGANIZATION, "user:update")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<UserDto>> UpdateUserAsync(Guid userId, UpdateUserRequest request)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            UserDto? user = await _organizationService.UpdateUserAsync(organizationId, userId, request);
+            if (user is null)
+            {
+                return NotFound(new { message = "User not found." });
+            }
+
+            return Ok(user);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
     /// Lists the roles assignable in the caller's org — managed roles plus the org's own custom roles.
     /// Pass ?scope=ORGANIZATION or ?scope=STORE to return only roles valid for that membership kind.
     /// </summary>
@@ -123,12 +187,23 @@ public class OrganizationController : BaseController
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<List<RoleDto>>> GetRolesAsync()
+    public async Task<ActionResult<List<RoleDto>>> GetRolesAsync(string? scope)
     {
         try
         {
+            MembershipScope? scopeFilter = null;
+            if (scope is not null)
+            {
+                if (!Enum.TryParse(scope, out MembershipScope parsedScope))
+                {
+                    return BadRequest(new { message = $"'{scope}' is not a valid scope." });
+                }
+
+                scopeFilter = parsedScope;
+            }
+
             var organizationId = User.GetOrganizationId();
-            List<RoleDto> roles = await _organizationService.GetRolesAsync(organizationId);
+            List<RoleDto> roles = await _organizationService.GetRolesAsync(organizationId, scopeFilter);
 
             return Ok(roles);
         }

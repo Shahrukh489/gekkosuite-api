@@ -10,10 +10,12 @@ namespace GekkoSuite.Api.Services;
 public class UserService : IUserService
 {
     private readonly IUserRepository _userRepository;
+    private readonly IRoleService _roleService;
 
-    public UserService(IUserRepository userRepository)
+    public UserService(IUserRepository userRepository, IRoleService roleService)
     {
         _userRepository = userRepository;
+        _roleService = roleService;
     }
 
     /// <inheritdoc />
@@ -126,5 +128,116 @@ public class UserService : IUserService
             userDto.Memberships = [];
         }
         return userDto;
+    }
+
+    /// <inheritdoc />
+    public async Task<(UserDto User, string TemporaryPassword)> CreateUserAsync(CreateUserDto dto)
+    {
+        var firstName = dto.FirstName.Trim();
+        var lastName = dto.LastName.Trim();
+        var email = dto.Email.Trim().ToLowerInvariant();
+
+        if (firstName.Length == 0 || lastName.Length == 0 || email.Length == 0)
+        {
+            throw new BadRequestException("First name, last name, and email are required.");
+        }
+
+        if (dto.RoleId == Guid.Empty)
+        {
+            throw new BadRequestException("A role is required to create an organization user.");
+        }
+
+        // The role must be one this org can assign (managed, or its own custom role) AND ORGANIZATION
+        // scoped — a STORE role here would put an org-level membership under a role meant for a store
+        // seat (see auth.md's scope-match rule).
+        RoleDto? role = await _roleService.GetRoleByIdAsync(dto.OrganizationId, dto.RoleId, MembershipScope.ORGANIZATION);
+        if (role is null)
+        {
+            throw new BadRequestException("The selected role is not a valid organization role for this organization.");
+        }
+
+        var userId = Guid.NewGuid();
+        var membershipId = Guid.NewGuid();
+        var assignmentId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+
+        // No invite-email flow exists yet (auth.md's Security Review Notes), so a random temporary
+        // password is generated here and returned once — it is never stored or logged in plaintext.
+        var temporaryPassword = PasswordHasher.GenerateTemporaryPassword();
+        var passwordHash = PasswordHasher.HashPassword(temporaryPassword);
+
+        var normalizedDto = new CreateUserDto
+        {
+            OrganizationId = dto.OrganizationId,
+            CreatedByUserId = dto.CreatedByUserId,
+            FirstName = firstName,
+            LastName = lastName,
+            Email = email,
+            RoleId = dto.RoleId,
+        };
+
+        await _userRepository.CreateUserAsync(normalizedDto, userId, passwordHash, membershipId, assignmentId, now);
+
+        UserDto? createdUser = await GetUserByIdWithMembershipsAsync(dto.OrganizationId, userId);
+        if (createdUser is null)
+        {
+            throw new InvalidOperationException($"User {userId} was created but could not be read back.");
+        }
+
+        return (createdUser, temporaryPassword);
+    }
+
+    /// <inheritdoc />
+    public async Task<UserDto?> UpdateUserAsync(UpdateUserDto dto)
+    {
+        string? firstName = dto.FirstName?.Trim();
+        string? lastName = dto.LastName?.Trim();
+        string? email = dto.Email?.Trim().ToLowerInvariant();
+
+        if (firstName?.Length == 0)
+        {
+            throw new BadRequestException("First name can not be blank.");
+        }
+
+        if (lastName?.Length == 0)
+        {
+            throw new BadRequestException("Last name can not be blank.");
+        }
+
+        if (email?.Length == 0)
+        {
+            throw new BadRequestException("Email can not be blank.");
+        }
+
+        // The owner's access can't be stripped this way — only a deliberate ownership transfer changes
+        // it (see auth.md's "Who is the owner" FAQ and api.md's 409 on deactivate). Checked here, not
+        // left to a WHERE-clause exclusion in the repository, so the caller gets a clear 409 instead of
+        // a misleading 404.
+        if (dto.IsActive == false)
+        {
+            UserEntity? existingUser = await _userRepository.GetUserByIdAsync(dto.OrganizationId, dto.UserId);
+            if (existingUser is not null && existingUser.IsOrgOwner)
+            {
+                throw new ConflictException("The organization owner can not be deactivated.");
+            }
+        }
+
+        var normalizedDto = new UpdateUserDto
+        {
+            OrganizationId = dto.OrganizationId,
+            UserId = dto.UserId,
+            FirstName = firstName,
+            LastName = lastName,
+            Email = email,
+            IsActive = dto.IsActive,
+        };
+
+        UserEntity? updated = await _userRepository.UpdateUserAsync(normalizedDto, DateTimeOffset.UtcNow);
+        if (updated is null)
+        {
+            return null;
+        }
+
+        return await GetUserByIdWithMembershipsAsync(dto.OrganizationId, dto.UserId);
     }
 }

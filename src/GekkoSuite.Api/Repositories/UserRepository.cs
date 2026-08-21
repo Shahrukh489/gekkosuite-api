@@ -1,6 +1,8 @@
 using Npgsql;
 
+using GekkoSuite.Api.Dtos;
 using GekkoSuite.Api.Entities;
+using GekkoSuite.Api.Exceptions;
 
 namespace GekkoSuite.Api.Repositories;
 
@@ -258,6 +260,104 @@ public class UserRepository : BaseRepository, IUserRepository
             """;
 
         return QueryAsync<MembershipEntity>(organizationId, storeId, sql, new { userId, organizationId, storeId });
+    }
+
+    /// <inheritdoc />
+    public async Task CreateUserAsync(CreateUserDto dto, Guid userId, string passwordHash, Guid membershipId, Guid assignmentId, DateTimeOffset now)
+    {
+        const string sql = """
+            WITH ins_user AS (
+                INSERT INTO user_account (
+                    user_id, organization_id, email, password, first_name, last_name,
+                    is_active, is_org_owner, created_by_user_id, created_at, updated_at, is_deleted
+                )
+                VALUES (
+                    @userId, @organizationId, @email, @passwordHash, @firstName, @lastName,
+                    TRUE, FALSE, @createdByUserId, @now, @now, FALSE
+                )
+            ),
+            ins_membership AS (
+                INSERT INTO membership (
+                    membership_id, user_id, scope, organization_id, store_id,
+                    is_active, created_at, updated_at, is_deleted
+                )
+                VALUES (
+                    @membershipId, @userId, 'ORGANIZATION'::scope, @organizationId, NULL,
+                    TRUE, @now, @now, FALSE
+                )
+            )
+            INSERT INTO membership_assignment (
+                assignment_id, membership_id, role_id, assigned_at, assigned_by_user_id, expires_at
+            )
+            VALUES (@assignmentId, @membershipId, @roleId, @now, @createdByUserId, NULL)
+            """;
+
+        try
+        {
+            await ExecuteAsync(dto.OrganizationId, sql, new
+            {
+                userId,
+                organizationId = dto.OrganizationId,
+                email = dto.Email,
+                passwordHash,
+                firstName = dto.FirstName,
+                lastName = dto.LastName,
+                createdByUserId = dto.CreatedByUserId,
+                now,
+                membershipId,
+                assignmentId,
+                roleId = dto.RoleId,
+            });
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new ConflictException("A user with this email already exists.");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<UserEntity?> UpdateUserAsync(UpdateUserDto dto, DateTimeOffset now)
+    {
+        const string sql = """
+            UPDATE user_account
+            SET first_name = COALESCE(@firstName, first_name),
+                last_name = COALESCE(@lastName, last_name),
+                email = COALESCE(lower(@email), email),
+                is_active = COALESCE(@isActive, is_active),
+                updated_at = @now
+            WHERE user_id = @userId
+              AND organization_id = @organizationId
+              AND NOT is_deleted
+            RETURNING
+                user_id AS UserId,
+                organization_id AS OrganizationId,
+                email AS Email,
+                first_name AS FirstName,
+                last_name AS LastName,
+                phone AS Phone,
+                is_active AS IsActive,
+                is_org_owner AS IsOrgOwner,
+                created_by_user_id AS CreatedByUserId,
+                created_at AS CreatedAt
+            """;
+
+        try
+        {
+            return await QuerySingleOrDefaultAsync<UserEntity>(dto.OrganizationId, sql, new
+            {
+                dto.UserId,
+                dto.OrganizationId,
+                firstName = dto.FirstName,
+                lastName = dto.LastName,
+                email = dto.Email,
+                isActive = dto.IsActive,
+                now,
+            });
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new ConflictException("A user with this email already exists.");
+        }
     }
 
     /// <summary>

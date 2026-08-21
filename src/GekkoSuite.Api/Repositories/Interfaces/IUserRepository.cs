@@ -1,3 +1,4 @@
+using GekkoSuite.Api.Dtos;
 using GekkoSuite.Api.Entities;
 
 namespace GekkoSuite.Api.Repositories;
@@ -45,4 +46,18 @@ public interface IUserRepository
     /// Returns the user's live STORE membership rows (one per role) at the given store, empty if none.
     /// </summary>
     public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId);
+
+    /// <summary>
+    /// Creates a user_account plus its live ORGANIZATION membership and role assignment in one
+    /// statement, so a partial failure can't leave a login with no membership. Throws ConflictException
+    /// if the email is already taken.
+    /// </summary>
+    public Task CreateUserAsync(CreateUserDto dto, Guid userId, string passwordHash, Guid membershipId, Guid assignmentId, DateTimeOffset now);
+
+    /// <summary>
+    /// Updates the given fields on a live user_account (null fields are left unchanged), scoped to the
+    /// caller's org. Returns the updated row, or null if no live user matches both ids. Throws
+    /// ConflictException if the new email is already taken.
+    /// </summary>
+    public Task<UserEntity?> UpdateUserAsync(UpdateUserDto dto, DateTimeOffset now);
 }

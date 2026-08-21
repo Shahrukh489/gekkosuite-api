@@ -69,6 +69,9 @@ INSERT INTO permission (permission_id, resource, action, description, is_elevate
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000013', 'product', 'list', 'List a store''s products (its catalog)', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000014', 'customer', 'list', 'List a store''s customers (its roster)', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000015', 'dashboard', 'read', 'View the dashboard', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000016', 'order', 'list', 'List a store''s sales receipts (completed orders)', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000017', 'order', 'read', 'View one sales receipt (order) and its line items', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000018', 'user', 'update', 'Edit a user''s profile and account status', TRUE);
 
 
 INSERT INTO role (role_id, name, description, is_managed, organization_id, scope, created_at, updated_at) VALUES ('40000000-0000-0000-0000-000000000003', 'Org Admin', 'Full administrative access', TRUE, NULL, 'ORGANIZATION', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
@@ -105,6 +108,13 @@ INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000004');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000015');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000015');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000016');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000017');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000016');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000017');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000016');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000017');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000018');
 
 
 INSERT INTO membership (membership_id, user_id, scope, organization_id, store_id, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('50000000-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'ORGANIZATION', '11111111-1111-1111-1111-111111111111', NULL, TRUE, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', FALSE, NULL);
@@ -133,3 +143,23 @@ INSERT INTO offering_feature (offering_id, feature_id) VALUES ('60000000-0000-00
 
 
 INSERT INTO subscription (subscription_id, organization_id, offering_id, status, trial_ends_at, current_period_end, created_at, ended_at) VALUES ('80000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '60000000-0000-0000-0000-000000000001', 'ACTIVE', NULL, '2026-08-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL);
+
+
+-- sales_order: completed sales rung up at Downtown (the receipts the Receipts tab lists). Mirrors
+-- src/__mocks__/orders.json in gekkosuite-ui so the demo-mode UI and this seed data agree.
+INSERT INTO sales_order (order_id, store_id, organization_id, order_number, store_customer_id, sold_by_user_id, status, payment_method, subtotal, discount_total, tax_total, total, created_at) VALUES ('d0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '1042', 'b0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'COMPLETED', 'CARD', 36.50, 0, 2.92, 39.42, '2026-07-26T14:32:00Z');
+INSERT INTO sales_order (order_id, store_id, organization_id, order_number, store_customer_id, sold_by_user_id, status, payment_method, subtotal, discount_total, tax_total, total, created_at) VALUES ('d0000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '1041', 'b0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000003', 'COMPLETED', 'CASH', 22.00, 0, 1.76, 23.76, '2026-07-25T11:18:00Z');
+INSERT INTO sales_order (order_id, store_id, organization_id, order_number, store_customer_id, sold_by_user_id, status, payment_method, subtotal, discount_total, tax_total, total, created_at) VALUES ('d0000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '1040', NULL, '10000000-0000-0000-0000-000000000003', 'COMPLETED', 'CARD', 22.00, 0, 1.76, 23.76, '2026-07-24T09:55:00Z');
+INSERT INTO sales_order (order_id, store_id, organization_id, order_number, store_customer_id, sold_by_user_id, status, payment_method, subtotal, discount_total, tax_total, total, created_at) VALUES ('d0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '1039', 'b0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'COMPLETED', 'CARD', 59.99, 0, 4.80, 64.79, '2026-07-21T16:04:00Z');
+INSERT INTO sales_order (order_id, store_id, organization_id, order_number, store_customer_id, sold_by_user_id, status, payment_method, subtotal, discount_total, tax_total, total, created_at) VALUES ('d0000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '1038', 'b0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000003', 'COMPLETED', 'CASH', 42.75, 0, 3.42, 46.17, '2026-07-19T10:47:00Z');
+
+
+-- sales_order_product: line items for each receipt above.
+INSERT INTO sales_order_product (order_id, store_product_id, quantity, unit_price) VALUES ('d0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 1, 24.00);
+INSERT INTO sales_order_product (order_id, store_product_id, quantity, unit_price) VALUES ('d0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', 1, 12.50);
+INSERT INTO sales_order_product (order_id, store_product_id, quantity, unit_price) VALUES ('d0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000008', 1, 22.00);
+INSERT INTO sales_order_product (order_id, store_product_id, quantity, unit_price) VALUES ('d0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000006', 4, 3.25);
+INSERT INTO sales_order_product (order_id, store_product_id, quantity, unit_price) VALUES ('d0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000007', 2, 4.50);
+INSERT INTO sales_order_product (order_id, store_product_id, quantity, unit_price) VALUES ('d0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000010', 1, 59.99);
+INSERT INTO sales_order_product (order_id, store_product_id, quantity, unit_price) VALUES ('d0000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000009', 5, 3.75);
+INSERT INTO sales_order_product (order_id, store_product_id, quantity, unit_price) VALUES ('d0000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 1, 24.00);
