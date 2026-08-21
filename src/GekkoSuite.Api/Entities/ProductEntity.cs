@@ -26,6 +26,9 @@ public class ProductEntity
     /// <summary>Free-text grouping for browsing/filtering; null if unset.</summary>
     public string? Category { get; set; }
 
+    /// <summary>Free-text brand/manufacturer; null if unset.</summary>
+    public string? Brand { get; set; }
+
     /// <summary>This store's selling price (never shared across stores).</summary>
     public decimal Price { get; set; }
 

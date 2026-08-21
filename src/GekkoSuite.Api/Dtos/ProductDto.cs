@@ -25,6 +25,9 @@ public class ProductDto
     /// <summary>Free-text grouping for browsing/filtering; null if unset.</summary>
     public string? Category { get; set; }
 
+    /// <summary>Free-text brand/manufacturer; null if unset.</summary>
+    public string? Brand { get; set; }
+
     /// <summary>This store's selling price (never shared across stores).</summary>
     public decimal Price { get; set; }
 
@@ -63,6 +66,7 @@ public class ProductDto
             Sku = productEntity.Sku,
             Barcode = productEntity.Barcode,
             Category = productEntity.Category,
+            Brand = productEntity.Brand,
             Price = productEntity.Price,
             Cost = productEntity.Cost,
             Stock = productEntity.Stock,

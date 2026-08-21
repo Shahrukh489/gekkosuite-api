@@ -73,6 +73,7 @@ INSERT INTO permission (permission_id, resource, action, description, is_elevate
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000017', 'order', 'read', 'View one sales receipt (order) and its line items', FALSE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000018', 'user', 'update', 'Edit a user''s profile and account status', TRUE);
 INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000019', 'customer', 'create', 'Add a customer at a store', FALSE);
+INSERT INTO permission (permission_id, resource, action, description, is_elevated) VALUES ('30000000-0000-0000-0000-000000000020', 'product', 'create', 'Add a product at a store', FALSE);
 
 
 INSERT INTO role (role_id, name, description, is_managed, organization_id, scope, created_at, updated_at) VALUES ('40000000-0000-0000-0000-000000000003', 'Org Admin', 'Full administrative access', TRUE, NULL, 'ORGANIZATION', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
@@ -120,6 +121,11 @@ INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000019');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000019');
 INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000018');
+-- product:create — Manager and Org Admin, same holders as product:edit (Cashier sells, doesn't manage the catalog).
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000020');
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000020');
+-- product:edit was previously granted to Manager only — Org Admin's org-wide reach should include it too.
+INSERT INTO role_permission (role_id, permission_id) VALUES ('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000005');
 
 
 INSERT INTO membership (membership_id, user_id, scope, organization_id, store_id, is_active, created_at, updated_at, is_deleted, deleted_at) VALUES ('50000000-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'ORGANIZATION', '11111111-1111-1111-1111-111111111111', NULL, TRUE, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', FALSE, NULL);

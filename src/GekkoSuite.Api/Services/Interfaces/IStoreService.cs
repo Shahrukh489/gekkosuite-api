@@ -35,6 +35,16 @@ public interface IStoreService
     Task<List<ProductDto>> GetStoreProductsAsync(Guid organizationId, Guid storeId);
 
     /// <summary>
+    /// Creates a product at the given store.
+    /// </summary>
+    Task<ProductDto> CreateStoreProductAsync(Guid organizationId, Guid storeId, CreateProductRequest request);
+
+    /// <summary>
+    /// Updates the given fields on a live product at the given store.
+    /// </summary>
+    Task<ProductDto?> UpdateStoreProductAsync(Guid organizationId, Guid storeId, Guid productId, UpdateProductRequest request);
+
+    /// <summary>
     /// Lists the customers at the given store — the store's own roster with contact details.
     /// </summary>
     Task<List<CustomerDto>> GetStoreCustomersAsync(Guid organizationId, Guid storeId);

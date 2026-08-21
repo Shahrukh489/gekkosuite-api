@@ -68,6 +68,18 @@ public class StoreService : IStoreService
     }
 
     /// <inheritdoc />
+    public async Task<ProductDto> CreateStoreProductAsync(Guid organizationId, Guid storeId, CreateProductRequest request)
+    {
+        return await _productService.CreateProductAsync(organizationId, storeId, request);
+    }
+
+    /// <inheritdoc />
+    public async Task<ProductDto?> UpdateStoreProductAsync(Guid organizationId, Guid storeId, Guid productId, UpdateProductRequest request)
+    {
+        return await _productService.UpdateProductAsync(organizationId, storeId, productId, request);
+    }
+
+    /// <inheritdoc />
     public async Task<List<CustomerDto>> GetStoreCustomersAsync(Guid organizationId, Guid storeId)
     {
         return await _customerService.GetStoreCustomersAsync(organizationId, storeId);

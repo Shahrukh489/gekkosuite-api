@@ -198,6 +198,71 @@ public class StoreController : BaseController
     }
 
     /// <summary>
+    /// Creates a product at a store the caller belongs to. There is no dual-write to a shared, org-wide
+    /// product identity — that toggle (organization.allow_share_products) doesn't exist in the schema
+    /// yet (see docs/product.md), so this always writes store_product only.
+    /// </summary>
+    [HttpPost("{" + Constants.STORE_ID + "}/products")]
+    [EndpointName("CreateStoreProduct")]
+    [HasPermission(MembershipScope.STORE, "product:create")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<ProductDto>> CreateStoreProductAsync(Guid storeId, CreateProductRequest request)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            ProductDto product = await _storeService.CreateStoreProductAsync(organizationId, storeId, request);
+
+            return Ok(product);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
+    /// Updates the given fields on a live product at a store the caller belongs to (unset fields are
+    /// left unchanged).
+    /// </summary>
+    [HttpPatch("{" + Constants.STORE_ID + "}/products/{productId}")]
+    [EndpointName("UpdateStoreProduct")]
+    [HasPermission(MembershipScope.STORE, "product:edit")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<ProductDto>> UpdateStoreProductAsync(Guid storeId, Guid productId, UpdateProductRequest request)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            ProductDto? product = await _storeService.UpdateStoreProductAsync(organizationId, storeId, productId, request);
+            if (product is null)
+            {
+                return NotFound(new { message = "Product not found." });
+            }
+
+            return Ok(product);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
     /// Lists the customers at a store — the store's own roster with contact details.
     /// The store must belong to the caller's org.
     /// </summary>
