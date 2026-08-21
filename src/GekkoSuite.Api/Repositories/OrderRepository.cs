@@ -144,4 +144,55 @@ public class OrderRepository : BaseRepository, IOrderRepository
             lineUnitPrices = dto.Lines.Select(line => line.UnitPrice).ToArray(),
         });
     }
+
+    /// <inheritdoc />
+    public Task<DashboardSummaryEntity> GetStoreDashboardSummaryAsync(Guid organizationId, Guid storeId)
+    {
+        const string sql = """
+            WITH todays_orders AS (
+                -- "Today" is the DB session's calendar day (UTC) — the schema has no per-store
+                -- timezone yet, so this is the simplest correct boundary until one exists.
+                SELECT o.order_id, o.total, COALESCE(SUM(op.quantity), 0) AS item_count
+                FROM sales_order o
+                LEFT JOIN sales_order_product op ON op.order_id = o.order_id
+                WHERE o.store_id = @storeId
+                  AND o.organization_id = @organizationId
+                  AND o.status = 'COMPLETED'
+                  AND o.created_at >= date_trunc('day', now())
+                GROUP BY o.order_id, o.total
+            ),
+            recent_sales AS (
+                -- Not limited to today: a store with no sales yet today would otherwise show an empty
+                -- feed instead of its actual recent activity.
+                SELECT o.order_id, o.order_number, o.total, o.created_at, COALESCE(SUM(op.quantity), 0) AS item_count
+                FROM sales_order o
+                LEFT JOIN sales_order_product op ON op.order_id = o.order_id
+                WHERE o.store_id = @storeId
+                  AND o.organization_id = @organizationId
+                  AND o.status = 'COMPLETED'
+                GROUP BY o.order_id, o.order_number, o.total, o.created_at
+                ORDER BY o.created_at DESC
+                LIMIT 5
+            )
+            SELECT
+                COALESCE((SELECT SUM(total) FROM todays_orders), 0) AS SalesToday,
+                (SELECT COUNT(*) FROM todays_orders) AS TransactionsToday,
+                COALESCE((SELECT SUM(item_count) FROM todays_orders), 0)::int AS ItemsSoldToday,
+                COALESCE(
+                    (SELECT json_agg(
+                                json_build_object(
+                                    'orderId', order_id,
+                                    'orderNumber', order_number,
+                                    'createdAt', created_at,
+                                    'itemCount', item_count,
+                                    'total', total
+                                ) ORDER BY created_at DESC
+                            )
+                     FROM recent_sales),
+                    '[]'
+                ) AS RecentSales
+            """;
+
+        return QuerySingleAsync<DashboardSummaryEntity>(organizationId, storeId, sql, new { storeId, organizationId });
+    }
 }

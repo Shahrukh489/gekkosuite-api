@@ -21,4 +21,10 @@ public interface IOrderService
     /// store, or a customer not at this store.
     /// </summary>
     Task<OrderDto> CreateOrderAsync(Guid organizationId, Guid storeId, Guid soldByUserId, CreateOrderRequest request);
+
+    /// <summary>
+    /// Summarizes the store's day for the dashboard: today's sales/transactions/items, plus its most
+    /// recent completed sales.
+    /// </summary>
+    Task<DashboardSummaryDto> GetStoreDashboardSummaryAsync(Guid organizationId, Guid storeId);
 }

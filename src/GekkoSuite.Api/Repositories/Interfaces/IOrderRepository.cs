@@ -21,4 +21,10 @@ public interface IOrderRepository
     /// can't leave a receipt with missing lines or untouched inventory.
     /// </summary>
     public Task CreateOrderAsync(CreateOrderDto dto, DateTimeOffset now);
+
+    /// <summary>
+    /// Summarizes the store's day: today's completed sales/transactions/items, plus its most recent
+    /// completed sales (not limited to today, so a slow day doesn't show an empty feed).
+    /// </summary>
+    public Task<DashboardSummaryEntity> GetStoreDashboardSummaryAsync(Guid organizationId, Guid storeId);
 }

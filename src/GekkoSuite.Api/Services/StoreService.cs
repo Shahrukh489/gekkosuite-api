@@ -96,4 +96,10 @@ public class StoreService : IStoreService
     {
         return await _customerService.CreateCustomerAsync(organizationId, storeId, request);
     }
+
+    /// <inheritdoc />
+    public async Task<DashboardSummaryDto> GetStoreDashboardSummaryAsync(Guid organizationId, Guid storeId)
+    {
+        return await _orderService.GetStoreDashboardSummaryAsync(organizationId, storeId);
+    }
 }

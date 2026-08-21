@@ -27,6 +27,7 @@ SqlMapper.AddTypeHandler(new JsonTypeHandler<List<PermissionEntity>>());
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<MembershipEntity>>());
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<SubscriptionEntity>>());
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<OrderProductEntity>>());
+SqlMapper.AddTypeHandler(new JsonTypeHandler<List<RecentSaleEntity>>());
 
 builder.Services.AddOpenApi();
 

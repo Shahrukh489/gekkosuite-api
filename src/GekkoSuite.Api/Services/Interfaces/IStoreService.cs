@@ -58,4 +58,9 @@ public interface IStoreService
     /// Creates a customer at the given store.
     /// </summary>
     Task<CustomerDto> CreateStoreCustomerAsync(Guid organizationId, Guid storeId, CreateCustomerRequest request);
+
+    /// <summary>
+    /// Summarizes the given store's day for its dashboard.
+    /// </summary>
+    Task<DashboardSummaryDto> GetStoreDashboardSummaryAsync(Guid organizationId, Guid storeId);
 }

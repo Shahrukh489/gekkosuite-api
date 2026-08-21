@@ -55,6 +55,34 @@ public class StoreController : BaseController
     }
 
     /// <summary>
+    /// Summarizes a store's day for its dashboard — today's sales/transactions/items and its most
+    /// recent completed sales, derived from the store's own sales_order rows.
+    /// </summary>
+    [HttpGet("{" + Constants.STORE_ID + "}/dashboard")]
+    [EndpointName("GetStoreDashboardSummary")]
+    [HasPermission(MembershipScope.STORE, "dashboard:read")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<DashboardSummaryDto>> GetStoreDashboardSummaryAsync(Guid storeId)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            DashboardSummaryDto summary = await _storeService.GetStoreDashboardSummaryAsync(organizationId, storeId);
+
+            return Ok(summary);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
     /// Lists the staff roster at a store — the users with a membership there, each with their store role(s).
     /// The store must belong to the caller's org.
     /// </summary>
