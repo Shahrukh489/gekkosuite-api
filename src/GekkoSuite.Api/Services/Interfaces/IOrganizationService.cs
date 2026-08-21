@@ -48,4 +48,9 @@ public interface IOrganizationService
     /// Lists the stores in the org (the org's roster).
     /// </summary>
     Task<List<StoreDto>> GetStoresAsync(Guid organizationId);
+
+    /// <summary>
+    /// Summarizes the org's day across every store for the org dashboard.
+    /// </summary>
+    Task<OrganizationDashboardSummaryDto> GetDashboardSummaryAsync(Guid organizationId);
 }

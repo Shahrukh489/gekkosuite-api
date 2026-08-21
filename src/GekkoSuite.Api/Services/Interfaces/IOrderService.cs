@@ -27,4 +27,9 @@ public interface IOrderService
     /// recent completed sales.
     /// </summary>
     Task<DashboardSummaryDto> GetStoreDashboardSummaryAsync(Guid organizationId, Guid storeId);
+
+    /// <summary>
+    /// Summarizes the org's day across every store for the org dashboard.
+    /// </summary>
+    Task<OrganizationDashboardSummaryDto> GetOrganizationDashboardSummaryAsync(Guid organizationId);
 }

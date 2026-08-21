@@ -27,4 +27,10 @@ public interface IOrderRepository
     /// completed sales (not limited to today, so a slow day doesn't show an empty feed).
     /// </summary>
     public Task<DashboardSummaryEntity> GetStoreDashboardSummaryAsync(Guid organizationId, Guid storeId);
+
+    /// <summary>
+    /// Summarizes the org's day across every store: today's completed sales/transactions/items, plus
+    /// the org's most recent completed sales (not limited to today), each naming its store.
+    /// </summary>
+    public Task<OrganizationDashboardSummaryEntity> GetOrganizationDashboardSummaryAsync(Guid organizationId);
 }

@@ -129,4 +129,11 @@ public class OrderService : IOrderService
         DashboardSummaryEntity summaryEntity = await _orderRepository.GetStoreDashboardSummaryAsync(organizationId, storeId);
         return DashboardSummaryDto.FromEntity(summaryEntity);
     }
+
+    /// <inheritdoc />
+    public async Task<OrganizationDashboardSummaryDto> GetOrganizationDashboardSummaryAsync(Guid organizationId)
+    {
+        OrganizationDashboardSummaryEntity summaryEntity = await _orderRepository.GetOrganizationDashboardSummaryAsync(organizationId);
+        return OrganizationDashboardSummaryDto.FromEntity(summaryEntity);
+    }
 }

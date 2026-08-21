@@ -11,13 +11,15 @@ public class OrganizationService : IOrganizationService
     private readonly IUserService _userService;
     private readonly IRoleService _roleService;
     private readonly IStoreService _storeService;
+    private readonly IOrderService _orderService;
 
-    public OrganizationService(IOrganizationRepository organizationRepository, IUserService userService, IRoleService roleService, IStoreService storeService)
+    public OrganizationService(IOrganizationRepository organizationRepository, IUserService userService, IRoleService roleService, IStoreService storeService, IOrderService orderService)
     {
         _organizationRepository = organizationRepository;
         _userService = userService;
         _roleService = roleService;
         _storeService = storeService;
+        _orderService = orderService;
     }
 
     /// <inheritdoc />
@@ -96,5 +98,11 @@ public class OrganizationService : IOrganizationService
     public async Task<List<StoreDto>> GetStoresAsync(Guid organizationId)
     {
         return await _storeService.GetStoresAsync(organizationId);
+    }
+
+    /// <inheritdoc />
+    public async Task<OrganizationDashboardSummaryDto> GetDashboardSummaryAsync(Guid organizationId)
+    {
+        return await _orderService.GetOrganizationDashboardSummaryAsync(organizationId);
     }
 }

@@ -55,6 +55,33 @@ public class OrganizationController : BaseController
     }
 
     /// <summary>
+    /// Summarizes the org's day across every store — today's sales/transactions/items and its most
+    /// recent completed sales, each naming its store, derived from every store's sales_order rows.
+    /// </summary>
+    [HttpGet("dashboard")]
+    [EndpointName("GetOrganizationDashboardSummary")]
+    [HasPermission(MembershipScope.ORGANIZATION, "dashboard:read")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<OrganizationDashboardSummaryDto>> GetDashboardSummaryAsync()
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            OrganizationDashboardSummaryDto summary = await _organizationService.GetDashboardSummaryAsync(organizationId);
+
+            return Ok(summary);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
     /// Lists the users in the caller's organization, each with their memberships (role names and details).
     /// </summary>
     [HttpGet("users")]
