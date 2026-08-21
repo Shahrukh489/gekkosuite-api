@@ -1,3 +1,5 @@
+using GekkoSuite.Api.Enums;
+
 namespace GekkoSuite.Api.Dtos;
 
 public class CreateUserDto
@@ -17,6 +19,12 @@ public class CreateUserDto
     /// <summary>The new user's login email (lowercased before this point).</summary>
     public string Email { get; set; } = string.Empty;
 
-    /// <summary>The ORGANIZATION-scoped role to grant on the new organization membership.</summary>
+    /// <summary>Where the new membership is placed: the whole ORGANIZATION, or one STORE.</summary>
+    public MembershipScope Scope { get; set; }
+
+    /// <summary>The store to place the membership at; set only when Scope is STORE.</summary>
+    public Guid? StoreId { get; set; }
+
+    /// <summary>The role to grant — must match Scope.</summary>
     public Guid RoleId { get; set; }
 }

@@ -48,9 +48,9 @@ public interface IUserRepository
     public Task<IEnumerable<MembershipEntity>> GetUserStoreMembershipsByStoreIdAsync(Guid organizationId, Guid userId, Guid storeId);
 
     /// <summary>
-    /// Creates a user_account plus its live ORGANIZATION membership and role assignment in one
-    /// statement, so a partial failure can't leave a login with no membership. Throws ConflictException
-    /// if the email is already taken.
+    /// Creates a user_account plus its live membership (ORGANIZATION or STORE, per dto.Scope) and role
+    /// assignment in one statement, so a partial failure can't leave a login with no membership. Throws
+    /// ConflictException if the email is already taken.
     /// </summary>
     public Task CreateUserAsync(CreateUserDto dto, Guid userId, string passwordHash, Guid membershipId, Guid assignmentId, DateTimeOffset now);
 

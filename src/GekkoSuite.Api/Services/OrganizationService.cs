@@ -54,6 +54,8 @@ public class OrganizationService : IOrganizationService
             FirstName = request.FirstName,
             LastName = request.LastName,
             Email = request.Email,
+            Scope = request.Scope ?? MembershipScope.ORGANIZATION,
+            StoreId = request.StoreId,
             RoleId = request.RoleId ?? Guid.Empty,
         };
 

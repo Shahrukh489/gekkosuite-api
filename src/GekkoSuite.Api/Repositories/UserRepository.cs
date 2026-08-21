@@ -282,7 +282,7 @@ public class UserRepository : BaseRepository, IUserRepository
                     is_active, created_at, updated_at, is_deleted
                 )
                 VALUES (
-                    @membershipId, @userId, 'ORGANIZATION'::scope, @organizationId, NULL,
+                    @membershipId, @userId, @scope::scope, @organizationId, @storeId,
                     TRUE, @now, @now, FALSE
                 )
             )
@@ -307,6 +307,8 @@ public class UserRepository : BaseRepository, IUserRepository
                 membershipId,
                 assignmentId,
                 roleId = dto.RoleId,
+                scope = dto.Scope.ToString(),
+                storeId = dto.StoreId,
             });
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)

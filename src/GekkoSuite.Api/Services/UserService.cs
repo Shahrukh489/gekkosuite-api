@@ -11,11 +11,15 @@ public class UserService : IUserService
 {
     private readonly IUserRepository _userRepository;
     private readonly IRoleService _roleService;
+    private readonly IStoreRepository _storeRepository;
 
-    public UserService(IUserRepository userRepository, IRoleService roleService)
+    // IStoreRepository, not IStoreService — StoreService itself depends on IUserService, so depending on
+    // IStoreService here would be a circular dependency. The repository has no such dependency.
+    public UserService(IUserRepository userRepository, IRoleService roleService, IStoreRepository storeRepository)
     {
         _userRepository = userRepository;
         _roleService = roleService;
+        _storeRepository = storeRepository;
     }
 
     /// <inheritdoc />
@@ -144,16 +148,36 @@ public class UserService : IUserService
 
         if (dto.RoleId == Guid.Empty)
         {
-            throw new BadRequestException("A role is required to create an organization user.");
+            throw new BadRequestException("A role is required to create a user.");
         }
 
-        // The role must be one this org can assign (managed, or its own custom role) AND ORGANIZATION
-        // scoped — a STORE role here would put an org-level membership under a role meant for a store
-        // seat (see auth.md's scope-match rule).
-        RoleDto? role = await _roleService.GetRoleByIdAsync(dto.OrganizationId, dto.RoleId, MembershipScope.ORGANIZATION);
+        // Placing a STORE membership is still an org action — done from the org Users screen, picking a
+        // place — not something a store user does for themselves (see api.md: "a store user manages
+        // neither users nor access"). This endpoint stays ORGANIZATION-only unless the caller asks for STORE.
+        if (dto.Scope == MembershipScope.STORE)
+        {
+            if (dto.StoreId is null || dto.StoreId == Guid.Empty)
+            {
+                throw new BadRequestException("A store is required to create a store user.");
+            }
+
+            if (await _storeRepository.GetStoreByIdAsync(dto.OrganizationId, dto.StoreId.Value) is null)
+            {
+                throw new BadRequestException("The selected store does not belong to this organization.");
+            }
+        }
+        else if (dto.StoreId is not null)
+        {
+            throw new BadRequestException("A store can only be set when creating a store user.");
+        }
+
+        // The role must be one this org can assign (managed, or its own custom role) AND scoped to match
+        // the membership being created — a STORE role on an org membership (or vice versa) would give the
+        // wrong reach (see auth.md's scope-match rule).
+        RoleDto? role = await _roleService.GetRoleByIdAsync(dto.OrganizationId, dto.RoleId, dto.Scope);
         if (role is null)
         {
-            throw new BadRequestException("The selected role is not a valid organization role for this organization.");
+            throw new BadRequestException($"The selected role is not a valid {dto.Scope} role for this organization.");
         }
 
         var userId = Guid.NewGuid();
@@ -173,6 +197,8 @@ public class UserService : IUserService
             FirstName = firstName,
             LastName = lastName,
             Email = email,
+            Scope = dto.Scope,
+            StoreId = dto.StoreId,
             RoleId = dto.RoleId,
         };
 
