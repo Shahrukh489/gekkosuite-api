@@ -20,6 +20,15 @@ public class UpdateProductRequest
     /// <summary>New brand; unset leaves the current value.</summary>
     public string? Brand { get; set; }
 
+    /// <summary>New value along the group's first dimension (e.g. "Vanilla"); unset leaves the current value. Only meaningful on a grouped variant.</summary>
+    public string? VariantOptionOneValue { get; set; }
+
+    /// <summary>New value along the group's second dimension; unset leaves the current value. Only meaningful on a grouped variant.</summary>
+    public string? VariantOptionTwoValue { get; set; }
+
+    /// <summary>New value along the group's third dimension; unset leaves the current value. Only meaningful on a grouped variant.</summary>
+    public string? VariantOptionThreeValue { get; set; }
+
     /// <summary>New selling price; unset leaves the current value.</summary>
     public decimal? Price { get; set; }
 

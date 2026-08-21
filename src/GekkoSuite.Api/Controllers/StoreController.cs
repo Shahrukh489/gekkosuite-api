@@ -263,6 +263,40 @@ public class StoreController : BaseController
     }
 
     /// <summary>
+    /// Updates the given fields on a live product group (variant family) at a store the caller belongs
+    /// to (unset fields are left unchanged). Reuses product:edit — a group is never created or deleted
+    /// on its own, only renamed alongside the products it already owns.
+    /// </summary>
+    [HttpPatch("{" + Constants.STORE_ID + "}/product-groups/{groupId}")]
+    [EndpointName("UpdateStoreProductGroup")]
+    [HasPermission(MembershipScope.STORE, "product:edit")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<ProductGroupSummaryDto>> UpdateStoreProductGroupAsync(Guid storeId, Guid groupId, UpdateProductGroupRequest request)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            ProductGroupSummaryDto? group = await _storeService.UpdateStoreProductGroupAsync(organizationId, storeId, groupId, request);
+            if (group is null)
+            {
+                return NotFound(new { message = "Product group not found." });
+            }
+
+            return Ok(group);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
     /// Lists the customers at a store — the store's own roster with contact details.
     /// The store must belong to the caller's org.
     /// </summary>

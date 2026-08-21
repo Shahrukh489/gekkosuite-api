@@ -8,10 +8,10 @@ public class CreateProductDto
     /// <summary>The store this product is being added at.</summary>
     public Guid StoreId { get; set; }
 
-    /// <summary>The product's display name.</summary>
-    public string Name { get; set; } = string.Empty;
+    /// <summary>The product's display name; null when this row is a variant (see <see cref="GroupId"/> / <see cref="NewGroup"/>).</summary>
+    public string? Name { get; set; }
 
-    /// <summary>Optional human description.</summary>
+    /// <summary>Optional human description; null when this row is a variant.</summary>
     public string? Description { get; set; }
 
     /// <summary>This store's own product code; optional.</summary>
@@ -20,11 +20,26 @@ public class CreateProductDto
     /// <summary>Manufacturer barcode; optional.</summary>
     public string? Barcode { get; set; }
 
-    /// <summary>Free-text grouping; optional.</summary>
+    /// <summary>Free-text grouping; null when this row is a variant.</summary>
     public string? Category { get; set; }
 
-    /// <summary>Free-text brand/manufacturer; optional.</summary>
+    /// <summary>Free-text brand/manufacturer; null when this row is a variant.</summary>
     public string? Brand { get; set; }
+
+    /// <summary>Adds this product as a new variant into an existing group. Mutually exclusive with <see cref="NewGroup"/>.</summary>
+    public Guid? GroupId { get; set; }
+
+    /// <summary>Creates a new product family and this variant together, atomically. Mutually exclusive with <see cref="GroupId"/>.</summary>
+    public CreateProductGroupDto? NewGroup { get; set; }
+
+    /// <summary>This variant's own value along the group's first dimension; only meaningful when grouped.</summary>
+    public string? VariantOptionOneValue { get; set; }
+
+    /// <summary>This variant's own value along the group's second dimension; only meaningful when grouped.</summary>
+    public string? VariantOptionTwoValue { get; set; }
+
+    /// <summary>This variant's own value along the group's third dimension; only meaningful when grouped.</summary>
+    public string? VariantOptionThreeValue { get; set; }
 
     /// <summary>This store's selling price.</summary>
     public decimal Price { get; set; }

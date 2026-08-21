@@ -1,18 +1,21 @@
 # Product schema
 
-A product lives in two tables:
+A product lives across up to three tables:
 
 | Table | Written | Scope |
 |---|---|---|
 | `store_product` | Always, on every product create | One store, its own stock, price, and cost |
+| `store_product_group` | Only when the product has variants (see [Variants](#variants)) | One store, groups a family of `store_product` rows |
 | `product` | Only when `organization.allow_share_products` is on (off by default) | Org-wide, one shared identity, no stock/price/cost |
 
 `store_product` never needs a `product` row to function. Every field a till or a storefront needs
-(name, category, brand, variant options) lives directly on `store_product`. The shared `product` table
-only exists to let an org recognize "the same item" across multiple stores; stock, price, and cost
-always stay per-store regardless of sharing (`CLAUDE.md`).
+(name, category, brand) lives directly on `store_product`, or on its `store_product_group` when the
+product has variants. The shared `product` table only exists to let an org recognize "the same item"
+across multiple stores; stock, price, and cost always stay per-store regardless of sharing (`CLAUDE.md`).
+Sharing and variant grouping are independent of each other — see [Variants](#variants) for why.
 
-Migrated in `tools/GekkoSuite.Database/Migrations/1_0_0.sql`.
+Migrated in `tools/GekkoSuite.Database/Migrations/1_0_0.sql`; `store_product_group` and
+`store_product.group_id` were added in `1_0_4.sql`.
 
 
 ## `store_product` — the store's own copy (always written)
@@ -23,13 +26,14 @@ Migrated in `tools/GekkoSuite.Database/Migrations/1_0_0.sql`.
 | `store_id` | UUID | Yes | FK → `store` |
 | `organization_id` | UUID | Yes | FK → `organization` (tenant stamp, for RLS) |
 | `product_id` | UUID | No | FK → `product`; set only when sharing is on |
-| `name` | VARCHAR(256) | Yes | Display name |
-| `description` | VARCHAR(1024) | No | |
+| `group_id` | UUID | No | FK → `store_product_group`; set only when this row is one variant in a family — see [Variants](#variants) |
+| `name` | VARCHAR(256) | See note | Display name. Required when `group_id` is NULL; must be NULL when `group_id` is set — the group owns naming for grouped variants |
+| `description` | VARCHAR(1024) | No | Same NULL-when-grouped rule as `name` |
 | `sku` | VARCHAR(64) | No | This store's own product code. Unique per store |
 | `barcode` | VARCHAR(64) | No | Manufacturer UPC/EAN — what a barcode scan looks up, not `sku`. Unique per store |
-| `category` | VARCHAR(128) | No | Free text, e.g. `Beverages` |
-| `brand` | VARCHAR(128) | No | Free text, e.g. `Lavazza` |
-| `variant_option_{one,two,three}_name` / `_value` | VARCHAR | No | Up to 3 variant dimensions, e.g. `Flavor` / `Vanilla` — see [Variants](#variants) |
+| `category` | VARCHAR(128) | No | Free text, e.g. `Beverages`. Same NULL-when-grouped rule as `name` |
+| `brand` | VARCHAR(128) | No | Free text, e.g. `Lavazza`. Same NULL-when-grouped rule as `name` |
+| `variant_option_{one,two,three}_value` | VARCHAR | No | This variant's value along each dimension, e.g. `Vanilla`. The dimension *names* (e.g. `Flavor`) live once on `store_product_group`, not repeated per row — see [Variants](#variants) |
 | `price` | NUMERIC | Yes | This store's selling price |
 | `cost` | NUMERIC | No | What this store paid per unit — margin reporting, never shown at checkout |
 | `stock` | INTEGER | Yes | Units on hand at this store. Can go negative (oversold/backorder) — never add a `>= 0` check |
@@ -46,6 +50,48 @@ Migrated in `tools/GekkoSuite.Database/Migrations/1_0_0.sql`.
 - Unique on `(store_id, sku)`, where SKU is set and the row is not deleted
 - Unique on `(store_id, barcode)`, where barcode is set and the row is not deleted
 - `product_id`, where set
+- `group_id`, where set
+
+**Invariant:** `CHECK ((group_id IS NULL) = (name IS NOT NULL))` (constraint
+`store_product_group_name_xor`) — a row either stands alone and owns its own name, or belongs to a
+group and defers naming to it. Never both, never neither.
+
+
+## `store_product_group` — the variant parent
+
+Groups a family of `store_product` rows that are really "the same product" sold in different variants
+(flavor, size, color, ...). Store-scoped, matching the rest of the catalog's default-isolated model —
+each store manages its own groups, the same way it manages its own `store_product` rows.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `group_id` | UUID | PK | |
+| `store_id` | UUID | Yes | FK → `store` |
+| `organization_id` | UUID | Yes | FK → `organization` (tenant stamp, for RLS) |
+| `name` | VARCHAR(256) | Yes | The product's display name — owned here, once, instead of on every variant row |
+| `description` | VARCHAR(1024) | No | |
+| `category` | VARCHAR(128) | No | Free text, e.g. `Beverages` |
+| `brand` | VARCHAR(128) | No | Free text, e.g. `Lavazza` |
+| `variant_option_{one,two,three}_name` | VARCHAR | No | Up to 3 variant dimension *names* this product varies along, e.g. `Flavor`. Defined once per group; each `store_product` variant supplies the matching `_value` |
+| `created_at` / `updated_at` | TIMESTAMPTZ | Yes | |
+| `is_deleted` / `deleted_at` | BOOLEAN / TIMESTAMPTZ | Yes / No | Soft-delete |
+
+**Indexes:** `store_id`.
+
+**A group is never itself sellable.** It has no `price`, `sku`, `stock`, or tax fields — those stay on
+the `store_product` variant rows, exactly like the shared `product` table today. `sales_order_product`
+and every other line-item table keep referencing `store_product` only; nothing downstream of a sale
+changes.
+
+**Lifecycle rules:**
+- A group is only ever created together with its first variant, in the same transaction — there is no
+  "create an empty group" action. This mirrors the same lesson already learned from the shared `product`
+  table's known linking gap (see below): a grouping concept that can exist without anything grouped
+  invites orphaned, meaningless records.
+- Deleting or deactivating the last live variant in a group does **not** cascade-delete the group. The
+  group persists, empty, until someone explicitly removes it or adds a new variant to it. No automatic
+  cleanup — consistent with the rest of the schema, which never auto-cascades soft-deletes across an
+  optional FK.
 
 
 ## `product` — the shared, org-wide identity (written only when sharing is on)
@@ -58,7 +104,7 @@ Migrated in `tools/GekkoSuite.Database/Migrations/1_0_0.sql`.
 | `description` | VARCHAR(1024) | No | |
 | `category` | VARCHAR(128) | No | |
 | `brand` | VARCHAR(128) | No | |
-| `variant_option_{one,two,three}_name` / `_value` | VARCHAR | No | Mirrors `store_product`'s variant fields |
+| `variant_option_{one,two,three}_value` | VARCHAR | No | Mirrors `store_product`'s per-variant value fields — dimension *names* live on `store_product_group`, not here |
 | `created_at` / `updated_at` | TIMESTAMPTZ | Yes | |
 | `is_deleted` / `deleted_at` | BOOLEAN / TIMESTAMPTZ | Yes / No | Soft-delete |
 
@@ -107,24 +153,50 @@ has the same root cause.
 
 ## Variants
 
-There's no separate variant table. Each variant is its own complete `store_product` row, grouped only by
-matching `name` — no foreign key, no parent row. Example (`local/mock_data.sql`):
+A real parent/child relationship, via `store_product_group` (above). `store_product.group_id` is a
+structural FK, not a string match — a row's *type* (standalone product vs. one variant in a family) is
+unambiguous from its data, instead of being inferred from whether its `name` happens to match another
+row's.
 
-| `name` | `sku` | `variant_option_one_name` | `variant_option_one_value` | `stock` |
-|---|---|---|---|---|
-| Flavored Syrup 750ml | SYRUP-VAN | Flavor | Vanilla | 24 |
-| Flavored Syrup 750ml | SYRUP-CAR | Flavor | Caramel | 18 |
-| Flavored Syrup 750ml | SYRUP-HAZ | Flavor | Hazelnut | 0 |
+```mermaid
+flowchart LR
+    G[("store_product_group<br/>Flavored Syrup 750ml<br/>variant_option_one_name = Flavor")]
+    V1["store_product<br/>SYRUP-VAN · Vanilla · stock 24"]
+    V2["store_product<br/>SYRUP-CAR · Caramel · stock 18"]
+    V3["store_product<br/>SYRUP-HAZ · Hazelnut · stock 0"]
 
-- The UI clusters `store_product` rows sharing a `name` into one card with an option picker. Three slots
-  (`_one`, `_two`, `_three`) cover products that vary along more than one dimension, such as flavor and
-  size together.
-- Renaming a product means updating every variant row's `name` individually — no single row owns "the
-  product name."
-- Each variant sells out, goes inactive, or changes price independently, since they're full rows and not
-  child lines. Hazelnut hitting `stock = 0` above doesn't touch Vanilla or Caramel.
-- If sharing is on, each variant row links to its own `product_id` independently. Grouping stays a
-  `store_product`-level, name-matching operation regardless of whether sharing is on.
+    V1 -->|group_id| G
+    V2 -->|group_id| G
+    V3 -->|group_id| G
+```
+
+| Group: `name` | Variant: `sku` | `variant_option_one_value` | `stock` |
+|---|---|---|---|
+| Flavored Syrup 750ml | SYRUP-VAN | Vanilla | 24 |
+| Flavored Syrup 750ml | SYRUP-CAR | Caramel | 18 |
+| Flavored Syrup 750ml | SYRUP-HAZ | Hazelnut | 0 |
+
+- The product list clusters variant rows by their shared `group_id` under one header row (family name,
+  variant count), each variant shown indented with its own sku/price/stock/status. The create flow (v1)
+  only exposes the first dimension slot; `_two`/`_three` exist in the schema for products that vary
+  along more than one axis (flavor and size together) but aren't wired into the UI yet.
+- Renaming the product is a single update, on the group — fixes the flat-table version's problem where
+  no row owned "the product name."
+- Each variant still sells out, goes inactive, or changes price independently — they're full
+  `store_product` rows, not child line items. Hazelnut hitting `stock = 0` above doesn't touch Vanilla or
+  Caramel.
+- Grouping is orthogonal to sharing. If sharing is on, each variant row still links to its own
+  `product_id` independently of its `group_id` — one axis says "this store's rows are the same product
+  across stores," the other says "these rows in *this* store are variants of each other." Conflating them
+  was the flaw in an earlier version of this design (`product` would have had to double as the variant
+  parent, but it's already written per-variant-row when sharing is on, not once per family).
+
+**Creating a variant** (`POST /stores/{storeId}/products`): either `groupId` (add to an existing family —
+validated to belong to this store, `BadRequestException` otherwise) or `newGroup` (create the family and
+this first variant together, atomically, in one statement — see the lifecycle rule above) may be set, not
+both; `name`/`description`/`category`/`brand` must be omitted whenever either is set, since the group owns
+those. **Renaming a family** goes through the separate `PATCH /stores/{storeId}/product-groups/{groupId}`
+endpoint (`product:edit`), never through the product endpoint.
 
 
 ## What else `store_product` connects to
@@ -134,6 +206,7 @@ matching `name` — no foreign key, no parent row. Example (`local/mock_data.sql
 | `organization` | `store_product.organization_id` / `product.organization_id` — tenant boundary |
 | `store` | `store_product.store_id` — the one store that owns this row |
 | `product` | `store_product.product_id` — optional shared identity, see above |
+| `store_product_group` | `store_product.group_id` — optional variant parent, see [Variants](#variants) |
 | `supplier` | Not wired up yet — `supplier_id` is planned on both tables but deferred until `supplier` itself is migrated. See Known limitations |
 | Sales, purchases, returns | Not referenced directly from `store_product` — they reference it, and drive `stock` up or down. See below |
 
@@ -179,3 +252,7 @@ is already wrong, and the negative number is the signal that a recount is overdu
 - `supplier_id` isn't wired up. Planned as a real FK on both tables once `supplier` is migrated;
   today there's no supplier link at all.
 - Sharing can't match an existing shared product — see "Known gap" above.
+- No way to change a group's variant dimension *names* once it has variants, move a variant to a
+  different group, or delete/merge a group — all deliberately deferred, not built.
+- The create-product UI only exposes the first of the three variant dimension slots; a product varying
+  along two axes at once (e.g. flavor and size) needs the other two set directly through the API for now.

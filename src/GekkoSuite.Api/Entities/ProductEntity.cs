@@ -29,6 +29,39 @@ public class ProductEntity
     /// <summary>Free-text brand/manufacturer; null if unset.</summary>
     public string? Brand { get; set; }
 
+    /// <summary>The variant family this row belongs to; null if this is a standalone product.</summary>
+    public Guid? GroupId { get; set; }
+
+    /// <summary>This variant's own value along the group's first dimension, e.g. "Vanilla"; null if unset.</summary>
+    public string? VariantOptionOneValue { get; set; }
+
+    /// <summary>This variant's own value along the group's second dimension; null if unset.</summary>
+    public string? VariantOptionTwoValue { get; set; }
+
+    /// <summary>This variant's own value along the group's third dimension; null if unset.</summary>
+    public string? VariantOptionThreeValue { get; set; }
+
+    /// <summary>The group's name, when GroupId is set — used to build the nested group summary.</summary>
+    public string? GroupName { get; set; }
+
+    /// <summary>The group's description, when GroupId is set.</summary>
+    public string? GroupDescription { get; set; }
+
+    /// <summary>The group's category, when GroupId is set.</summary>
+    public string? GroupCategory { get; set; }
+
+    /// <summary>The group's brand, when GroupId is set.</summary>
+    public string? GroupBrand { get; set; }
+
+    /// <summary>The group's first variant dimension name, when GroupId is set.</summary>
+    public string? GroupVariantOptionOneName { get; set; }
+
+    /// <summary>The group's second variant dimension name, when GroupId is set.</summary>
+    public string? GroupVariantOptionTwoName { get; set; }
+
+    /// <summary>The group's third variant dimension name, when GroupId is set.</summary>
+    public string? GroupVariantOptionThreeName { get; set; }
+
     /// <summary>This store's selling price (never shared across stores).</summary>
     public decimal Price { get; set; }
 

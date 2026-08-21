@@ -1,7 +1,8 @@
 -- ============================================================================
 -- Combined schema — merges tools/GekkoSuite.Database/Migrations/1_0_0.sql,
--- 1_0_3.sql, and triggers_todo into one file for pasting into Adminer/pgAdmin
--- in a single run, instead of running each migration file separately.
+-- 1_0_3.sql, 1_0_4.sql, and triggers_todo into one file for pasting into
+-- Adminer/pgAdmin in a single run, instead of running each migration file
+-- separately.
 --
 -- Deliberately placed in local/, NOT in the Migrations/ folder: that folder's
 -- *.sql files are embedded into GekkoSuite.Database and picked up by `dotnet
@@ -225,13 +226,11 @@ CREATE TABLE product (
     category                   VARCHAR(128),
     -- free-text brand/manufacturer, e.g. 'Lavazza'
     brand                      VARCHAR(128),
-    -- up to 3 variant dimensions (Flavor/Size/Color/...) that differentiate this item from sibling
-    -- store_products sharing the same name — see product.md "Variants: no new table needed"
-    variant_option_one_name    VARCHAR(64),
+    -- up to 3 variant dimension VALUES (Vanilla/Large/Red/...) mirroring the linked store_product's
+    -- per-variant values when sharing is on. Dimension NAMES live on store_product_group, not here
+    -- (product.md "Variants") — from 1_0_4.sql
     variant_option_one_value   VARCHAR(256),
-    variant_option_two_name    VARCHAR(64),
     variant_option_two_value   VARCHAR(256),
-    variant_option_three_name  VARCHAR(64),
     variant_option_three_value VARCHAR(256),
     -- when the shared record was created (stored UTC)
     created_at                 TIMESTAMPTZ NOT NULL,
@@ -243,6 +242,41 @@ CREATE TABLE product (
     deleted_at                 TIMESTAMPTZ
 );
 CREATE INDEX ON product (organization_id);
+
+-- A store_product_group: the variant parent, owning the shared identity (name, description, category,
+-- brand, variant dimension NAMES) once per product family. Never itself sellable — no price/sku/stock/
+-- tax fields. Store-scoped, matching the rest of the catalog's default-isolated model. From 1_0_4.sql
+-- (product.md "Variants").
+CREATE TABLE store_product_group (
+    -- group id
+    group_id                   UUID PRIMARY KEY,
+    -- the store this product family belongs to
+    store_id                   UUID NOT NULL REFERENCES store (store_id),
+    -- the owning org (the tenant boundary — stamped for RLS)
+    organization_id            UUID NOT NULL REFERENCES organization (organization_id),
+    -- product display name, owned here once instead of on every variant row
+    name                       VARCHAR(256) NOT NULL,
+    -- optional human description
+    description                VARCHAR(1024),
+    -- free-text grouping for browsing/filtering, e.g. 'Beverages'
+    category                   VARCHAR(128),
+    -- free-text brand/manufacturer, e.g. 'Lavazza'
+    brand                      VARCHAR(128),
+    -- up to 3 variant dimension NAMES this product varies along, e.g. 'Flavor'. Defined once per group;
+    -- each store_product variant supplies the matching VALUE.
+    variant_option_one_name    VARCHAR(64),
+    variant_option_two_name    VARCHAR(64),
+    variant_option_three_name  VARCHAR(64),
+    -- when the group was created (stored UTC)
+    created_at                 TIMESTAMPTZ NOT NULL,
+    -- when it was last modified (stored UTC)
+    updated_at                 TIMESTAMPTZ NOT NULL,
+    -- soft-delete flag; TRUE = removed but kept for history
+    is_deleted                 BOOLEAN NOT NULL,
+    -- when it was soft-deleted (stored UTC); NULL while active
+    deleted_at                 TIMESTAMPTZ
+);
+CREATE INDEX ON store_product_group (store_id);
 
 -- A store_product: a product as it exists AT ONE STORE — its own stock and price. Always written when a
 -- product is created (the shared org-level `product` is written only when share_products is on). Stock and
@@ -258,8 +292,12 @@ CREATE TABLE store_product (
     -- the shared org-wide identity this product is recognized as; set only when share_products is on
     -- (product.md — "How product and store_product connect")
     product_id       UUID REFERENCES product (product_id),
-    -- product display name, e.g. 'Espresso Beans 1kg'
-    name             VARCHAR(256) NOT NULL,
+    -- the variant family this row belongs to; NULL = standalone product (the common case). From
+    -- 1_0_4.sql (product.md "Variants")
+    group_id         UUID REFERENCES store_product_group (group_id),
+    -- product display name, e.g. 'Espresso Beans 1kg'. Required when group_id is NULL; must be NULL
+    -- when group_id is set — the group owns naming for grouped variants (CHECK below)
+    name             VARCHAR(256),
     -- optional human description
     description      VARCHAR(1024),
     -- stock-keeping unit; the store's own product code (optional, unique per store — index below)
@@ -271,13 +309,10 @@ CREATE TABLE store_product (
     category         VARCHAR(128),
     -- free-text brand/manufacturer, e.g. 'Lavazza'
     brand            VARCHAR(128),
-    -- up to 3 variant dimensions (Flavor/Size/Color/...) that differentiate this row from sibling
-    -- store_products sharing the same name — see product.md "Variants: no new table needed"
-    variant_option_one_name    VARCHAR(64),
+    -- this variant's own value along each dimension, e.g. 'Vanilla'. The dimension NAMES (e.g.
+    -- 'Flavor') live once on store_product_group, not repeated per row — see product.md "Variants"
     variant_option_one_value   VARCHAR(256),
-    variant_option_two_name    VARCHAR(64),
     variant_option_two_value   VARCHAR(256),
-    variant_option_three_name  VARCHAR(64),
     variant_option_three_value VARCHAR(256),
     -- this store's selling price (never shared across stores)
     price            NUMERIC NOT NULL,
@@ -303,7 +338,10 @@ CREATE TABLE store_product (
     -- soft-delete flag; TRUE = removed from this store but kept for history
     is_deleted       BOOLEAN NOT NULL,
     -- when it was soft-deleted (stored UTC); NULL while active
-    deleted_at       TIMESTAMPTZ
+    deleted_at       TIMESTAMPTZ,
+    -- a row either stands alone and owns its own name, or belongs to a group and defers naming to it.
+    -- Never both, never neither. From 1_0_4.sql
+    CONSTRAINT store_product_group_name_xor CHECK ((group_id IS NULL) = (name IS NOT NULL))
 );
 CREATE INDEX ON store_product (store_id);
 -- a SKU is unique within a store (only live products count); NULL SKUs are exempt
@@ -312,6 +350,8 @@ CREATE UNIQUE INDEX store_product_sku_per_store ON store_product (store_id, sku)
 CREATE UNIQUE INDEX store_product_barcode_per_store ON store_product (store_id, barcode) WHERE barcode IS NOT NULL AND NOT is_deleted;
 -- products linked to a shared org-wide identity (only rows where share_products created one)
 CREATE INDEX ON store_product (product_id) WHERE product_id IS NOT NULL;
+-- variants belonging to the same product family (only rows in a group)
+CREATE INDEX ON store_product (group_id) WHERE group_id IS NOT NULL;
 
 -- A store_customer: a customer as known AT ONE STORE. Always written when a customer is created (the
 -- shared org-level `customer` — recognized org-wide — is written in the same transaction; see

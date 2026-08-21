@@ -28,6 +28,21 @@ public class ProductDto
     /// <summary>Free-text brand/manufacturer; null if unset.</summary>
     public string? Brand { get; set; }
 
+    /// <summary>The variant family this row belongs to; null if this is a standalone product.</summary>
+    public Guid? GroupId { get; set; }
+
+    /// <summary>This variant's own value along the group's first dimension, e.g. "Vanilla"; null if unset.</summary>
+    public string? VariantOptionOneValue { get; set; }
+
+    /// <summary>This variant's own value along the group's second dimension; null if unset.</summary>
+    public string? VariantOptionTwoValue { get; set; }
+
+    /// <summary>This variant's own value along the group's third dimension; null if unset.</summary>
+    public string? VariantOptionThreeValue { get; set; }
+
+    /// <summary>The product family this variant belongs to; null if this is a standalone product.</summary>
+    public ProductGroupSummaryDto? Group { get; set; }
+
     /// <summary>This store's selling price (never shared across stores).</summary>
     public decimal Price { get; set; }
 
@@ -67,6 +82,21 @@ public class ProductDto
             Barcode = productEntity.Barcode,
             Category = productEntity.Category,
             Brand = productEntity.Brand,
+            GroupId = productEntity.GroupId,
+            VariantOptionOneValue = productEntity.VariantOptionOneValue,
+            VariantOptionTwoValue = productEntity.VariantOptionTwoValue,
+            VariantOptionThreeValue = productEntity.VariantOptionThreeValue,
+            Group = productEntity.GroupId is null ? null : new ProductGroupSummaryDto
+            {
+                GroupId = productEntity.GroupId.Value,
+                Name = productEntity.GroupName ?? string.Empty,
+                Description = productEntity.GroupDescription,
+                Category = productEntity.GroupCategory,
+                Brand = productEntity.GroupBrand,
+                VariantOptionOneName = productEntity.GroupVariantOptionOneName,
+                VariantOptionTwoName = productEntity.GroupVariantOptionTwoName,
+                VariantOptionThreeName = productEntity.GroupVariantOptionThreeName,
+            },
             Price = productEntity.Price,
             Cost = productEntity.Cost,
             Stock = productEntity.Stock,

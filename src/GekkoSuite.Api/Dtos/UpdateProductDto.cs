@@ -29,6 +29,15 @@ public class UpdateProductDto
     /// <summary>New brand; null leaves the current value.</summary>
     public string? Brand { get; set; }
 
+    /// <summary>New value along the group's first dimension; null leaves the current value.</summary>
+    public string? VariantOptionOneValue { get; set; }
+
+    /// <summary>New value along the group's second dimension; null leaves the current value.</summary>
+    public string? VariantOptionTwoValue { get; set; }
+
+    /// <summary>New value along the group's third dimension; null leaves the current value.</summary>
+    public string? VariantOptionThreeValue { get; set; }
+
     /// <summary>New selling price; null leaves the current value.</summary>
     public decimal? Price { get; set; }
 
