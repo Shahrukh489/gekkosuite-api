@@ -12,14 +12,16 @@ public class StoreService : IStoreService
     private readonly ICustomerService _customerService;
     private readonly IUserService _userService;
     private readonly IRoleService _roleService;
+    private readonly IOrderService _orderService;
 
-    public StoreService(IStoreRepository storeRepository, IProductService productService, ICustomerService customerService, IUserService userService, IRoleService roleService)
+    public StoreService(IStoreRepository storeRepository, IProductService productService, ICustomerService customerService, IUserService userService, IRoleService roleService, IOrderService orderService)
     {
         _storeRepository = storeRepository;
         _productService = productService;
         _customerService = customerService;
         _userService = userService;
         _roleService = roleService;
+        _orderService = orderService;
     }
 
     /// <inheritdoc />
@@ -69,5 +71,17 @@ public class StoreService : IStoreService
     public async Task<List<CustomerDto>> GetStoreCustomersAsync(Guid organizationId, Guid storeId)
     {
         return await _customerService.GetStoreCustomersAsync(organizationId, storeId);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<OrderDto>> GetStoreOrdersAsync(Guid organizationId, Guid storeId)
+    {
+        return await _orderService.GetStoreOrdersAsync(organizationId, storeId);
+    }
+
+    /// <inheritdoc />
+    public async Task<OrderDto?> GetStoreOrderByIdAsync(Guid organizationId, Guid storeId, Guid orderId)
+    {
+        return await _orderService.GetStoreOrderByIdAsync(organizationId, storeId, orderId);
     }
 }

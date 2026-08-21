@@ -26,6 +26,7 @@ builder.Logging.AddSimpleConsole(options =>
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<PermissionEntity>>());
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<MembershipEntity>>());
 SqlMapper.AddTypeHandler(new JsonTypeHandler<List<SubscriptionEntity>>());
+SqlMapper.AddTypeHandler(new JsonTypeHandler<List<OrderProductEntity>>());
 
 builder.Services.AddOpenApi();
 
@@ -78,6 +79,7 @@ builder.Services.AddSingleton<IProductRepository, ProductRepository>();
 builder.Services.AddSingleton<ICustomerRepository, CustomerRepository>();
 builder.Services.AddSingleton<IRoleRepository, RoleRepository>();
 builder.Services.AddSingleton<IOfferingRepository, OfferingRepository>();
+builder.Services.AddSingleton<IOrderRepository, OrderRepository>();
 builder.Services.AddSingleton<IOrganizationService, OrganizationService>();
 builder.Services.AddSingleton<IAuthService, AuthService>();
 builder.Services.AddSingleton<IUserService, UserService>();
@@ -86,6 +88,7 @@ builder.Services.AddSingleton<IProductService, ProductService>();
 builder.Services.AddSingleton<ICustomerService, CustomerService>();
 builder.Services.AddSingleton<IRoleService, RoleService>();
 builder.Services.AddSingleton<IOfferingService, OfferingService>();
+builder.Services.AddSingleton<IOrderService, OrderService>();
 
 // Enriches the authenticated principal with the caller's organizationId (resolved from the token's userId).
 builder.Services.AddSingleton<IClaimsTransformation, OrganizationClaimsTransformation>();

@@ -196,4 +196,63 @@ public class StoreController : BaseController
             return ErrorResponse(ex);
         }
     }
+
+    /// <summary>
+    /// Lists the sales orders (receipts) rung up at a store, newest first. The store must belong to the caller's org.
+    /// </summary>
+    [HttpGet("{" + Constants.STORE_ID + "}/orders")]
+    [EndpointName("GetStoreOrders")]
+    [HasPermission(MembershipScope.STORE, "order:list")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<List<OrderDto>>> GetStoreOrdersAsync(Guid storeId)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            List<OrderDto> orders = await _storeService.GetStoreOrdersAsync(organizationId, storeId);
+
+            return Ok(orders);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
+
+    /// <summary>
+    /// Returns one sales order (receipt) and its line items, at a store the caller belongs to.
+    /// The store must belong to the caller's org.
+    /// </summary>
+    [HttpGet("{" + Constants.STORE_ID + "}/orders/{orderId}")]
+    [EndpointName("GetStoreOrderById")]
+    [HasPermission(MembershipScope.STORE, "order:read")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<OrderDto>> GetStoreOrderByIdAsync(Guid storeId, Guid orderId)
+    {
+        try
+        {
+            var organizationId = User.GetOrganizationId();
+
+            OrderDto? order = await _storeService.GetStoreOrderByIdAsync(organizationId, storeId, orderId);
+            if (order is null)
+            {
+                return NotFound(new { message = "Order not found." });
+            }
+
+            return Ok(order);
+        }
+        catch (Exception ex)
+        {
+            return ErrorResponse(ex);
+        }
+    }
 }
